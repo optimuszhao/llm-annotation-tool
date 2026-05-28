@@ -1,25 +1,23 @@
-# LLM 标注工具 · 完整业务 PRD
+# LLM 标注工具 · 业务 PRD
 
-> **文档版本**：v3.0 · 2026-05-28  
-> **当前状态**：高保真静态原型已完成，后端开发未开始  
-> **接手须知**：本文档是唯一权威来源，读完即可独立继续开发，无需参考其他文档
+> **文档版本**：v4.0 · 2026-05-28  
+> **定位**：功能需求 + 数据模型 + API 规格，供后端开发与产品对齐使用  
+> **注**：前端静态原型已完成，见 `prototype/`，本文档不再描述前端实现细节
 
 ---
 
 ## 目录
 
-1. [项目定位](#1-项目定位)  
-2. [技术栈 & 仓库结构](#2-技术栈--仓库结构)  
-3. [当前完成状态](#3-当前完成状态)  
-4. [菜单 & 页面总览](#4-菜单--页面总览)  
-5. [核心数据对象](#5-核心数据对象)  
-6. [详细功能规格](#6-详细功能规格)  
-7. [UserHooks 规范](#7-userhooks-规范)  
-8. [后端 API 规格](#8-后端-api-规格)  
-9. [加载动效规范](#9-加载动效规范)  
-10. [TP/TN/FP/FN 指标逻辑](#10-tptnfpfn-指标逻辑)  
-11. [前后端对接改造要点](#11-前后端对接改造要点)  
-12. [术语表](#12-术语表)
+1. [项目定位](#1-项目定位)
+2. [技术栈概览](#2-技术栈概览)
+3. [菜单 & 页面总览](#3-菜单--页面总览)
+4. [数据集字段规范](#4-数据集字段规范)
+5. [核心数据对象](#5-核心数据对象)
+6. [详细功能规格](#6-详细功能规格)
+7. [UserHooks 规范](#7-userhooks-规范)
+8. [后端 API 规格](#8-后端-api-规格)
+9. [TP/TN/FP/FN 指标逻辑](#9-tptnfpfn-指标逻辑)
+10. [术语表](#10-术语表)
 
 ---
 
@@ -28,92 +26,36 @@
 **LLM 标注工具**是一个面向大模型开发者的**本地化数据标注 + Prompt 评测闭环系统**。
 
 核心工作流：
+
 ```
-导入 Excel → 配置 Prompt → 选数据集 + 选方案 → 跑批标注
-→ 看 14 项指标 → 错例加入错题集 → 改 Prompt → 再跑 → 提升准确率
+导入 Excel/CSV/JSON
+  → 配置字段映射（指定人工答案列、Prompt 引用列等）
+  → 选数据集 + 选标注方案（含一组有序 Prompt）
+  → 跑批标注（并发调用大模型）
+  → 查看 TP/TN/FP/FN 及准确率等 5 项指标
+  → 错例加入错题集 → 改进 Prompt → 再跑 → 提升准确率
 ```
 
 关键设计原则：
+
 - **纯本地运行**：后端 Python + SQLite，不依赖任何外部云服务
-- **用户只写一个文件**：`user_hooks.py`，通过 `models` 字典注册大模型，3 个钩子方法扩展业务逻辑
-- **标注答案二值化**：人工答案和模型答案均为 **是/否**，以此计算 TP/TN/FP/FN
+- **用户只写一个文件**：`user_hooks.py`，注册大模型调用函数，3 个钩子方法扩展业务逻辑
+- **标注答案二值化**：人工答案和模型答案均为 **是 / 否**，以此计算 TP/TN/FP/FN
 
 ---
 
-## 2. 技术栈 & 仓库结构
+## 2. 技术栈概览
 
-### 2.1 技术选型
+| 层 | 技术 |
+|---|---|
+| 前端 | 纯 HTML + Tailwind CSS（本地 vendor）+ 原生 JS，无框架无构建 |
+| 后端 | Python 3.10+ · FastAPI |
+| 数据库 | SQLite（单文件，`backend/data/annotation.db`） |
+| 任务调度 | Python threading + queue（多并发标注，无需 Celery） |
+| 进度推送 | Server-Sent Events (SSE) |
 
-| 层 | 技术 | 说明 |
-|---|---|---|
-| 前端 | 纯 HTML + Tailwind CSS (本地 vendor) + 原生 JS | 无框架，无构建，直接运行 |
-| 后端 | Python 3.10+ · FastAPI | REST API |
-| 数据库 | SQLite (单文件) | `backend/data/annotation.db` |
-| 任务调度 | Python threading + queue | 多并发标注，不依赖 Celery |
-| 字体/样式 | 已下载到 `prototype/assets/vendor/` | 完全离线，内网可用 |
+后端启动：
 
-### 2.2 仓库结构
-
-```
-llm-annotation-tool/
-├── prototype/                        # 静态前端原型(已完成)
-│   ├── index.html                    # 入口,重定向到 datasets.html
-│   ├── pages/                        # 6 个菜单页面
-│   │   ├── datasets.html             # 数据集管理
-│   │   ├── workbench.html            # 标注工作台(含 3 Tab)
-│   │   ├── prompts.html              # Prompt 管理
-│   │   ├── knowledge.html            # 知识管理
-│   │   ├── error-sets.html           # 错题集管理
-│   │   └── models.html               # 模型管理(只读)
-│   ├── partials/
-│   │   └── sidebar.html              # 共享侧边栏,各页 fetch 注入
-│   └── assets/
-│       ├── shared.css                # 公共样式(徽章/抽屉/Modal/Toast/JSON高亮)
-│       ├── shared.js                 # 公共工具(NX 命名空间)
-│       ├── vendor/
-│       │   ├── tailwind.js           # Tailwind CDN 本地备份(398K)
-│       │   └── fonts/                # Inter + JetBrains Mono 字体文件
-│       ├── mock/                     # Mock 数据(9 个模块,接后端时逐一替换)
-│       │   ├── scenes.js
-│       │   ├── datasets.js
-│       │   ├── prompts.js
-│       │   ├── schemes.js
-│       │   ├── models.js
-│       │   ├── knowledge.js
-│       │   ├── error-sets.js
-│       │   ├── tasks.js
-│       │   └── annotation-data.js
-│       └── pages/                    # 各页专属 JS(逻辑完整,含所有交互)
-│           ├── datasets.js
-│           ├── workbench.js          # 最大,含全部工作台逻辑
-│           ├── prompts.js
-│           ├── knowledge.js
-│           ├── error-sets.js
-│           └── models.js
-│
-├── backend/                          # 后端(待开发)
-│   ├── main.py                       # FastAPI 入口
-│   ├── user_hooks.py                 # 用户唯一需要修改的文件
-│   ├── models/                       # SQLAlchemy ORM 模型
-│   ├── routers/                      # API 路由(datasets/prompts/schemes/tasks...)
-│   ├── services/                     # 业务逻辑(annotation_engine/prompt_renderer...)
-│   └── data/                         # SQLite 数据库文件目录
-│
-├── prd-business.md                   # 本文档
-├── nexus-design-system.md            # 视觉设计系统(色彩/字体/组件规范)
-└── README.md                         # 运行说明
-```
-
-### 2.3 启动方式
-
-**前端原型（已可用，内网离线运行）**：
-```bash
-cd prototype
-python3 -m http.server 8080
-# 浏览器访问 http://localhost:8080
-```
-
-**后端（待开发）**：
 ```bash
 cd backend
 pip install fastapi uvicorn sqlalchemy openpyxl
@@ -122,63 +64,122 @@ uvicorn main:app --reload --port 8000
 
 ---
 
-## 3. 当前完成状态
+## 3. 菜单 & 页面总览
 
-### ✅ 已完成（前端静态原型）
+侧边栏 6 个扁平菜单：
 
-| 页面/功能 | 关键文件 | 状态 |
+| # | 菜单名 | 核心功能 |
 |---|---|---|
-| 共享侧边栏 | `partials/sidebar.html` | ✅ |
-| 公共样式/工具 | `shared.css` + `shared.js` | ✅ |
-| 数据集管理（列表+映射弹窗） | `pages/datasets.html` + `assets/pages/datasets.js` | ✅ |
-| 标注工作台（指标条+表格+3Tab） | `pages/workbench.html` + `assets/pages/workbench.js` | ✅ |
-| 开始标注配置弹窗 | 同上 | ✅ |
-| 行详情侧边抽屉（当前+历史） | 同上 | ✅ |
-| 加入错题本弹窗 | 同上 | ✅ |
-| 分析弹窗（mock UserHooks.analyze） | 同上 | ✅ |
-| Prompt 管理（列表+编辑+变量侧栏） | `pages/prompts.html` + `assets/pages/prompts.js` | ✅ |
-| 知识管理 | `pages/knowledge.html` + `assets/pages/knowledge.js` | ✅ |
-| 错题集管理（双栏+合并） | `pages/error-sets.html` + `assets/pages/error-sets.js` | ✅ |
-| 模型管理（只读+测试连通） | `pages/models.html` + `assets/pages/models.js` | ✅ |
-| Mock 数据 9 个模块 | `assets/mock/*.js` | ✅ |
-| 本地化依赖（无 CDN） | `assets/vendor/` | ✅ |
+| 1 | 数据集管理 | 导入 Excel/CSV/JSON，配置字段映射 |
+| 2 | 标注工作台 ⭐ | 核心页，含标注、方案管理、任务面板三个子 Tab |
+| 3 | Prompt 管理 | Prompt 卡片库，两种处理模式（自动/自定义） |
+| 4 | 知识管理 | 知识片段库，可在 Prompt 中引用 |
+| 5 | 错题集管理 | 错例集合管理，双栏布局 |
+| 6 | 模型管理 | 只读，数据来源 `UserHooks.models` |
 
-### ❌ 待开发（后端）
-
-| 功能模块 | 优先级 | 说明 |
-|---|---|---|
-| FastAPI 应用骨架 | P0 | main.py，CORS，路由注册 |
-| SQLite 数据库模型 | P0 | 所有 ORM 实体（见第5节） |
-| Excel 导入解析 | P0 | openpyxl 解析，字段映射保存 |
-| UserHooks 动态加载 | P0 | 动态 import user_hooks.py，读取 models 字典 |
-| Prompt 渲染引擎 | P0 | 占位符替换（auto模式）/ 调用 init_prompt（custom模式） |
-| 标注任务调度（多并发） | P0 | threading + queue，行级状态实时更新 |
-| SSE 任务进度推送 | P0 | 前端 EventSource 订阅实时进度 |
-| 指标实时计算 API | P1 | 基于任务结果动态返回 14 项 |
-| 方案 CRUD | P1 | 含 Prompt 关联 |
-| 错题集 CRUD | P1 | 与标注结果行关联 |
-| 知识库 CRUD | P1 | 内容存储与检索 |
-| 数据导出（Excel/JSON） | P2 | 按当前视图导出 |
-| 翻译 API | P2 | 调用 UserHooks.translate |
+**场景（Scene）**：不是独立菜单，而是所有资源上的通用标签字段，用于筛选。示例值：`SPN`、`IPRAN`、`泰国`、`印尼`。
 
 ---
 
-## 4. 菜单 & 页面总览
+## 4. 数据集字段规范
 
-侧边栏 6 个扁平菜单（从上到下，`data-key` 值）：
+### 4.1 支持的文件格式
 
-| # | 菜单名 | `data-key` | 核心功能 |
-|---|---|---|---|
-| 1 | 数据集管理 | `datasets` | 导入/管理 Excel，配置字段映射 |
-| 2 | 标注工作台 ⭐ | `workbench` | 核心页，3个内部 Tab |
-| 3 | Prompt 管理 | `prompts` | Prompt 卡片库，两种处理模式 |
-| 4 | 知识管理 | `knowledge` | 知识片段库，可插入 Prompt |
-| 5 | 错题集管理 | `error-sets` | 错例集合管理，双栏布局 |
-| 6 | 模型管理 | `models` | 只读，来源 UserHooks.models |
+| 格式 | 说明 |
+|---|---|
+| Excel（`.xlsx`） | 第一行为表头，每行为一条数据记录 |
+| CSV（`.csv`） | 逗号分隔，第一行为表头，UTF-8 编码 |
+| JSON（`.json`） | 顶层为数组（`[{...}, {...}]`），每个对象的 key 即为列名 |
 
-**场景（Scene）**：不是顶级导航，而是所有资源上的**标签字段**，用于筛选过滤。  
-示例值：`SPN` / `IPRAN` / `泰国` / `印尼`  
-场景列表存储在 `assets/mock/scenes.js`（`NX.scenes`），后端开发时改为 API 读取。
+所有格式导入后均归一化为：**列名 + 行列表** 的内部表示。
+
+---
+
+### 4.2 标准字段说明
+
+实际数据集中的字段分为以下几类，字段名以实际 Excel 表头为准：
+
+#### A. 基础元信息字段（轻量，适合在表格中直接展示）
+
+| 字段示例 | 含义 | 特点 |
+|---|---|---|
+| `ID` | 数据记录唯一标识 | 纯文本，简短 |
+| `工单名称` | 工单的业务名称 | 纯文本，简短 |
+| `工单类型` | 工单分类标签 | 枚举值 |
+| `工单耗时` | 处理该工单花费的时间 | 数值或时间字符串 |
+| `COT名称` | 思维链/任务名称 | 纯文本，简短 |
+
+> 这类字段值较短，适合作为**表格默认显示列**。
+
+---
+
+#### B. 人工答案字段（Ground Truth）
+
+- **字段名由用户在字段映射中指定**，没有固定名称
+- **值必须为二值**：`是` 或 `否`（导入时自动校验）
+- 该列用于与模型答案对比，计算 TP/TN/FP/FN
+
+> 用户可将任意一列指定为人工答案列，系统会验证其值全为 `是` / `否`，否则提示映射错误。
+
+---
+
+#### C. 大型结构化字段（JSON 类）
+
+这类字段值为 JSON 字符串，体积大（单个字段可能有 **数千行**），不适合在表格中直接展示，应在行详情抽屉中展开查看。
+
+| 字段示例 | 含义 | 特点 |
+|---|---|---|
+| `API Order` | 一次接口调用的请求/响应记录 | JSON 字符串，中等大小 |
+| `API Part 1` ~ `API Part 7` | 7 个并行或串行 API 片段的数据 | 每个都是大 JSON，可能 **数千行** |
+| `Summary` | 汇总数据，对前述字段的结构化摘要 | 大 JSON |
+
+> **注意**：API Part 字段共有 7 个，且每个体积很大。系统需要能够优雅处理这类字段：
+> - 表格中显示截断预览（如前 80 字符 + `...`）
+> - 点击「详情」后在右侧抽屉中以 JSON 高亮格式完整展示
+> - 允许用户在字段映射中将这类字段添加到「Prompt 引用列」，在 Prompt 模板中通过 `{{API Part 1}}` 等方式引用
+
+---
+
+#### D. 大型文本字段
+
+| 字段示例 | 含义 | 特点 |
+|---|---|---|
+| `标注数据` | 人工或业务系统产出的文字描述 | 纯文本，**几百到上千字** |
+
+> 与 JSON 类字段类似，表格中只展示截断预览，详情中完整显示。
+
+---
+
+#### E. 其他大模型标注字段
+
+- 数据集中可能已经包含**其他大模型的标注结果**，字段名形如 `GPT4_标注`、`Claude_结果` 等（由用户数据决定）
+- 这类字段与本系统产出的 `[角色]_gtCol` 格式结果列并列存在，用户可在 Prompt 中引用作为参考
+- 在字段映射时，用户可将这类列加入「Prompt 引用列」供 Prompt 模板使用
+
+---
+
+### 4.3 字段映射配置
+
+导入数据集后，用户需要完成以下 4 项字段映射配置：
+
+| 配置项 | 说明 | 必填 |
+|---|---|---|
+| **GT 列（人工答案列）** | 选择一列作为 Ground Truth，值必须全为 `是`/`否` | ✅ |
+| **默认显示列** | 工作台表格默认展示的列（建议选基础元信息字段，避免大字段导致表格卡顿） | ✅ |
+| **Prompt 引用列** | 允许在 Prompt 模板中用 `{{列名}}` 引用的列 | ✅ |
+| **预测列（可选）** | 数据集自带的预测结果列（若已有其他模型的二值结果，可直接对比） | ❌ |
+
+---
+
+### 4.4 大字段的处理原则
+
+由于 API Part 类字段单个可能达到数千行，系统需遵循以下原则：
+
+1. **存储**：原始值完整存储在数据库中，不做截断
+2. **列表展示**：表格中显示前 **100 字符**，末尾加 `...`
+3. **详情展示**：行详情抽屉中完整渲染，JSON 字段做语法高亮
+4. **Prompt 引用**：当大字段被引用到 Prompt 时，后端直接将完整内容拼入 Prompt 字符串；如果 Prompt 过长超出模型限制，由用户在 `UserHooks.init_prompt()` 中自行处理截断逻辑
+5. **搜索**：全文搜索覆盖所有字段（包括大字段），但前端搜索仅在已加载的行中进行；大数据集建议后端做全文索引
 
 ---
 
@@ -189,18 +190,25 @@ uvicorn main:app --reload --port 8000
 ```typescript
 interface Dataset {
   id: string;               // "ds-1"
-  name: string;             // "客户反馈_2025Q1.xlsx"
+  name: string;             // "客户工单_2025Q1.xlsx"
   scene: string;            // "SPN"
   rowCount: number;
   colCount: number;
-  mappingDone: boolean;     // 是否完成字段映射
-  createdAt: string;        // "2025-04-12"
-  columns: string[];        // 原始列名列表（Excel 表头）
+  mappingDone: boolean;     // 是否完成字段映射，false 时不可用于标注
+  createdAt: string;
+  columns: string[];        // 原始列名列表（按导入顺序）
+  columnTypes: Record<string, 'basic' | 'json' | 'text' | 'gt' | 'llm'>;
+  // columnTypes 说明:
+  //   basic — 基础元信息字段（短文本）
+  //   json  — 值为 JSON 字符串的大字段（API Part / Summary 等）
+  //   text  — 大型纯文本字段（标注数据等）
+  //   gt    — 被指定为人工答案列（值为 是/否）
+  //   llm   — 其他大模型的标注结果列
   mapping: {
-    defaultCols: string[];  // 工作台表格默认显示列
-    refCols: string[];      // Prompt 模板中可用 {{列名}} 引用的列
-    gtCol: string;          // GT 列名（人工答案列，值为 "是"/"否"）
-    predCol: string;        // 预测列名（可选，导入时已有预测值）
+    gtCol: string;          // 人工答案列名（值为 "是"/"否"）
+    defaultCols: string[];  // 表格默认显示列（建议为 basic 类型字段）
+    refCols: string[];      // Prompt 模板中可 {{列名}} 引用的列
+    predCol?: string;       // 数据集自带的预测结果列（可选）
   } | null;
 }
 ```
@@ -209,7 +217,7 @@ interface Dataset {
 
 ```typescript
 interface Prompt {
-  id: string;               // "p-1"
+  id: string;
   name: string;             // "SPN 情感初审"
   role: string;             // "初审" — 标注结果列名为 "[初审]_gtCol"
   scene: string;
@@ -218,9 +226,9 @@ interface Prompt {
   // auto:   系统自动替换 {{变量}} 占位符
   // custom: 调用 UserHooks.init_prompt(template, row_data, knowledge, error_sets)
   template: string;         // Prompt 模板文本
-  outputAdvice: string;     // 输出格式建议（显示在编辑器底部）
-  knowledgeIds: string[];   // 引用的知识片段 ID
-  errorSetRefs: string[];   // 引用的错题集名称
+  outputAdvice: string;     // 输出格式建议（如 '{"thinking": "...", "情感分类": "是/否"}'）
+  knowledgeIds: string[];
+  errorSetRefs: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -230,11 +238,11 @@ interface Prompt {
 
 ```typescript
 interface Scheme {
-  id: string;               // "sc-1"
+  id: string;
   name: string;             // "双角色情感分类"
   scene: string;
   promptIds: string[];      // 有序 Prompt 列表，每个 Prompt 独立调用一次模型
-  concurrency: number;      // 并发数（1-32）
+  concurrency: number;      // 并发数（1–32）
   lastUsed: string;
 }
 ```
@@ -243,20 +251,20 @@ interface Scheme {
 
 ```typescript
 interface AnnotationRow {
-  id: string;               // "r-1000"
+  id: string;
   no: number;               // 序号（行号）
   datasetId: string;
-  data: Record<string, string>;          // 原始字段值 {"列名": "值"}
+  data: Record<string, string>;           // 原始字段值，{"列名": "值"}
   results: Record<string, string | null>;
-  // results 示例:
+  // results 结构示例（方案含 初审 + 质检 两个 Prompt 角色，GT 列名为"情感分类"）:
   // {
   //   "[初审]_情感分类": "是",
-  //   "[初审]_thinking": "用户表达正向...",
+  //   "[初审]_thinking": "用户表达了不满...",
   //   "[质检]_情感分类": "是",
-  //   "[质检]_thinking": "复核一致..."
+  //   "[质检]_thinking": "与初审结论一致..."
   // }
   status: 'pending' | 'running' | 'done' | 'failed' | 'partial';
-  lastTaskAt: string;
+  lastTaskAt: string | null;
 }
 ```
 
@@ -269,11 +277,11 @@ interface AnnotationTask {
   datasetName: string;
   schemeId: string;
   schemeName: string;
-  rowIds: string[];         // 本次任务涉及的行 ID
+  rowIds: string[];
   rowCount: number;
   status: 'running' | 'done' | 'failed' | 'cancelled';
   progress: { done: number; total: number };
-  accuracy: number;         // 任务完成后计算
+  accuracy: number | null;  // 任务完成后计算，null 表示无法计算（无 GT 对照）
   triggeredAt: string;
   finishedAt: string | null;
   errMsg: string | null;
@@ -284,29 +292,29 @@ interface AnnotationTask {
 
 ```typescript
 interface Knowledge {
-  id: string;               // "kb-1"
+  id: string;
   name: string;             // "SPN 故障处理规范"
   scene: string;
-  content: string;          // 知识文本内容
+  content: string;
   tags: string[];
   createdAt: string;
 }
 ```
 
-### 5.7 ErrorEntry / ErrorSet
+### 5.7 ErrorEntry / ErrorSet（错题与错题集）
 
 ```typescript
 interface ErrorEntry {
-  id: string;               // "err-ab123"
+  id: string;
   scene: string;
-  setId: string | null;     // null = 散错题（未归集）
-  sourceRowId: string;      // 来源标注行 ID
+  setId: string | null;     // null = 散错题（未归入任何集合）
+  sourceRowId: string;
   createdAt: string;
-  content: Record<string, any>;  // 用户选择保存的字段快照
+  content: Record<string, any>;  // 用户选择保存的字段快照（列名 → 值）
 }
 
 interface ErrorSet {
-  id: string;               // "es-001"
+  id: string;
   name: string;             // Prompt 中通过 {{错题集.名称}} 引用
   scene: string;
   description: string;
@@ -319,246 +327,149 @@ interface ErrorSet {
 
 ## 6. 详细功能规格
 
-### 6.1 数据集管理（`datasets.html`）
+### 6.1 数据集管理
 
-**列表视图**
+**列表视图**：名称、场景、行数、列数、映射状态、创建时间、操作（编辑映射 · 去标注 · 删除）
 
-- 显示列：名称、场景徽章、行数、列数、映射状态、创建时间、操作
-- 操作列（直接显示文字，不用下拉）：**编辑映射** · **去标注**（跳转工作台）· **删除**
-- 顶部场景筛选下拉
+**导入流程**：
 
-**字段映射弹窗**（点击「编辑映射」打开）
-
-4 项配置：
-1. **默认显示列**：工作台表格默认展示的列（多选复选框）
-2. **GT 列**（人工答案列）：值必须为 `"是"/"否"` 的列，用于 TP/TN/FP/FN 计算
-3. **Prompt 引用列**：允许在 Prompt 模板中用 `{{列名}}` 引用的列
-4. **预测列**（可选）：数据集自带的预测结果列
-
-**Excel 导入流程**
-
-1. 点击「导入数据集」，拖拽或选择 `.xlsx` / `.csv`
-2. 后端解析列名，返回 `{ id, columns[], rowCount, colCount }`
+1. 选择文件（`.xlsx` / `.csv` / `.json`）
+2. 后端解析，返回 `{ id, columns[], rowCount, colCount }`
 3. 弹出字段映射弹窗
-4. 确认后保存，`mappingDone = true`，数据行写入 SQLite
+4. 用户完成 4 项映射配置（见 §4.3）后确认保存，`mappingDone = true`
 
-**合并数据集**
+**字段映射弹窗注意事项**：
 
-多选两个或以上数据集 → 「合并」按钮 → 输入合并后名称 → 生成新数据集
+- GT 列选择后，后端需验证该列的值是否全为 `是`/`否`，否则弹出警告（允许继续，但告知有脏数据）
+- 默认显示列建议引导用户选择 `basic` 类型字段，对 `json` 类字段给出提示（「该字段内容较大，可能影响表格加载速度」）
+- API Part 1–7 均可选入 Prompt 引用列
+
+**数据集合并**：多选两个及以上数据集 → 「合并」→ 输入名称 → 生成新数据集（列取并集，缺失列填空字符串）
 
 ---
 
-### 6.2 标注工作台（`workbench.html`）
+### 6.2 标注工作台
 
-#### Tab 1: 标注
+#### Tab 1：标注
 
-**指标条（单行）**
-
-14 项紧凑 chip，三组用竖分隔线分隔：
+**指标条**（单行，三组用竖分隔线分隔）：
 
 ```
-[总数 N] [已标注 N] [未标注 N] [进行中 N] [失败 N]  |  [TP N] [TN N] [FP N] [FN N]  |  准确率 N% 精确率 N% 召回率 N% F1 N% 特异度 N%
+总数 N · 已标注 N · 未标注 N · 进行中 N · 失败 N
+  |  TP N · TN N · FP N · FN N
+  |  准确率 N% · 精确率 N% · 召回率 N% · F1 N% · 特异度 N%
 ```
 
-- **数据统计组**（5项）和**混淆矩阵组**（4项）：可点击，过滤下方表格
-- **评测指标组**（5项）：只读展示
+- 前两组（数据统计 + 混淆矩阵）可点击，过滤下方表格
+- 第三组（评测指标）只读
 - 指标基于**当前选中数据集 + 方案 + 对照角色**实时计算
-- 实现：`workbench.js` → `renderMetricBar()` 函数
 
-**工具栏**
+**工具栏**（左：上下文选择；右：操作）：
 
-左侧控件（用于选择当前查看上下文）：
-- 数据集下拉（仅显示 `mappingDone=true` 的）
-- 方案下拉
-- 对照角色下拉（选哪个 Prompt 角色的结果与 GT 比较，决定混淆矩阵）
+| 控件 | 说明 |
+|---|---|
+| 数据集下拉 | 仅显示 `mappingDone=true` 的数据集 |
+| 方案下拉 | 全部方案 |
+| 对照角色下拉 | 当前方案中的 Prompt 角色列表，决定混淆矩阵计算用哪个角色的结果 |
+| 搜索框 | 150ms debounce，模糊匹配所有可见列 |
+| 导出 | 导出当前可见行 |
+| 开始标注 | 打开配置弹窗（不直接启动） |
 
-右侧控件：
-- 搜索框（150ms debounce）
-- 导出按钮（导出当前可见行）
-- **开始标注**按钮（打开配置弹窗，不直接启动）
+**开始标注弹窗**：
 
-**开始标注配置弹窗**（`start-modal`）
+- 展示「将标注 N 行」（N 来自外部已选中行；若无选中则为当前视图内未标注行数）
+- 方案卡片单选（展示：方案名、Prompt 角色数、场景、并发数）
+- 并发数输入（1–32）
+- 不再需要在弹窗里选数据集或选标注范围（范围在外部通过筛选/勾选确定）
 
-```
-数据集: [下拉，预填当前值]      方案: [下拉，预填当前值]
-并发数: [数字输入 1-32]
+**视图 Tab**：全部 · 未标注 · 已完成 · 失败 · 与 GT 不一致
 
-标注范围:
-○ 仅标注已选中行 (N 行)
-● 标注全部未标注行 (M 行)    ← 默认
-○ 标注全部行（含重新标注）
-
-                    [取消]  [▶ 开始标注]
-```
-
-点击「▶ 开始标注」后：后端创建任务，前端订阅 SSE，每行完成时更新状态和指标条。
-
-**视图 Tab**（工具栏下方一行）
-
-`全部` · `未标注` · `已完成` · `失败` · `与 GT 不一致`
-
-**表格**
-
-表头列顺序（固定规则）：
+**表格列顺序**（固定规则）：
 
 ```
-[复选框] [#序号] [状态] [数据集默认显示列...] [每个Prompt角色: 预测列 + thinking列...] [GT列] [操作列]
+[复选框] [#序号] [状态] [默认显示列...] [每个Prompt角色: 预测值 + thinking...] [GT列] [操作列]
 ```
 
-**操作列（最右，sticky 固定，不随横向滚动消失）**：
+**状态列显示逻辑**：
 
-直接显示（带颜色文字，无图标）：
-- `标注`（绿色 `text-emerald-600`）— 对单行发起标注
-- `详情`（灰色 `text-slate-500`）— 打开行详情抽屉
-- `分析`（紫色 `text-violet-500`）— 调用 UserHooks.analyze 弹窗展示
+| 行状态 | 显示内容 |
+|---|---|
+| `pending` | 灰色「未标注」徽章 |
+| `running` | Spinner + 「进行中」（amber 色） |
+| `done` + 有分类结果 | 直接显示 **TP**（绿）/ **TN**（蓝）/ **FP**（橙）/ **FN**（红）徽章 |
+| `done` + 无 GT 对照 | 绿色「已完成」徽章 |
+| `failed` | 红色「失败」徽章 |
 
-更多下拉（`···`，图标左对齐）：
-- 🕘 标注历史 → 打开抽屉并切换到「历史」Tab
-- ✎ 编辑行 → 行内编辑（待实现，暂 Toast 占位）
-- ➕ 加入错题本 → 将本行加入选中集，打开添加错题弹窗
-- ⬇ 导出行 → 下载单行 JSON
-- —（分隔线）
-- 🗑 删除（红色 danger 样式）
+**操作列**（sticky 固定在右侧，不随横向滚动消失）：
 
-**批量操作栏**（勾选行后从底部弹出）
+- 直接显示文字按钮：`标注`（绿）· `详情`（灰）· `分析`（紫）
+- `···` 更多菜单：标注历史 · 编辑行 · 加入错题本 · 导出行 · ——— · 删除（红）
 
-```
-已选 N 行  [取消]          [▶标注选中] [➕加入错题本] [⬇导出] [🗑删除]
-```
-
-**行详情侧边抽屉**（双击行或点「详情」，从右侧滑入，宽 560px）
+**行详情抽屉**（右侧滑入，宽 560px）：
 
 两个 Tab：
-- **当前结果**：
-  1. 原始字段（JSON 高亮）
-  2. 渲染后 Prompt（示例，取第一个 Prompt 角色）
-  3. 每个角色的模型返回（JSON 高亮）
-- **历史**：
-  该行在所有方案/任务下的标注记录时间轴，每条记录包含：任务ID · 时间 · 方案名 · 每个角色结果 · GT · 结论
+- **当前结果**：原始字段（JSON 高亮）· 渲染后 Prompt · 每个角色的模型返回（JSON 高亮）
+- **历史**：该行在所有任务下的标注记录时间轴
 
-抽屉右上角操作：复制全行 JSON · 导出 JSON · 翻译（调用 UserHooks.translate）· 关闭（Esc）
-
-**添加错题弹窗**（`add-error-modal`）
-
-1. 标题：已选 N 行
-2. 步骤①：选择要保存的列（多选 checkbox，默认勾选 GT列 + 对照角色预测列）
-3. 步骤②：实时预览（基于第一条选中行的 JSON）
-4. 确认保存 → 写入 `NX.errorEntries`（散错题）
+**添加错题弹窗**：选择要保存的列（多选）→ 实时预览（JSON）→ 确认写入错题库
 
 ---
 
-#### Tab 2: 方案管理
+#### Tab 2：方案管理
 
-列表列：名称 · 场景 · Prompt 角色（有序列表，用 `/` 分隔）· 并发 · 最近使用 · 操作
+列：名称 · 场景 · Prompt 角色列表 · 并发 · 最近使用 · 操作（▶ 标注 · 编辑 · 删除）
 
-操作：
-- `▶ 标注`（绿色）— 选中该方案，跳回标注 Tab 并打开开始标注弹窗
-- `编辑` — 打开编辑弹窗
-- `删除`
-
-**新建/编辑方案弹窗**：
-- 方案名称
-- 场景
-- 选择 Prompt（多选，有序，可拖拽排序 — 顺序影响结果列的展示顺序）
-- 并发数（1-32）
+**新建/编辑方案**：名称、场景、选择 Prompt（多选有序，可排序）、并发数
 
 ---
 
-#### Tab 3: 任务面板
+#### Tab 3：任务面板
 
-列表列：任务 ID（mono字体）· 触发时间 · 数据集 · 方案 · 行数 · 状态/进度 · 操作
+列：任务 ID · 触发时间 · 数据集 · 方案 · 行数 · 状态/进度 · 操作
 
-**状态列**：
-- 运行中：状态徽章 + 细进度条（`h-1.5`）+ 数字进度
-- 已完成：绿色徽章 + 准确率
-- 失败：红色徽章 + 错误信息
-- 已取消：灰色徽章
-
-**操作列**（文字按钮）：
-- 运行中 → `取消`
-- 失败 → `重跑`（重跑失败的行）
-- 其他 → `详情`
+**操作**：运行中 → `取消`；失败 → `重跑`（仅重跑失败的行）；其他 → `详情`
 
 ---
 
-### 6.3 Prompt 管理（`prompts.html`）
-
-**列表视图**
+### 6.3 Prompt 管理
 
 列：名称 · 角色 · 场景 · 处理模式 · 绑定模型 · 更新时间 · 操作
 
-操作：`编辑` · `复制` · `删除`
+**编辑 Prompt**（右侧宽抽屉）：
 
-**编辑 Prompt 侧边栏/弹窗**（右侧宽抽屉或全屏弹窗）
-
-左侧（主编辑区）：
-- 名称、角色（如「初审」「质检」）、场景
-- 绑定模型（来自 `UserHooks.models` 的 key 列表，后端 `/api/models` 读取）
-- **处理模式开关**：
-  - `自动`：系统自动将 `{{变量}}` 替换为真实值，无需写代码
-  - `自定义`：调用 `UserHooks.init_prompt()`，用户完全控制 Prompt 构建
-- Prompt 模板文本域（大文本区，等宽字体）
-- **输出建议**（联动 GT 列名自动生成）：  
-  `要求以 JSON 格式输出，示例: {"thinking": "推理过程", "gtCol名": "是/否"}`
-
-右侧（可用变量侧栏）：
-- **数据列**：当前数据集的 `refCols`，点击插入 `{{列名}}`
-- **知识库**：知识片段列表，点击插入 `{{知识库.片段名}}`
-- **错题集**：已命名错题集，点击插入 `{{错题集.集合名}}`
+- 左侧：名称、角色、场景、绑定模型、处理模式开关、Prompt 模板文本域、输出格式建议
+- 右侧变量侧栏：数据列（点击插入 `{{列名}}`）· 知识库 · 错题集
 
 ---
 
-### 6.4 知识管理（`knowledge.html`）
+### 6.4 知识管理
 
-**列表**：名称 · 场景 · 内容摘要（前 100 字符）· 标签 · 操作
+列：名称 · 场景 · 内容摘要（前 100 字符）· 标签 · 操作
 
-操作：编辑 · 删除
+新建/编辑：名称 · 场景 · 内容（大文本域）· 标签
 
-**新建/编辑**：名称 · 场景 · 内容（大文本域）· 标签（逗号分隔）
-
-> 知识片段在 Prompt 中通过 `{{知识库.片段名}}` 引用，后端渲染时将实际内容注入。
+> 在 Prompt 中通过 `{{知识库.片段名}}` 引用，后端渲染时将完整内容注入。
 
 ---
 
-### 6.5 错题集管理（`error-sets.html`）
+### 6.5 错题集管理
 
-**双栏布局（左窄右宽）**
+**双栏布局（左窄右宽）**：
 
-**左栏**：
-- 两组：已命名错题集（绿色图标）+ 散错题（未归集）
-- 散错题可勾选（复选框）
-- 顶部「合并所选为错题集」按钮（≥1条选中时激活）
-- 合并弹窗：输入集合名称 + 备注 → 确认 → 散错题 `setId` 更新
+- 左栏：已命名错题集列表 + 散错题列表；散错题可勾选，支持「合并为错题集」
+- 右栏：选中错题集时展示条目卡片；选中散错题时展示单条 JSON
 
-**右栏**：
-- 选中**错题集**：展示名称（可内联编辑）· 占位符 `{{错题集.名称}}` · 条目卡片列表  
-  卡片操作：编辑 · 移出集合 · 删除
-- 选中**散错题**：单条详情 JSON
-- 未选中：提示「在左侧选择」
-
-**导出**：选中错题集 → 「导出 JSON」→ 下载 `{name, entries}` 格式
+**导出**：选中错题集 → 导出 JSON（格式：`{ name, description, entries[] }`）
 
 ---
 
-### 6.6 模型管理（`models.html`）
+### 6.6 模型管理（只读）
 
-**只读页面**，数据来源：后端读取 `UserHooks.models` 字典
+数据来源：后端读取 `UserHooks.models` 字典
 
-列：模型 Key · 状态（🟢可调用 / 🔴抛异常 / ⚪未测试）· 最近调用 · 耗时(avg/P95) · 备注 · 测试连通
+列：模型 Key · 状态（可调用/抛异常/未测试）· 最近调用 · 耗时（avg/P95）· 测试连通
 
-**测试连通**按钮：调用 `/api/models/{key}/test`，模拟标注一次，更新状态和耗时
-
-**新增模型方式**（代码注册，不通过 UI）：
-```python
-# user_hooks.py
-self.models = {
-    "my-model": self._call_my_model,
-}
-def _call_my_model(self, prompt: str, role: str) -> str:
-    # 返回 JSON 字符串
-    return '{"thinking": "...", "情感分类": "是"}'
-```
-重启后端后，模型自动出现在 Prompt 绑定下拉中。
+新增模型通过修改 `user_hooks.py` 注册，重启后端自动出现。
 
 ---
 
@@ -571,19 +482,17 @@ from typing import Callable
 
 class UserHooks:
     def __init__(self):
-        # ── 模型注册区（key = 前端显示名，value = 调用函数）──
+        # ── 注册大模型（key = 前端显示名，value = 调用函数）──
         self.models: dict[str, Callable] = {
             "deepseek-local": self._call_deepseek,
             "qwen-local":     self._call_qwen,
-            # 在此添加更多模型
         }
 
     # ── 模型调用函数规范 ──
-    # 参数: prompt(已渲染的字符串), role(角色名)
-    # 返回: JSON 字符串，必须包含 gtCol 字段值("是"/"否") + 可选 "thinking"
+    # 参数: prompt（已渲染的完整字符串）, role（角色名）
+    # 返回: JSON 字符串，必须包含 GT 列名对应字段（值为 "是"/"否"）+ 可选 "thinking"
     def _call_deepseek(self, prompt: str, role: str) -> str:
-        # 调用本地或远程大模型
-        return '{"thinking": "推理过程", "情感分类": "是"}'
+        return '{"thinking": "推理过程...", "情感分类": "是"}'
 
     # ── 三个扩展钩子 ──
 
@@ -593,7 +502,7 @@ class UserHooks:
 
     def analyze(self, row_data: dict) -> dict:
         """前端「分析」按钮触发。
-        row_data: {"列名": "值", ...}
+        row_data: {"列名": "值", ...}（完整行数据，包含大字段）
         返回任意 dict，前端以 JSON 高亮格式展示。"""
         raise NotImplementedError
 
@@ -601,10 +510,14 @@ class UserHooks:
         self,
         prompt_template: str,
         row_data: dict,
-        knowledge: list[dict],            # [{"name": "...", "content": "..."}, ...]
-        error_sets: dict[str, list[dict]] # {"集合名": [{"列名": "值"}, ...], ...}
+        knowledge: list[dict],             # [{"name": "...", "content": "..."}, ...]
+        error_sets: dict[str, list[dict]]  # {"集合名": [{"列名": "值"}, ...]}
     ) -> str:
-        """processingMode='custom' 时调用，完全自定义 Prompt 构建。
+        """processingMode='custom' 时调用，完全自定义 Prompt 构建逻辑。
+        
+        注意：row_data 中包含 API Part 1–7、Summary 等大字段的完整内容。
+        若 Prompt 过长，需在此函数中自行截断或摘要处理。
+        
         返回最终发送给模型的 Prompt 字符串。"""
         raise NotImplementedError
 ```
@@ -612,43 +525,60 @@ class UserHooks:
 **Prompt 渲染流程（auto 模式）**：
 
 ```
-template  →  替换 {{列名}}（来自 row_data）
-          →  替换 {{知识库.名称}}（来自 knowledge content）
-          →  替换 {{错题集.名称}}（来自 error_set entries JSON）
-          →  发送给对应模型函数
+template
+  → 替换 {{列名}}              （来自 row_data，大字段完整注入）
+  → 替换 {{知识库.名称}}        （来自 knowledge[i].content）
+  → 替换 {{错题集.名称}}        （来自 error_set entries 序列化 JSON）
+  → 发送给对应模型函数
 ```
 
 **Prompt 渲染流程（custom 模式）**：
 
 ```
-template + row_data + knowledge + error_sets  →  init_prompt()  →  最终 Prompt  →  模型函数
+template + row_data + knowledge + error_sets → init_prompt() → 最终 Prompt → 模型函数
 ```
 
 ---
 
 ## 8. 后端 API 规格
 
-> 基础路径：`http://localhost:8000/api`  
-> 前端改造时，将 `assets/mock/*.js` 中的 `NX.xxx = [...]` 替换为 `await fetch('/api/...')` 即可
+> 基础路径：`http://localhost:8000/api`
 
 ### 8.1 数据集
 
-| Method | Path | Body/Params | 返回 |
-|--------|------|-------------|------|
+| Method | Path | Body / Params | 返回 |
+|--------|------|---------------|------|
 | GET | `/datasets` | `?scene=SPN` | `Dataset[]` |
-| POST | `/datasets/import` | FormData: `file` | `{id, columns[], rowCount, colCount}` |
+| POST | `/datasets/import` | FormData: `file` | `{id, columns[], columnTypes{}, rowCount, colCount}` |
 | PUT | `/datasets/{id}/mapping` | `{mapping: {...}}` | `Dataset` |
 | DELETE | `/datasets/{id}` | — | `{ok: true}` |
 | POST | `/datasets/merge` | `{ids[], name, scene}` | `Dataset` |
 
+**GT 列验证**（`PUT /datasets/{id}/mapping` 时）：
+
+后端校验 `mapping.gtCol` 对应列的所有值是否为 `是`/`否`，返回：
+
+```json
+{
+  "dataset": {...},
+  "gtValidation": {
+    "valid": false,
+    "invalidCount": 3,
+    "invalidSamples": ["可能", "N/A", ""]
+  }
+}
+```
+
 ### 8.2 标注行
 
-| Method | Path | Body/Params | 返回 |
-|--------|------|-------------|------|
-| GET | `/datasets/{id}/rows` | `?page=1&size=50&status=pending` | `{rows: AnnotationRow[], total: number}` |
+| Method | Path | Params | 返回 |
+|--------|------|--------|------|
+| GET | `/datasets/{id}/rows` | `?page=1&size=50&status=pending&q=关键词` | `{rows: AnnotationRow[], total: number}` |
 | GET | `/rows/{id}` | — | `AnnotationRow & {history: RowHistory[]}` |
 | PUT | `/rows/{id}` | `{data: {...}}` | `AnnotationRow` |
 | DELETE | `/rows/{id}` | — | `{ok: true}` |
+
+> `GET /rows/{id}` 返回完整行数据（含大字段），不做截断。
 
 ### 8.3 Prompt
 
@@ -675,36 +605,20 @@ template + row_data + knowledge + error_sets  →  init_prompt()  →  最终 Pr
 | POST | `/tasks` | `{datasetId, schemeId, rowIds[], concurrency}` | `AnnotationTask` |
 | GET | `/tasks` | `?status=running` | `AnnotationTask[]` |
 | GET | `/tasks/{id}` | — | `AnnotationTask` |
-| DELETE | `/tasks/{id}` | — | 取消任务 |
+| DELETE | `/tasks/{id}` | — | 取消任务，`{ok: true}` |
 | **GET** | **`/tasks/{id}/stream`** | — | **SSE 流** |
 
-**SSE 事件格式**（`/tasks/{id}/stream`）：
+**SSE 事件格式**：
 
-```javascript
-// 每行完成时：
+```
+// 每行完成：
 data: {"type":"row_done","rowId":"r-1000","status":"done","results":{"[初审]_情感分类":"是","[初审]_thinking":"..."}}
 
-// 每行失败时：
+// 每行失败：
 data: {"type":"row_failed","rowId":"r-1001","status":"failed","error":"timeout"}
 
-// 任务完成时：
+// 任务完成：
 data: {"type":"task_done","taskId":"tk-ab12","accuracy":0.856,"finishedAt":"2025-05-28T10:30:00"}
-```
-
-前端订阅示例：
-```javascript
-const es = new EventSource(`/api/tasks/${taskId}/stream`);
-es.onmessage = (e) => {
-  const event = JSON.parse(e.data);
-  if (event.type === 'row_done' || event.type === 'row_failed') {
-    const r = state.rows.find(x => x.id === event.rowId);
-    if (r) { Object.assign(r.results, event.results || {}); r.status = event.status; renderAll(); }
-  }
-  if (event.type === 'task_done') {
-    es.close();
-    NX.toast(`完成，准确率 ${(event.accuracy*100).toFixed(1)}%`, 'success');
-  }
-};
 ```
 
 ### 8.6 知识库
@@ -720,7 +634,7 @@ es.onmessage = (e) => {
 
 | Method | Path | Body | 返回 |
 |--------|------|------|------|
-| GET | `/error-entries` | `?setId=null`（散错题） | `ErrorEntry[]` |
+| GET | `/error-entries` | `?setId=` (空=散错题) | `ErrorEntry[]` |
 | POST | `/error-entries/batch` | `{entries: [{sourceRowId, content, scene}]}` | `ErrorEntry[]` |
 | PUT | `/error-entries/{id}` | `{content: {...}}` | `ErrorEntry` |
 | DELETE | `/error-entries/{id}` | — | `{ok: true}` |
@@ -740,201 +654,58 @@ es.onmessage = (e) => {
 
 | Method | Path | 返回 |
 |--------|------|------|
-| GET | `/scenes` | `string[]` — 从所有资源的 scene 字段自动聚合 |
+| GET | `/scenes` | `string[]`（从所有资源的 scene 字段自动聚合） |
 
 ---
 
-## 9. 加载动效规范
+## 9. TP/TN/FP/FN 指标逻辑
 
-### 9.1 行级 Loading（标注进行中）
+### 9.1 核心定义
 
-状态列：`<span class="spinner"></span> 进行中`（amber 色）  
-预测列：`<span class="spinner"></span>`（仅 spinner，无文字）  
-操作列：`标注` 文字变灰，`pointer-events: none`
-
-`spinner` CSS 已在 `shared.css` 定义：
-```css
-.spinner { border: 2px solid #e2e8f0; border-top-color: #22C55E; width:14px; height:14px; animation: spin 1s linear infinite; }
-```
-
-### 9.2 指标条实时刷新
-
-每次行状态变化（SSE 事件触发）后调用 `renderMetricBar()` 全量刷新指标条。不需要动画，数字变化本身即是反馈。
-
-### 9.3 任务进度条
-
-任务面板运行中任务：
-```html
-<div class="h-1.5 w-28 rounded-full bg-slate-100 overflow-hidden">
-  <div class="h-full bg-amber-400 transition-all duration-300" style="width: {pct}%"></div>
-</div>
-```
-
-### 9.4 骨架屏
-
-初始加载时（后端接口请求期间），用 `skeleton` class 占位：
-```css
-.skeleton { animation: skeleton-shimmer 1.2s ease-in-out infinite; background: linear-gradient(...); }
-```
-
-### 9.5 Toast 通知
-
-- 成功：深绿色背景（`toast--success`）
-- 错误：红色背景（`toast--error`）
-- 默认：深色背景
-- 持续时间：2500ms（可自定义）
-
----
-
-## 10. TP/TN/FP/FN 指标逻辑
-
-### 10.1 核心定义
-
-人工答案（GT，数据集 `gtCol` 列值）和模型答案（`[角色]_gtCol` 结果列值）均为二值：`"是"` 或 `"否"`。
+人工答案（GT，`mapping.gtCol` 列）和模型答案（`[角色]_gtCol` 结果列）均为二值：`"是"` 或 `"否"`。
 
 | 组合 | 分类 | 含义 |
 |------|------|------|
 | 模型=是 & 人工=是 | **TP**（真正例）| 模型正确预测为正 |
 | 模型=否 & 人工=否 | **TN**（真负例）| 模型正确预测为负 |
-| 模型=是 & 人工=否 | **FP**（假正例）| 模型误报（应为否却判是）|
-| 模型=否 & 人工=是 | **FN**（假负例）| 模型漏报（应为是却判否）|
+| 模型=是 & 人工=否 | **FP**（假正例）| 模型误报（应否却判是）|
+| 模型=否 & 人工=是 | **FN**（假负例）| 模型漏报（应是却判否）|
 
-### 10.2 五项评测指标
+### 9.2 五项评测指标
 
 ```
-准确率 Accuracy   = (TP + TN) / (TP + TN + FP + FN)
-精确率 Precision  = TP / (TP + FP)
-召回率 Recall     = TP / (TP + FN)
-F1               = 2 × Precision × Recall / (Precision + Recall)
+准确率 Accuracy    = (TP + TN) / (TP + TN + FP + FN)
+精确率 Precision   = TP / (TP + FP)
+召回率 Recall      = TP / (TP + FN)
+F1                = 2 × Precision × Recall / (Precision + Recall)
 特异度 Specificity = TN / (TN + FP)
 ```
 
 分母为 0 时显示 `0.0%`，不抛错。
 
-### 10.3 对照角色
-
-工具栏「对照角色」下拉：从当前方案的 Prompt 角色列表中选一个，用该角色的预测列与 GT 比较，决定混淆矩阵。
-
-方案有多个 Prompt 时（如初审 + 质检），用户可切换对照角色，指标条随之刷新。
-
-### 10.4 行分类规则
+### 9.3 计算规则
 
 - 只有 `status === 'done'` 的行参与混淆矩阵和评测指标计算
-- `pending / running / failed / partial` 行不参与（但参与数据统计组）
-
-### 10.5 前端实现（`workbench.js`）
-
-```javascript
-function classify(r) {
-  if (r.status !== 'done') return null;
-  const role  = state.contrastRole || '初审';
-  const gtCol = getCurrentDataset()?.mapping?.gtCol || '情感分类';
-  const pred  = r.results[`[${role}]_${gtCol}`];
-  const gt    = r.data[gtCol];
-  if (pred == null || gt == null) return null;
-  if (pred === '是' && gt === '是') return 'tp';
-  if (pred === '否' && gt === '否') return 'tn';
-  if (pred === '是' && gt === '否') return 'fp';
-  if (pred === '否' && gt === '是') return 'fn';
-  return null;
-}
-```
+- `pending / running / failed / partial` 参与数据统计组，不参与混淆矩阵
+- 混淆矩阵使用「对照角色」下拉选定的 Prompt 角色的结果列与 GT 比较
+- 方案含多个 Prompt 角色时，用户切换对照角色，指标条随之刷新
 
 ---
 
-## 11. 前后端对接改造要点
-
-当后端开发完成后，前端仅需以下改动（无需重写 UI）：
-
-### A. 替换 Mock 数据加载
-
-每个页面初始化时从 API 拉取数据，替换 mock 文件的赋值：
-
-```javascript
-// 原来（mock 文件直接赋值）:
-NX.datasets = [ {...} ];
-
-// 改造后（init 函数里 fetch）:
-NX.datasets = await fetch('/api/datasets').then(r => r.json());
-```
-
-涉及文件：`assets/mock/*.js` 中的数据，或在各页 `assets/pages/*.js` 的 `init()` 函数中改为 fetch。
-
-### B. 替换 simulateAnnotate → 真实任务
-
-`workbench.js` 中 `simulateAnnotate(rowIds)` 函数替换为：
-
-```javascript
-async function startAnnotateTask(schemeId, datasetId, rowIds, concurrency) {
-  // 1. 创建任务
-  const task = await fetch('/api/tasks', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ schemeId, datasetId, rowIds, concurrency })
-  }).then(r => r.json());
-
-  // 2. 订阅 SSE 进度
-  const es = new EventSource(`/api/tasks/${task.id}/stream`);
-  es.onmessage = (e) => {
-    const event = JSON.parse(e.data);
-    const r = state.rows.find(x => x.id === event.rowId);
-    if (r && event.type === 'row_done') {
-      r.status = 'done';
-      Object.assign(r.results, event.results);
-      renderAll();
-    }
-    if (r && event.type === 'row_failed') {
-      r.status = 'failed';
-      renderAll();
-    }
-    if (event.type === 'task_done') {
-      es.close();
-      NX.toast(`完成，准确率 ${(event.accuracy*100).toFixed(1)}%`, 'success');
-    }
-  };
-}
-```
-
-### C. Excel 上传
-
-```javascript
-async function importDataset(file) {
-  const form = new FormData();
-  form.append('file', file);
-  const result = await fetch('/api/datasets/import', {
-    method: 'POST', body: form
-  }).then(r => r.json());
-  // result = {id, columns[], rowCount, colCount}
-  // → 展示字段映射弹窗
-}
-```
-
-### D. 无需修改的部分
-
-以下内容**不需要改动**，可原样使用：
-- 所有 CSS 样式（`shared.css` + Tailwind class）
-- 所有 UI 交互（抽屉/弹窗/指标条/事件委托）
-- 侧边栏、Tab 切换、筛选逻辑
-- `shared.js` 的全部工具函数
-- 14 项指标计算（前端计算，基于 rows 数组）
-- 错题集管理的双栏交互
-- Toast / Drawer / Modal 控制
-
----
-
-## 12. 术语表
+## 10. 术语表
 
 | 术语 | 含义 |
 |------|------|
-| **场景(Scene)** | 业务场景标签（SPN/IPRAN/泰国/印尼），所有资源的通用筛选维度 |
-| **Prompt 卡片** | Prompt 管理页中的一条实体，包含模板、角色、模式等元数据 |
-| **角色(Role)** | Prompt 卡片的唯一标识符字符串，如「初审」「质检」，标注结果列名为 `[角色]_gtCol` |
-| **方案(Scheme)** | 一组有序 Prompt 卡片的组合，单次标注任务按方案中每个 Prompt 各调用一次模型 |
+| **场景（Scene）** | 业务场景标签（如 SPN/IPRAN），所有资源的通用筛选维度 |
 | **GT 列** | Ground Truth 列，数据集中人工标注的答案列，值为 是/否 |
-| **对照角色** | 计算混淆矩阵时选用哪个 Prompt 角色的预测结果与 GT 比较 |
-| **UserHooks** | 用户自定义代码类（`user_hooks.py`），注册模型调用函数和三个扩展钩子 |
-| **散错题** | 尚未归入任何错题集的单条错例，`setId = null` |
+| **基础字段** | 数据集中体积小的元信息列（ID、工单名称、工单类型等），适合表格展示 |
+| **大字段** | API Part 1–7、Summary、标注数据等体积大的列，仅在详情中完整展示 |
+| **Prompt 卡片** | Prompt 管理中的一条实体，含模板、角色、处理模式等元数据 |
+| **角色（Role）** | Prompt 卡片的标识符，如「初审」「质检」，标注结果列名为 `[角色]_gtCol` |
+| **方案（Scheme）** | 一组有序 Prompt 卡片的组合，单次标注按方案中每个 Prompt 各调用一次模型 |
+| **对照角色** | 计算混淆矩阵时选用的 Prompt 角色，其预测结果与 GT 比较 |
+| **UserHooks** | 用户自定义代码类（`user_hooks.py`），注册模型并实现扩展钩子 |
+| **散错题** | 未归入任何错题集的单条错例，`setId = null` |
 | **错题集** | 已命名的错题集合，在 Prompt 中通过 `{{错题集.名称}}` 引用 |
-| **处理模式** | Prompt 的两种变量处理方式：`auto`（占位符替换）或 `custom`（调用 init_prompt）|
-| **SSE** | Server-Sent Events，后端向前端实时推送任务进度的长连接协议 |
-| **sticky-action-col** | 表格最右操作列，CSS `position: sticky; right: 0`，不随横向滚动消失 |
+| **处理模式** | Prompt 变量处理方式：`auto`（占位符自动替换）或 `custom`（调用 init_prompt）|
+| **SSE** | Server-Sent Events，后端向前端实时推送标注进度的长连接协议 |
