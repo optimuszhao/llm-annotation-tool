@@ -94,51 +94,66 @@
 
   /* ───────── 开始标注配置弹窗 ───────── */
   function initStartModal () {
-    // 填充弹窗里的 dataset / scheme 下拉
-    const smDs = document.getElementById('sm-dataset');
-    const smSch = document.getElementById('sm-scheme');
-    NX.datasets.filter(d => d.mappingDone).forEach(d => {
-      const o = document.createElement('option'); o.value = d.id;
-      o.textContent = d.name; smDs.appendChild(o);
-    });
-    NX.schemes.forEach(s => {
-      const o = document.createElement('option'); o.value = s.id;
-      o.textContent = s.name; smSch.appendChild(o);
-    });
+    // 弹窗内容由 openStartModal 动态渲染,无需预填充
   }
 
   Page.openStartModal = function () {
-    // 同步当前工具栏选项
-    document.getElementById('sm-dataset').value    = state.dsId || '';
-    document.getElementById('sm-scheme').value     = state.schemeId || '';
+    // 计算本次要标注的行:有选中用选中,否则用当前视图内未标注的行
+    const selCount = state.selected.size;
+    let rowIds;
+    if (selCount > 0) {
+      rowIds = [...state.selected];
+    } else {
+      rowIds = state.visibleRows.filter(r => r.status === 'pending').map(r => r.id);
+    }
+    const rowCount = rowIds.length;
+
+    // 更新行数提示
+    document.getElementById('sm-row-count').textContent = rowCount;
+
+    // 渲染方案单选卡
+    const list = document.getElementById('sm-scheme-list');
+    list.innerHTML = '';
+    const currentSchemeId = state.schemeId;
+    NX.schemes.forEach((s, i) => {
+      const isChecked = s.id === currentSchemeId || (!currentSchemeId && i === 0);
+      const card = document.createElement('label');
+      card.className = 'flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-3 hover:bg-slate-50 has-[:checked]:border-emerald-400 has-[:checked]:bg-emerald-50/40 transition-colors';
+      card.innerHTML = `
+        <input type="radio" name="sm-scheme-radio" value="${s.id}" ${isChecked ? 'checked' : ''} class="mt-0.5 accent-emerald-500" />
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-semibold text-slate-800">${s.name}</div>
+          <div class="text-xs text-slate-400 mt-0.5">${s.promptIds.length} 个 Prompt · 场景:${s.scene || '通用'} · 并发 ${s.concurrency || 5}</div>
+        </div>
+        <span class="text-[11px] text-slate-300 shrink-0 mt-0.5">ID: ${s.id}</span>`;
+      list.appendChild(card);
+    });
+
+    // 并发默认值
     document.getElementById('sm-concurrency').value = '5';
-
-    const selCount     = state.selected.size;
-    const pendingCount = state.rows.filter(r => r.status === 'pending').length;
-    document.getElementById('sm-sel-count').textContent     = selCount + ' 行';
-    document.getElementById('sm-pending-count').textContent = pendingCount + ' 行';
-
-    // 默认范围:有选中用选中,否则用未标注
-    const radioSelected = document.querySelector('input[name="sm-scope"][value="selected"]');
-    const radioPending  = document.querySelector('input[name="sm-scope"][value="pending"]');
-    if (selCount > 0) radioSelected.checked = true;
-    else              radioPending.checked  = true;
 
     NX.openModal(document.getElementById('start-modal'));
   };
 
   Page.confirmStart = function () {
-    const scope = document.querySelector('input[name="sm-scope"]:checked')?.value;
+    // 获取选中的方案
+    const selectedRadio = document.querySelector('input[name="sm-scheme-radio"]:checked');
+    if (!selectedRadio) { NX.toast('请选择标注方案', 'error'); return; }
+    state.schemeId = selectedRadio.value;
+
+    // 同步工具栏方案下拉
+    const tbScheme = document.getElementById('tb-scheme');
+    if (tbScheme) tbScheme.value = state.schemeId;
+
+    // 确定行范围:有选中用选中,否则当前视图未标注行
     let rowIds;
-    if (scope === 'selected') {
+    if (state.selected.size > 0) {
       rowIds = [...state.selected];
-      if (rowIds.length === 0) { NX.toast('请先勾选行', 'error'); return; }
-    } else if (scope === 'pending') {
-      rowIds = state.rows.filter(r => r.status === 'pending').map(r => r.id);
-      if (rowIds.length === 0) { NX.toast('没有待标注的行', 'error'); return; }
     } else {
-      rowIds = state.rows.map(r => r.id);
+      rowIds = state.visibleRows.filter(r => r.status === 'pending').map(r => r.id);
+      if (rowIds.length === 0) { NX.toast('没有待标注的行', 'error'); return; }
     }
+
     NX.closeModal(document.getElementById('start-modal'));
     simulateAnnotate(rowIds);
   };

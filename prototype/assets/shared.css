@@ -19,6 +19,8 @@ html, body {
 .scroll-thin::-webkit-scrollbar-track { background: transparent; }
 
 /* ─── 侧边栏菜单项激活态 ─── */
+/* 禁用 transition 消除点击闪烁 */
+.nav-item { transition: background-color 0ms; }
 .nav-item.active {
   background: #1B2640;
   color: #fff;
@@ -126,9 +128,27 @@ html, body {
   flex-direction: column;
 }
 
-/* ─── 表格行 hover ─── */
-.tbody-row { transition: background-color 120ms ease; }
-.tbody-row:hover { background: #F8FAFC; }
+/* ─── 表格行 ─── */
+/* 统一行高 */
+.tbody-row td { padding-top: 10px !important; padding-bottom: 10px !important; }
+/* 斑马线 */
+.tbody-row:nth-child(even) { background-color: #F9FAFB; }
+.tbody-row:nth-child(even) .sticky-action-col { background-color: #F9FAFB; }
+/* Hover */
+.tbody-row { transition: background-color 80ms ease; }
+.tbody-row:hover { background: #EEF2FF !important; }
+.tbody-row:hover .sticky-action-col { background: #EEF2FF !important; }
+
+/* ─── 全局：表格最后一列固定在右侧 ─── */
+.t-sticky thead th:last-child,
+.t-sticky tbody td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  box-shadow: -6px 0 8px -4px rgba(15,23,42,0.06);
+}
+.t-sticky tbody tr:nth-child(even) td:last-child { background: #F9FAFB; }
+.t-sticky tbody tr:hover td:last-child { background: #EEF2FF !important; }
 
 /* ─── Toast ─── */
 #toast-root {

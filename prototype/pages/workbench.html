@@ -118,7 +118,7 @@
             新建方案
           </button>
         </div>
-        <table class="w-full border-separate border-spacing-0 text-sm">
+        <table class="t-sticky w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr class="text-left text-[12px] font-medium text-slate-400">
               <th class="border-b border-slate-200 px-4 py-2 font-medium">名称</th>
@@ -136,7 +136,7 @@
       <!-- ========== Tab: 任务面板 ========== -->
       <section id="pane-tasks" class="hidden flex-1 overflow-auto px-8 py-4">
         <div class="text-sm font-semibold text-slate-700 mb-3">任务列表</div>
-        <table class="w-full border-separate border-spacing-0 text-sm">
+        <table class="t-sticky w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr class="text-left text-[12px] font-medium text-slate-400">
               <th class="border-b border-slate-200 px-4 py-2 font-medium">任务 ID</th>
@@ -184,27 +184,27 @@
 
   <!-- =============== 开始标注配置弹窗 =============== -->
   <div id="start-modal" class="modal-mask">
-    <div class="modal-card w-[480px]">
+    <div class="modal-card w-[520px]">
       <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
         <div>
           <div class="text-base font-semibold text-slate-900">开始标注</div>
-          <div class="text-xs text-slate-400 mt-0.5">确认参数后开始批量调用模型</div>
+          <div class="text-xs text-slate-400 mt-0.5">将标注 <span id="sm-row-count" class="font-semibold text-slate-600">0</span> 行数据，请选择标注方案</div>
         </div>
         <button class="text-slate-400 hover:text-slate-700" onclick="NX.closeModal(document.getElementById('start-modal'))">
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6 18 18M18 6 6 18"/></svg>
         </button>
       </div>
-      <div class="px-6 py-5 space-y-4">
-        <!-- 数据集 + 方案 -->
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="text-xs font-medium text-slate-600 mb-1.5 block">数据集</label>
-            <select id="sm-dataset" class="w-full h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
+      <div class="px-6 py-5 space-y-5">
+        <!-- 方案选择 -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-medium text-slate-600">标注方案</label>
+            <button onclick="WorkbenchPage.newScheme()" class="flex items-center gap-1 text-xs text-emerald-600 hover:underline">
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+              新建方案
+            </button>
           </div>
-          <div>
-            <label class="text-xs font-medium text-slate-600 mb-1.5 block">方案</label>
-            <select id="sm-scheme" class="w-full h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
-          </div>
+          <div id="sm-scheme-list" class="space-y-2 max-h-52 overflow-y-auto scroll-thin pr-0.5"></div>
         </div>
         <!-- 并发 -->
         <div>
@@ -212,27 +212,7 @@
           <div class="flex items-center gap-2">
             <input id="sm-concurrency" type="number" min="1" max="32" value="5"
               class="w-20 h-9 rounded-lg border border-slate-200 px-3 text-sm text-center outline-none focus:border-emerald-400" />
-            <span class="text-xs text-slate-400">最大 32,建议 3~10</span>
-          </div>
-        </div>
-        <!-- 标注范围 -->
-        <div>
-          <div class="text-xs font-medium text-slate-600 mb-2">标注范围</div>
-          <div class="space-y-2 text-sm">
-            <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 has-[:checked]:border-emerald-400 has-[:checked]:bg-emerald-50/50">
-              <input type="radio" name="sm-scope" value="selected" class="accent-emerald-500" />
-              <span>仅标注已选中行</span>
-              <span id="sm-sel-count" class="ml-auto text-xs text-slate-400"></span>
-            </label>
-            <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 has-[:checked]:border-emerald-400 has-[:checked]:bg-emerald-50/50">
-              <input type="radio" name="sm-scope" value="pending" checked class="accent-emerald-500" />
-              <span>标注全部未标注行</span>
-              <span id="sm-pending-count" class="ml-auto text-xs text-slate-400"></span>
-            </label>
-            <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 has-[:checked]:border-emerald-400 has-[:checked]:bg-emerald-50/50">
-              <input type="radio" name="sm-scope" value="all" class="accent-emerald-500" />
-              <span>标注全部行<span class="text-slate-400 text-xs ml-1">(含重新标注)</span></span>
-            </label>
+            <span class="text-xs text-slate-400">最大 32，建议 3~10</span>
           </div>
         </div>
       </div>
