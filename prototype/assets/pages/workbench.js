@@ -395,16 +395,13 @@
   function rowHTML (r, cols, prompts, gtCol) {
     const selected = state.selected.has(r.id);
     const cls = classify(r);
-    const clsBadge = cls
-      ? `<span class="ml-1 inline-flex items-center rounded bg-slate-100 px-1 text-[10px] font-mono uppercase text-slate-400">${cls}</span>`
-      : '';
     return `
       <tr class="tbody-row ${selected ? 'bg-emerald-50/40' : ''}" data-rid="${r.id}">
         <td class="border-b border-slate-100 px-3 py-2">
           <input type="checkbox" data-action="select" ${selected ? 'checked' : ''} class="rounded border-slate-300" />
         </td>
         <td class="border-b border-slate-100 px-2 py-2 text-slate-400 text-xs">${r.no}</td>
-        <td class="border-b border-slate-100 px-3 py-2">${statusCell(r)}${clsBadge}</td>
+        <td class="border-b border-slate-100 px-3 py-2">${statusCell(r, cls)}</td>
         ${cols.map(c => `<td class="border-b border-slate-100 px-3 py-2 max-w-[220px] text-truncate text-xs">${escapeHTML(String(r.data[c] ?? ''))}</td>`).join('')}
         ${prompts.flatMap(p => [
           `<td class="border-b border-slate-100 px-3 py-2">${cellPred(r, p, gtCol)}</td>`,
@@ -426,8 +423,17 @@
       </tr>`;
   }
 
-  function statusCell (r) {
+  const CLS_BADGE = {
+    tp: `<span class="badge badge--green font-mono">TP</span>`,
+    tn: `<span class="badge badge--sky   font-mono">TN</span>`,
+    fp: `<span class="badge badge--amber font-mono">FP</span>`,
+    fn: `<span class="badge badge--rose  font-mono">FN</span>`,
+  };
+
+  function statusCell (r, cls) {
     if (r.status === 'running') return `<span class="inline-flex items-center gap-1 text-amber-600 text-xs"><span class="spinner"></span>进行中</span>`;
+    // done + 有分类结果 → 直接显示 TP/TN/FP/FN
+    if (cls) return CLS_BADGE[cls];
     return NX.statusBadge(r.status);
   }
   function cellPred (r, p, gtCol) {
