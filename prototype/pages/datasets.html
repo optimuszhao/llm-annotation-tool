@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>数据集管理 · 标注 Lab</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/shared.css" />
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: { brand: '#22C55E', brandDark: '#16A34A', sidebar:'#0B1220' },
+    } } };
+  </script>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+  <div class="flex h-screen w-screen overflow-hidden">
+    <div id="sidebar-root" class="h-full"></div>
+
+    <main class="flex h-full flex-1 flex-col overflow-hidden bg-white">
+
+      <!-- 页面头部 -->
+      <header class="flex items-center justify-between px-8 pt-6 pb-3">
+        <div class="flex items-center gap-2">
+          <h1 class="text-[28px] font-bold tracking-tight text-slate-900">数据集管理</h1>
+          <span class="ml-3 inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600" id="ds-count-badge">共 0 个</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200" title="帮助">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 1-1 1.7"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- 工具栏 -->
+      <div class="flex items-center justify-between px-8 pb-4">
+        <div class="flex items-center gap-3">
+          <div class="relative">
+            <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="ds-search" type="text" placeholder="搜索数据集名称…" class="h-10 w-72 rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <select id="ds-scene-filter" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400">
+            <option value="">全部场景</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="ds-merge-btn" disabled class="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-400 disabled:cursor-not-allowed">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v6a3 3 0 0 0 3 3h6"/><path d="M16 21v-6a3 3 0 0 0-3-3H7"/><path d="m4 6 3-3 3 3M20 18l-3 3-3-3"/></svg>
+            合并所选 <span id="ds-selected-count">(0)</span>
+          </button>
+          <button id="ds-upload-btn" class="flex h-10 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-sm shadow-emerald-500/30 hover:bg-brandDark">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            上传 Excel
+          </button>
+        </div>
+      </div>
+
+      <!-- 表格 -->
+      <div class="scroll-thin flex-1 overflow-auto px-8 pb-8">
+        <table class="w-full border-separate border-spacing-0 text-sm">
+          <thead>
+            <tr class="text-left text-[13px] font-medium text-slate-500">
+              <th class="w-12 border-b border-slate-200 px-4 py-3 font-medium">
+                <input type="checkbox" id="ds-select-all" class="rounded border-slate-300" />
+              </th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">名称</th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">场景</th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">行 / 列</th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">字段映射</th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">创建时间</th>
+              <th class="w-32 border-b border-slate-200 px-4 py-3 font-medium text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody id="ds-tbody" class="text-[14px] text-slate-800"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- 字段映射弹窗 -->
+  <div id="mapping-modal" class="modal-mask">
+    <div class="modal-card w-[640px]">
+      <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div>
+          <div class="text-base font-semibold text-slate-900" id="mapping-modal-title">字段映射</div>
+          <div class="text-xs text-slate-500 mt-0.5">配置该数据集的 4 项规则,影响标注工作台与 Prompt 占位符</div>
+        </div>
+        <button class="text-slate-400 hover:text-slate-700" onclick="NX.closeModal(document.getElementById('mapping-modal'))">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6 18 18M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="overflow-auto px-6 py-5 scroll-thin">
+        <div class="space-y-5" id="mapping-modal-body"></div>
+      </div>
+      <div class="flex items-center justify-end gap-2 border-t border-slate-100 px-6 py-3">
+        <button onclick="NX.closeModal(document.getElementById('mapping-modal'))" class="h-9 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">取消</button>
+        <button onclick="DatasetsPage.saveMapping()" class="h-9 rounded-lg bg-brand px-4 text-sm font-semibold text-white hover:bg-brandDark">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 上传弹窗 -->
+  <div id="upload-modal" class="modal-mask">
+    <div class="modal-card w-[520px]">
+      <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div class="text-base font-semibold text-slate-900">上传 Excel</div>
+        <button class="text-slate-400 hover:text-slate-700" onclick="NX.closeModal(document.getElementById('upload-modal'))">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6 18 18M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="px-6 py-5 space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">所属场景</label>
+          <select id="upload-scene" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">文件</label>
+          <div class="flex h-32 items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+            拖拽 .xlsx 到此或 <button class="ml-2 text-emerald-600 hover:underline" onclick="NX.toast('原型:文件解析为 mock 数据','default')">点击选择</button>
+          </div>
+          <div class="text-xs text-slate-400 mt-1">原型不真正解析文件,确认后会在列表中新增一条 mock 数据集</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2 border-t border-slate-100 px-6 py-3">
+        <button onclick="NX.closeModal(document.getElementById('upload-modal'))" class="h-9 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">取消</button>
+        <button onclick="DatasetsPage.confirmUpload()" class="h-9 rounded-lg bg-brand px-4 text-sm font-semibold text-white hover:bg-brandDark">确认上传</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mock data + Page JS -->
+  <script src="../assets/shared.js"></script>
+  <script src="../assets/mock/scenes.js"></script>
+  <script src="../assets/mock/datasets.js"></script>
+  <script src="../assets/pages/datasets.js"></script>
+</body>
+</html>

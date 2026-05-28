@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>知识管理 · 标注 Lab</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/shared.css" />
+  <script>tailwind.config = { theme: { extend: { colors: { brand:'#22C55E', brandDark:'#16A34A' } } } };</script>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+  <div class="flex h-screen w-screen overflow-hidden">
+    <div id="sidebar-root" class="h-full"></div>
+
+    <main class="flex h-full flex-1 flex-col overflow-hidden bg-white">
+      <header class="flex items-center justify-between px-8 pt-6 pb-3">
+        <div class="flex items-center gap-2">
+          <h1 class="text-[28px] font-bold tracking-tight text-slate-900">知识管理</h1>
+          <span class="ml-3 inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600" id="k-count-badge">共 0 条</span>
+        </div>
+        <button id="k-new" class="flex h-10 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-sm shadow-emerald-500/30 hover:bg-brandDark">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          新建知识片段
+        </button>
+      </header>
+
+      <div class="flex items-center gap-3 px-8 pb-4">
+        <div class="relative">
+          <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="k-search" type="text" placeholder="搜索名称、内容、标签…" class="h-10 w-80 rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-emerald-400" />
+        </div>
+        <select id="k-scene-filter" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400">
+          <option value="">全部场景</option>
+        </select>
+      </div>
+
+      <div class="scroll-thin flex-1 overflow-auto px-8 pb-8">
+        <div id="k-list" class="grid grid-cols-2 gap-4"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 编辑弹窗 -->
+  <div id="k-editor" class="modal-mask">
+    <div class="modal-card w-[640px]">
+      <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div class="text-base font-semibold text-slate-900" id="k-editor-title">编辑知识片段</div>
+        <button class="text-slate-400 hover:text-slate-700" onclick="NX.closeModal(document.getElementById('k-editor'))">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6 18 18M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="px-6 py-5 space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">名称 <span class="text-rose-500">*</span></label>
+          <input id="ke-name" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400" placeholder="如:IPRAN故障分类标准" />
+          <div class="text-xs text-slate-400 mt-1">Prompt 中通过 {{知识库.<名称>}} 引用,改名后所有引用自动跟随</div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">所属场景</label>
+            <select id="ke-scene" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">标签(逗号分隔)</label>
+            <input id="ke-tags" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400" placeholder="如:故障, 分类" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">内容</label>
+          <textarea id="ke-content" rows="10" class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-400 font-mono leading-6"></textarea>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2 border-t border-slate-100 px-6 py-3">
+        <button onclick="NX.closeModal(document.getElementById('k-editor'))" class="h-9 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">取消</button>
+        <button onclick="KnowledgePage.save()" class="h-9 rounded-lg bg-brand px-4 text-sm font-semibold text-white hover:bg-brandDark">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../assets/shared.js"></script>
+  <script src="../assets/mock/scenes.js"></script>
+  <script src="../assets/mock/knowledge.js"></script>
+  <script src="../assets/pages/knowledge.js"></script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>模型管理 · 标注 Lab</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/shared.css" />
+  <script>tailwind.config = { theme: { extend: { colors: { brand:'#22C55E', brandDark:'#16A34A' } } } };</script>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+  <div class="flex h-screen w-screen overflow-hidden">
+    <div id="sidebar-root" class="h-full"></div>
+
+    <main class="flex h-full flex-1 flex-col overflow-hidden bg-white">
+
+      <header class="flex items-center justify-between px-8 pt-6 pb-3">
+        <div class="flex items-center gap-2">
+          <h1 class="text-[28px] font-bold tracking-tight text-slate-900">模型管理</h1>
+          <span class="ml-3 inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">只读 · 来源:UserHooks.models</span>
+        </div>
+      </header>
+
+      <!-- 说明卡 -->
+      <div class="mx-8 mb-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 text-sm text-slate-700">
+        <div class="font-semibold text-emerald-800 mb-2">📌 模型如何新增</div>
+        <p>本页面**仅展示**使用者在 <code class="px-1 py-0.5 rounded bg-white text-violet-700 text-xs">UserHooks.models</code> 字典中注册的模型。</p>
+        <p class="mt-1">新增模型的步骤:</p>
+        <ol class="list-decimal list-inside ml-2 mt-1 space-y-0.5 text-[13px]">
+          <li>打开后端 <code class="text-violet-700">user_hooks.py</code></li>
+          <li>在 <code class="text-violet-700">self.models</code> 字典里加一行:<code class="text-violet-700">"my-model": self._call_my_model</code></li>
+          <li>实现对应方法 <code class="text-violet-700">_call_my_model(self, prompt, role)</code></li>
+          <li><strong>重启应用</strong> · 模型即可在 Prompt 卡片绑定下拉中出现</li>
+        </ol>
+      </div>
+
+      <!-- 表格 -->
+      <div class="scroll-thin flex-1 overflow-auto px-8 pb-8">
+        <table class="w-full border-separate border-spacing-0 text-sm">
+          <thead>
+            <tr class="text-left text-[13px] font-medium text-slate-500">
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">模型 Key</th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">状态</th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">最近调用</th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">耗时 (avg / P95)</th>
+              <th class="border-b border-slate-200 px-4 py-3 font-medium">备注</th>
+              <th class="w-32 border-b border-slate-200 px-4 py-3 font-medium text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody id="m-tbody"></tbody>
+        </table>
+
+        <!-- 代码示例 -->
+        <div class="mt-8 rounded-xl border border-slate-200 bg-slate-900 text-slate-100 overflow-hidden">
+          <div class="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
+            <div class="text-sm font-mono text-slate-300">user_hooks.py · <span class="text-emerald-400">代码示例</span></div>
+            <button onclick="ModelsPage.copyCode()" class="text-xs text-slate-300 hover:text-white">📋 复制</button>
+          </div>
+          <pre id="m-code" class="font-mono text-[13px] leading-6 px-4 py-4 overflow-auto"><code></code></pre>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/shared.js"></script>
+  <script src="../assets/mock/models.js"></script>
+  <script src="../assets/pages/models.js"></script>
+</body>
+</html>
