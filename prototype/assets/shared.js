@@ -5,14 +5,73 @@
 
 window.NX = window.NX || {};
 
+/* ─────────── Sidebar HTML (内联,同步注入,消除导航闪烁) ─────────── */
+NX._SIDEBAR_HTML = `
+<aside class="flex h-full w-64 shrink-0 flex-col text-slate-300" style="background:#0B1220">
+
+  <!-- Brand -->
+  <div class="flex items-center justify-between px-4 pt-5 pb-4">
+    <div class="flex items-center gap-3">
+      <div class="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-500/90">
+        <svg class="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="2.2"/>
+          <path d="M7.5 7.5a6 6 0 0 0 0 9"/><path d="M16.5 7.5a6 6 0 0 1 0 9"/>
+          <path d="M4.5 4.5a10 10 0 0 0 0 15"/><path d="M19.5 4.5a10 10 0 0 1 0 15"/>
+        </svg>
+      </div>
+      <span class="text-lg font-semibold text-white">标注 Lab</span>
+    </div>
+  </div>
+
+  <!-- 主导航 -->
+  <nav class="flex-1 space-y-1 overflow-y-auto px-3 pt-2 scroll-thin">
+    <a href="datasets.html" data-key="datasets"
+       class="nav-item relative flex items-center gap-3 rounded-lg px-3 py-3 text-[15px] hover:bg-white/5">
+      <svg class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+      <span>数据集管理</span>
+    </a>
+
+    <a href="workbench.html" data-key="workbench"
+       class="nav-item relative flex items-center gap-3 rounded-lg px-3 py-3 text-[15px] hover:bg-white/5">
+      <svg class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+      <span class="flex-1">标注工作台</span>
+      <span class="text-[10px] text-emerald-400">⭐</span>
+    </a>
+
+    <a href="prompts.html" data-key="prompts"
+       class="nav-item relative flex items-center gap-3 rounded-lg px-3 py-3 text-[15px] hover:bg-white/5">
+      <svg class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><path d="M8 13h8M8 17h6"/></svg>
+      <span>Prompt 管理</span>
+    </a>
+
+    <a href="knowledge.html" data-key="knowledge"
+       class="nav-item relative flex items-center gap-3 rounded-lg px-3 py-3 text-[15px] hover:bg-white/5">
+      <svg class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2.5 2.5 0 0 1 2.5-2.5H20v17H6.5A2.5 2.5 0 0 0 4 22"/><path d="M9 7h7M9 11h5"/></svg>
+      <span>知识管理</span>
+    </a>
+
+    <a href="error-sets.html" data-key="error-sets"
+       class="nav-item relative flex items-center gap-3 rounded-lg px-3 py-3 text-[15px] hover:bg-white/5">
+      <svg class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+      <span>错题集管理</span>
+    </a>
+
+    <a href="models.html" data-key="models"
+       class="nav-item relative flex items-center gap-3 rounded-lg px-3 py-3 text-[15px] hover:bg-white/5">
+      <svg class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="2"/><circle cx="9" cy="12" r="1.5" fill="currentColor"/><circle cx="15" cy="12" r="1.5" fill="currentColor"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      <span>模型管理</span>
+    </a>
+  </nav>
+
+</aside>
+`;
+
 /* ─────────── Sidebar 注入 + 当前菜单高亮 ─────────── */
-NX.mountSidebar = async function (currentKey) {
+/* 同步注入,不使用 fetch,彻底消除导航时的侧边栏闪白 */
+NX.mountSidebar = function (currentKey) {
   const root = document.getElementById('sidebar-root');
   if (!root) return;
-  const res  = await fetch('../partials/sidebar.html');
-  const html = await res.text();
-  root.innerHTML = html;
-  // 高亮
+  root.innerHTML = NX._SIDEBAR_HTML;
   root.querySelectorAll('.nav-item').forEach((el) => {
     if (el.dataset.key === currentKey) el.classList.add('active');
   });

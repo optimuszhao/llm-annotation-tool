@@ -6,7 +6,7 @@
   document.addEventListener('DOMContentLoaded', init);
 
   async function init () {
-    await NX.mountSidebar('error-sets');
+    NX.mountSidebar('error-sets');
     NX.scenes.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; document.getElementById('es-scene-filter').appendChild(o); });
     document.getElementById('es-scene-filter').addEventListener('change', e => { state.scene = e.target.value; renderLeft(); });
     document.getElementById('es-merge-btn').addEventListener('click', openMergeModal);

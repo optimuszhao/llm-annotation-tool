@@ -25,7 +25,7 @@
   document.addEventListener('DOMContentLoaded', init);
 
   async function init () {
-    await NX.mountSidebar('workbench');
+    NX.mountSidebar('workbench');
     initToolbar();
     initSchemeAndDataset();
     initStartModal();

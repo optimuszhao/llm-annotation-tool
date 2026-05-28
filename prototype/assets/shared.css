@@ -19,8 +19,10 @@ html, body {
 .scroll-thin::-webkit-scrollbar-track { background: transparent; }
 
 /* ─── 侧边栏菜单项激活态 ─── */
-/* 禁用 transition 消除点击闪烁 */
-.nav-item { transition: background-color 0ms; }
+/* 禁用 transition + 锁定 :active 背景,彻底消除点击闪烁 */
+.nav-item { transition: none; }
+.nav-item:active,
+.nav-item:focus { background: rgba(255,255,255,0.05); outline: none; }
 .nav-item.active {
   background: #1B2640;
   color: #fff;

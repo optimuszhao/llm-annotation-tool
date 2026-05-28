@@ -5,7 +5,7 @@
   document.addEventListener('DOMContentLoaded', init);
 
   async function init () {
-    await NX.mountSidebar('models');
+    NX.mountSidebar('models');
     renderTable();
     renderCode();
   }

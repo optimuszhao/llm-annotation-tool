@@ -6,7 +6,7 @@
   document.addEventListener('DOMContentLoaded', init);
 
   async function init () {
-    await NX.mountSidebar('datasets');
+    NX.mountSidebar('datasets');
     initSceneFilter();
     bindEvents();
     render();

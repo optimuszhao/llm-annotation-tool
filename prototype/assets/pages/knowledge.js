@@ -6,7 +6,7 @@
   document.addEventListener('DOMContentLoaded', init);
 
   async function init () {
-    await NX.mountSidebar('knowledge');
+    NX.mountSidebar('knowledge');
     NX.scenes.forEach(s => {
       ['k-scene-filter', 'ke-scene'].forEach(id => {
         const o = document.createElement('option'); o.value = s; o.textContent = s;

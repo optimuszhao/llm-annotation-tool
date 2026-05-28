@@ -6,7 +6,7 @@
   document.addEventListener('DOMContentLoaded', init);
 
   async function init () {
-    await NX.mountSidebar('prompts');
+    NX.mountSidebar('prompts');
     initFilters();
     bindEvents();
     render();
