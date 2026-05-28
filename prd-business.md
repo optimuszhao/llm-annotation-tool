@@ -148,6 +148,20 @@
 | 任务调度 | Python threading + queue（多并发标注，无需 Celery） |
 | 进度推送 | Server-Sent Events (SSE) |
 
+### 前端技术选型（内网离线方案）
+
+当前原型用纯 HTML + Vanilla JS。若要实现 §0 中更具质感的 UI 方案，推荐升级为以下组合，**全部单文件，下载放 vendor 目录即可，无需 npm 或构建工具**：
+
+| 文件 | 大小 | 作用 |
+|---|---|---|
+| `vue.global.js` | ~130 KB | 响应式状态管理。替代手写 DOM 操作，处理并发标注状态更新、实时指标刷新等复杂状态 |
+| `gsap.min.js` | ~70 KB | 动画引擎。行进场交错、面板弹性滑入、数字滚动、状态切换闪光等效果 |
+| Tailwind（已有） | — | 样式工具类 |
+
+**为什么不用其他方案**：React CDN 版需要 Babel 才能写 JSX，麻烦；Svelte 必须构建；Alpine.js 处理并发标注的复杂状态会力不从心；纯 Vanilla JS 在状态逐渐复杂后维护成本很高。
+
+Vue 3 script-tag 模式写法接近增强版 HTML，学习成本低，无需任何构建步骤。
+
 后端启动：
 
 ```bash
