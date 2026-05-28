@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM 标注工具</title>
+  <link rel="stylesheet" href="/vendor/tabulator.min.css">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark">LLM</div>
+      <div>
+        <strong>LLM 标注工具</strong>
+        <span>本地数据飞轮工作台</span>
+      </div>
+    </div>
+    <nav class="workflow-tabs" aria-label="主流程">
+      <button class="workflow-tab active" data-page="start"><span>1</span>开始使用工具</button>
+      <i class="workflow-arrow">›</i>
+      <button class="workflow-tab" data-page="manage"><span>2</span>数据集与方案管理</button>
+      <i class="workflow-arrow">›</i>
+      <button class="workflow-tab" data-page="workbench"><span>3</span>标注管理</button>
+    </nav>
+    <div class="theme-tools">
+      <button class="icon-btn" id="modeToggle" title="切换明暗模式">◐</button>
+      <button class="btn" id="themeButton">主题</button>
+      <div class="theme-popover" id="themePopover">
+        <button data-theme-choice="default"><i class="swatch mint"></i>Mint</button>
+        <button data-theme-choice="sunset"><i class="swatch sunset"></i>Sunset</button>
+        <button data-theme-choice="lime"><i class="swatch lime"></i>Lime</button>
+        <button data-theme-choice="violet"><i class="swatch violet"></i>Violet</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <section class="page active" id="page-start"></section>
+    <section class="page" id="page-manage"></section>
+    <section class="page" id="page-workbench"></section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="floating-menu" id="rowMoreMenu">
+    <button data-row-action="edit">编辑</button>
+    <button data-row-action="export">导出</button>
+    <button class="danger" data-row-action="delete">删除</button>
+  </div>
+
+  <script src="/vendor/gsap.min.js"></script>
+  <script src="/vendor/tabulator.min.js"></script>
+  <script type="module" src="/assets/app.js"></script>
+</body>
+</html>
