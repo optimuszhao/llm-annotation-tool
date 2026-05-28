@@ -396,26 +396,16 @@
           `<td class="border-b border-slate-100 px-3 py-2 max-w-[200px] text-truncate text-xs text-slate-400">${cellThinking(r, p)}</td>`,
         ]).join('')}
         <td class="border-b border-slate-100 px-3 py-2 font-semibold text-emerald-700 text-xs">${escapeHTML(String(r.data[gtCol] ?? '-'))}</td>
-        <td class="sticky-action-col border-b border-slate-100 px-2 py-2">
-          <div class="flex items-center justify-end gap-0.5">
-            <!-- 常用:标注 / 详情 / 分析 -->
-            <button data-action="annotate" title="标注"
-              class="inline-flex h-6 w-6 items-center justify-center rounded text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700">
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            </button>
-            <button data-action="detail" title="详情"
-              class="inline-flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600">
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            </button>
-            <button data-action="analyze" title="分析(UserHooks.analyze)"
-              class="inline-flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600">
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-            </button>
-            <!-- 更多 -->
-            <button data-action="menu" title="更多"
-              class="inline-flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:bg-slate-100 hover:text-slate-500">
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
-            </button>
+        <td class="sticky-action-col border-b border-slate-100 px-3 py-2">
+          <div class="flex items-center justify-end gap-2.5">
+            <button data-action="annotate"
+              class="text-xs font-medium text-emerald-600 hover:text-emerald-700 hover:underline whitespace-nowrap">标注</button>
+            <button data-action="detail"
+              class="text-xs font-medium text-slate-500 hover:text-slate-700 hover:underline whitespace-nowrap">详情</button>
+            <button data-action="analyze"
+              class="text-xs font-medium text-violet-500 hover:text-violet-700 hover:underline whitespace-nowrap">分析</button>
+            <button data-action="menu"
+              class="text-xs text-slate-300 hover:text-slate-500 whitespace-nowrap">···</button>
           </div>
         </td>
       </tr>`;

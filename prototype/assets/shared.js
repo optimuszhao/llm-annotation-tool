@@ -130,7 +130,7 @@ NX.openActionMenu = function (anchorEl, items) {
     }
     const btn = document.createElement('button');
     if (item.danger) btn.classList.add('danger');
-    btn.innerHTML = `<span>${item.icon || ''}</span>${item.label}`;
+    btn.innerHTML = `<span class="action-icon">${item.icon || ''}</span><span>${item.label}</span>`;
     btn.onclick = (e) => {
       e.stopPropagation();
       menu.remove();

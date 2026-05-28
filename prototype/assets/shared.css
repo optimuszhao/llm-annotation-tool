@@ -197,6 +197,14 @@ html, body {
   font-size: 13px;
   color: #334155;
 }
+.action-menu button .action-icon {
+  width: 16px;
+  flex-shrink: 0;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .action-menu button:hover { background: #F1F5F9; }
 .action-menu button.danger { color: #BE123C; }
 .action-menu button.danger:hover { background: #FFE4E6; }
