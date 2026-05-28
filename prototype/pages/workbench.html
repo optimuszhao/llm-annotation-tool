@@ -20,14 +20,14 @@
     <main class="flex h-full flex-1 flex-col overflow-hidden bg-white">
 
       <!-- 页面头 -->
-      <header class="flex items-center justify-between px-8 pt-6 pb-3">
+      <header class="flex items-center justify-between px-8 pt-5 pb-2">
         <div class="flex items-center gap-3">
-          <h1 class="text-[28px] font-bold tracking-tight text-slate-900">标注工作台</h1>
-          <span class="text-emerald-500">⭐</span>
+          <h1 class="text-[26px] font-bold tracking-tight text-slate-900">标注工作台</h1>
+          <span class="text-emerald-500 text-lg">⭐</span>
         </div>
         <div class="flex items-center gap-2">
-          <button class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200" title="通知">
-            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+          <button class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200" title="通知">
+            <svg class="h-4.5 w-4.5" style="width:18px;height:18px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
           </button>
         </div>
       </header>
@@ -44,42 +44,29 @@
       <!-- ========== Tab: 标注 ========== -->
       <section id="pane-annotate" class="flex flex-1 flex-col overflow-hidden">
 
-        <!-- 指标条:14 项 -->
-        <div class="mx-8 my-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 px-5 py-3">
-          <div id="mb-row1" class="flex items-center gap-2 flex-wrap"></div>
-          <div class="my-2 h-px bg-slate-100"></div>
-          <div class="flex items-center gap-6 flex-wrap">
-            <div id="mb-confusion" class="flex items-center gap-2 flex-wrap"></div>
-            <div class="hidden md:block h-6 w-px bg-slate-200"></div>
-            <div id="mb-metrics" class="flex items-center gap-4 flex-wrap text-sm"></div>
-          </div>
+        <!-- ── 指标条:单行紧凑 ── -->
+        <div class="mx-8 mt-3 mb-2 flex items-center gap-1.5 flex-wrap rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-2" id="mb-bar-wrap">
+          <div id="mb-bar" class="flex items-center gap-1.5 flex-wrap"></div>
         </div>
 
         <!-- 工具栏 -->
-        <div class="flex items-center justify-between px-8 pb-3 gap-3 flex-wrap">
+        <div class="flex items-center justify-between px-8 pb-2 gap-3 flex-wrap">
           <div class="flex items-center gap-2 flex-wrap">
-            <select id="tb-dataset" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
-            <select id="tb-scheme" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
-            <div class="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-600">
-              并发 <input id="tb-concurrency" type="number" min="1" max="32" value="5" class="w-12 outline-none text-center font-medium" />
-            </div>
-            <select id="tb-contrast" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"
-                    title="评测对照角色 — 多 Prompt 方案下用于计算 TP/TN/FP/FN"></select>
+            <select id="tb-dataset" class="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
+            <select id="tb-scheme" class="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
+            <select id="tb-contrast" class="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"
+                    title="评测对照角色 — 用于计算 TP/TN/FP/FN"></select>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <div class="relative">
               <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-              <input id="tb-search" type="text" placeholder="搜索行内容…" class="h-10 w-56 rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-emerald-400" />
+              <input id="tb-search" type="text" placeholder="搜索…" class="h-9 w-48 rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-emerald-400" />
             </div>
-            <button class="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50" title="列设置">
-              <svg class="h-4 w-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h7"/></svg>
-              列设置
+            <button onclick="WorkbenchPage.openExport()" class="flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              <svg class="h-4 w-4 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="m6 10 6 6 6-6"/><path d="M4 20h16"/></svg>
+              导出
             </button>
-            <button class="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
-              <svg class="h-4 w-4 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h12"/><path d="m15 8 4 4-4 4"/></svg>
-              数据集导出
-            </button>
-            <button id="tb-start" class="flex h-10 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-sm shadow-emerald-500/30 hover:bg-brandDark">
+            <button id="tb-start" class="flex h-9 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-sm shadow-emerald-500/30 hover:bg-brandDark">
               <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
               开始标注
             </button>
@@ -89,30 +76,27 @@
         <!-- 视图 Tabs -->
         <div class="flex items-center justify-between border-b border-slate-200 px-8">
           <nav class="flex items-center gap-5">
-            <button class="tab tab-view active relative -mb-px border-b-2 px-1 pb-2.5 text-[13px] font-semibold" data-view="all">全部</button>
-            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2.5 text-[13px] font-medium" data-view="pending">未标注</button>
-            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2.5 text-[13px] font-medium" data-view="done">已完成</button>
-            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2.5 text-[13px] font-medium" data-view="failed">失败</button>
-            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2.5 text-[13px] font-medium" data-view="mismatch">与 GT 不一致</button>
-            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2.5 text-[13px] font-medium text-slate-400">+ 自定义视图</button>
+            <button class="tab tab-view active relative -mb-px border-b-2 px-1 pb-2 text-[13px] font-semibold" data-view="all">全部</button>
+            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2 text-[13px] font-medium" data-view="pending">未标注</button>
+            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2 text-[13px] font-medium" data-view="done">已完成</button>
+            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2 text-[13px] font-medium" data-view="failed">失败</button>
+            <button class="tab tab-view relative -mb-px border-b-2 px-1 pb-2 text-[13px] font-medium" data-view="mismatch">与 GT 不一致</button>
           </nav>
         </div>
 
-        <!-- 批量操作栏(选中时浮现) -->
-        <div id="batch-bar" class="mx-8 my-3 hidden items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-2 text-sm">
+        <!-- 批量操作栏 -->
+        <div id="batch-bar" class="mx-8 my-2 hidden items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-2 text-sm">
           <div class="flex items-center gap-3">
             <span class="text-emerald-700 font-medium">已选 <span id="batch-count">0</span> 行</span>
-            <button id="batch-clear" class="text-slate-500 hover:underline text-xs">取消选中</button>
+            <button id="batch-clear" class="text-slate-500 hover:underline text-xs">取消</button>
           </div>
           <div class="flex items-center gap-2">
-            <button onclick="WorkbenchPage.bulkAnnotate()" class="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-xs font-semibold text-white hover:bg-brandDark">
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 标注选中
+            <button onclick="WorkbenchPage.bulkAnnotate()" class="flex h-7 items-center gap-1 rounded-lg bg-brand px-3 text-xs font-semibold text-white hover:bg-brandDark">
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 标注选中
             </button>
-            <button onclick="WorkbenchPage.openAddError()" class="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50">
-              ➕ 加入错题本
-            </button>
-            <button onclick="WorkbenchPage.bulkExport()" class="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50">⬇ 导出</button>
-            <button onclick="WorkbenchPage.bulkDelete()" class="flex h-8 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-xs font-medium text-rose-600 hover:bg-rose-50">🗑 删除</button>
+            <button onclick="WorkbenchPage.openAddError()" class="flex h-7 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50">➕ 加入错题本</button>
+            <button onclick="WorkbenchPage.bulkExport()" class="flex h-7 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50">⬇ 导出</button>
+            <button onclick="WorkbenchPage.bulkDelete()" class="flex h-7 items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 text-xs font-medium text-rose-600 hover:bg-rose-50">🗑 删除</button>
           </div>
         </div>
 
@@ -126,23 +110,23 @@
       </section>
 
       <!-- ========== Tab: 方案管理 ========== -->
-      <section id="pane-schemes" class="hidden flex-1 overflow-auto px-8 py-5">
-        <div class="flex items-center justify-between mb-4">
-          <div class="text-base font-semibold text-slate-800">方案列表</div>
-          <button onclick="WorkbenchPage.newScheme()" class="flex h-10 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-sm shadow-emerald-500/30 hover:bg-brandDark">
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      <section id="pane-schemes" class="hidden flex-1 overflow-auto px-8 py-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-sm font-semibold text-slate-700">方案列表</div>
+          <button onclick="WorkbenchPage.newScheme()" class="flex h-8 items-center gap-1.5 rounded-xl bg-brand px-3 text-xs font-semibold text-white shadow-sm shadow-emerald-500/30 hover:bg-brandDark">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
             新建方案
           </button>
         </div>
         <table class="w-full border-separate border-spacing-0 text-sm">
           <thead>
-            <tr class="text-left text-[13px] font-medium text-slate-500">
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">名称</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">场景</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">Prompt 角色</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">并发</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">最近使用</th>
-              <th class="w-28 border-b border-slate-200 px-4 py-3 font-medium text-right">操作</th>
+            <tr class="text-left text-[12px] font-medium text-slate-400">
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">名称</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">场景</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">Prompt 角色</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">并发</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">最近使用</th>
+              <th class="w-40 border-b border-slate-200 px-4 py-2 font-medium text-right">操作</th>
             </tr>
           </thead>
           <tbody id="schemes-tbody"></tbody>
@@ -150,18 +134,18 @@
       </section>
 
       <!-- ========== Tab: 任务面板 ========== -->
-      <section id="pane-tasks" class="hidden flex-1 overflow-auto px-8 py-5">
-        <div class="text-base font-semibold text-slate-800 mb-4">任务列表</div>
+      <section id="pane-tasks" class="hidden flex-1 overflow-auto px-8 py-4">
+        <div class="text-sm font-semibold text-slate-700 mb-3">任务列表</div>
         <table class="w-full border-separate border-spacing-0 text-sm">
           <thead>
-            <tr class="text-left text-[13px] font-medium text-slate-500">
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">任务 ID</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">触发时间</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">数据集</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">方案</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">行数</th>
-              <th class="border-b border-slate-200 px-4 py-3 font-medium">状态 / 进度</th>
-              <th class="w-32 border-b border-slate-200 px-4 py-3 font-medium text-right">操作</th>
+            <tr class="text-left text-[12px] font-medium text-slate-400">
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">任务 ID</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">触发时间</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">数据集</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">方案</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">行数</th>
+              <th class="border-b border-slate-200 px-4 py-2 font-medium">状态 / 进度</th>
+              <th class="w-28 border-b border-slate-200 px-4 py-2 font-medium text-right">操作</th>
             </tr>
           </thead>
           <tbody id="tasks-tbody"></tbody>
@@ -175,17 +159,15 @@
   <div id="drawer-mask" class="drawer-mask"></div>
   <aside id="row-drawer" class="drawer">
     <div class="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-      <div class="flex items-center gap-3">
-        <div class="text-base font-semibold text-slate-900" id="drawer-title">行详情</div>
-      </div>
+      <div class="text-base font-semibold text-slate-900" id="drawer-title">行详情</div>
       <div class="flex items-center gap-1">
-        <button onclick="WorkbenchPage.drawerCopy()" class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="复制(全行 JSON)">
+        <button onclick="WorkbenchPage.drawerCopy()" class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="复制全行 JSON">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
         </button>
-        <button onclick="WorkbenchPage.drawerExport()" class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="导出整行 JSON">
+        <button onclick="WorkbenchPage.drawerExport()" class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="导出 JSON">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="m6 10 6 6 6-6"/><path d="M4 20h16"/></svg>
         </button>
-        <button onclick="WorkbenchPage.drawerTranslate()" class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="翻译(走 UserHooks.translate mock)">
+        <button onclick="WorkbenchPage.drawerTranslate()" class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="翻译">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
         </button>
         <button onclick="WorkbenchPage.closeDrawer()" class="ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" title="关闭(Esc)">
@@ -193,14 +175,76 @@
         </button>
       </div>
     </div>
-
     <div class="flex items-center gap-4 border-b border-slate-100 px-5 py-2 text-sm">
       <button class="drawer-tab active text-emerald-600 font-semibold border-b-2 border-emerald-500 -mb-px py-1" data-dtab="current">当前结果</button>
       <button class="drawer-tab text-slate-500 hover:text-slate-900 py-1 border-b-2 border-transparent -mb-px" data-dtab="history">历史</button>
     </div>
-
     <div id="drawer-body" class="scroll-thin flex-1 overflow-auto px-5 py-4 space-y-4"></div>
   </aside>
+
+  <!-- =============== 开始标注配置弹窗 =============== -->
+  <div id="start-modal" class="modal-mask">
+    <div class="modal-card w-[480px]">
+      <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div>
+          <div class="text-base font-semibold text-slate-900">开始标注</div>
+          <div class="text-xs text-slate-400 mt-0.5">确认参数后开始批量调用模型</div>
+        </div>
+        <button class="text-slate-400 hover:text-slate-700" onclick="NX.closeModal(document.getElementById('start-modal'))">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6 18 18M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="px-6 py-5 space-y-4">
+        <!-- 数据集 + 方案 -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs font-medium text-slate-600 mb-1.5 block">数据集</label>
+            <select id="sm-dataset" class="w-full h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-600 mb-1.5 block">方案</label>
+            <select id="sm-scheme" class="w-full h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"></select>
+          </div>
+        </div>
+        <!-- 并发 -->
+        <div>
+          <label class="text-xs font-medium text-slate-600 mb-1.5 block">并发数</label>
+          <div class="flex items-center gap-2">
+            <input id="sm-concurrency" type="number" min="1" max="32" value="5"
+              class="w-20 h-9 rounded-lg border border-slate-200 px-3 text-sm text-center outline-none focus:border-emerald-400" />
+            <span class="text-xs text-slate-400">最大 32,建议 3~10</span>
+          </div>
+        </div>
+        <!-- 标注范围 -->
+        <div>
+          <div class="text-xs font-medium text-slate-600 mb-2">标注范围</div>
+          <div class="space-y-2 text-sm">
+            <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 has-[:checked]:border-emerald-400 has-[:checked]:bg-emerald-50/50">
+              <input type="radio" name="sm-scope" value="selected" class="accent-emerald-500" />
+              <span>仅标注已选中行</span>
+              <span id="sm-sel-count" class="ml-auto text-xs text-slate-400"></span>
+            </label>
+            <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 has-[:checked]:border-emerald-400 has-[:checked]:bg-emerald-50/50">
+              <input type="radio" name="sm-scope" value="pending" checked class="accent-emerald-500" />
+              <span>标注全部未标注行</span>
+              <span id="sm-pending-count" class="ml-auto text-xs text-slate-400"></span>
+            </label>
+            <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 has-[:checked]:border-emerald-400 has-[:checked]:bg-emerald-50/50">
+              <input type="radio" name="sm-scope" value="all" class="accent-emerald-500" />
+              <span>标注全部行<span class="text-slate-400 text-xs ml-1">(含重新标注)</span></span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2 border-t border-slate-100 px-6 py-3">
+        <button onclick="NX.closeModal(document.getElementById('start-modal'))" class="h-9 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">取消</button>
+        <button onclick="WorkbenchPage.confirmStart()" class="flex h-9 items-center gap-2 rounded-lg bg-brand px-5 text-sm font-semibold text-white hover:bg-brandDark">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          开始标注
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- =============== 添加错题弹窗 =============== -->
   <div id="add-error-modal" class="modal-mask">
@@ -220,7 +264,7 @@
           <div id="ae-cols" class="flex flex-wrap gap-2"></div>
         </div>
         <div>
-          <div class="text-sm font-medium text-slate-700 mb-2">② 实时预览(基于第一条选中行,JSON formatted)</div>
+          <div class="text-sm font-medium text-slate-700 mb-2">② 实时预览(基于第一条选中行)</div>
           <pre id="ae-preview" class="json-view max-h-64 overflow-auto scroll-thin"></pre>
           <div class="text-xs text-slate-400 mt-1" id="ae-preview-hint"></div>
         </div>
@@ -248,7 +292,6 @@
     </div>
   </div>
 
-  <!-- Mock data + Page JS -->
   <script src="../assets/shared.js"></script>
   <script src="../assets/mock/scenes.js"></script>
   <script src="../assets/mock/datasets.js"></script>
