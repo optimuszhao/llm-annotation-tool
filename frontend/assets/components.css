@@ -197,8 +197,8 @@
 }
 
 .column-search .ui-select {
-  min-width: 128px;
-  width: 128px;
+  min-width: 190px;
+  width: 190px;
   height: 100%;
   border-right: 1px solid var(--line);
 }
@@ -223,7 +223,8 @@
 }
 
 .column-search .ui-select-menu {
-  min-width: 160px;
+  min-width: 280px;
+  max-height: min(380px, 52vh);
 }
 
 input[type="checkbox"] {

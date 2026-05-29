@@ -256,7 +256,7 @@ def init_db() -> None:
         conn.execute(
             """
             UPDATE annotation_task_rows
-            SET status='cancelled', updated_at=?, finished_at=?, error='服务重启后未完成任务已中断'
+            SET status='取消', updated_at=?, finished_at=?, error='服务重启后未完成任务已中断'
             WHERE status IN ('queued', 'running')
             """,
             (timestamp, timestamp),

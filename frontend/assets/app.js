@@ -90,12 +90,17 @@ function setupShell() {
   });
 }
 
+function normalizeThemeChoice(theme) {
+  const aliases = { default: "white", cobalt: "blue", teal: "green", indigo: "purple", emerald: "green", graphite: "black", berry: "purple", coral: "orange", lime: "green", sky: "blue", rose: "red" };
+  const allowed = new Set(["white", "blue", "purple", "orange", "green", "black", "red"]);
+  const normalized = aliases[theme] || theme || "white";
+  return allowed.has(normalized) ? normalized : "white";
+}
+
 function applyThemeChoice(theme) {
-  if (theme && theme !== "default") {
-    document.documentElement.dataset.theme = theme;
-  } else {
-    document.documentElement.removeAttribute("data-theme");
-  }
+  const normalized = normalizeThemeChoice(theme);
+  document.documentElement.dataset.theme = normalized;
+  return normalized;
 }
 
 function applyModeChoice(mode) {
@@ -109,7 +114,8 @@ function setupThemeTools() {
   const themePopover = document.querySelector("#themePopover");
   const modeToggle = document.querySelector("#modeToggle");
 
-  applyThemeChoice(localStorage.getItem("themeChoice") || "default");
+  const normalizedTheme = applyThemeChoice(localStorage.getItem("themeChoice") || "white");
+  localStorage.setItem("themeChoice", normalizedTheme);
   applyModeChoice(localStorage.getItem("modeChoice") || document.documentElement.dataset.mode || "light");
 
   if (!themeButton || !themePopover || !modeToggle) return;
@@ -123,8 +129,8 @@ function setupThemeTools() {
   document.querySelectorAll("[data-theme-choice]").forEach((button) => {
     button.addEventListener("click", () => {
       const theme = button.dataset.themeChoice;
-      applyThemeChoice(theme);
-      localStorage.setItem("themeChoice", theme);
+      const normalized = applyThemeChoice(theme);
+      localStorage.setItem("themeChoice", normalized);
       themePopover.classList.remove("open");
     });
   });

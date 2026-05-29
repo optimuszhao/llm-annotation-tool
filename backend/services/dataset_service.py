@@ -205,11 +205,11 @@ def delete_dataset(dataset_id: str) -> dict:
     return {"ok": True, "id": dataset_id}
 
 
-def get_dataset_row(dataset_id: str, row_id: str) -> dict:
+def get_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "") -> dict:
     with get_db() as conn:
-        dataset, _scene, row = _load_dataset_row(conn, dataset_id, row_id)
+        dataset, _scene, row = _load_dataset_row(conn, dataset_id, row_id, scheme_id)
         columns = decode_json(dataset["column_schema"], [])
-    return _format_row(row, columns, preview=False)
+    return _format_row(row, columns, preview=False, scheme_view=bool(scheme_id))
 
 
 def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
@@ -318,6 +318,7 @@ def get_dataset_rows(
     page_size: int = 50,
     search: str = "",
     search_column: str = "",
+    scheme_id: str = "",
     statuses: Optional[list[str]] = None,
 ) -> dict:
     page = max(page, 1)
@@ -331,47 +332,106 @@ def get_dataset_rows(
         scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
         table_name = scene["data_table_name"]
         columns = decode_json(dataset["column_schema"], [])
-        where = "dataset_id=?"
+        scheme_view = bool(scheme_id)
+        base_alias = "d" if scheme_view else ""
+        status_expr = "COALESCE(latest.scheme_status, '未标注')" if scheme_view else "annotation_status"
+        raw_field = "d.raw_data" if scheme_view else "raw_data"
+        where = f"{base_alias + '.' if base_alias else ''}dataset_id=?"
         params: list[Any] = [dataset_id]
         search_text = search.strip()
         search_column = search_column.strip()
         if search_text and search_column == "状态":
-            where += " AND annotation_status LIKE ?"
+            where += f" AND {status_expr} LIKE ?"
             params.append(f"%{search_text}%")
         elif search_text and search_column and search_column in columns:
-            where += " AND COALESCE(CAST(json_extract(raw_data, ?) AS TEXT), '') LIKE ?"
-            params.extend([_json_column_path(search_column), f"%{search_text}%"])
+            if scheme_view:
+                where += """
+                    AND (
+                      COALESCE(CAST(json_extract(d.raw_data, ?) AS TEXT), '') LIKE ?
+                      OR COALESCE(CAST(json_extract(latest.scheme_model_result, ?) AS TEXT), '') LIKE ?
+                    )
+                """
+                params.extend([
+                    _json_column_path(search_column),
+                    f"%{search_text}%",
+                    _json_column_path(search_column),
+                    f"%{search_text}%",
+                ])
+            else:
+                where += " AND COALESCE(CAST(json_extract(raw_data, ?) AS TEXT), '') LIKE ?"
+                params.extend([_json_column_path(search_column), f"%{search_text}%"])
         elif search_text:
-            where += " AND raw_data LIKE ?"
-            params.append(f"%{search_text}%")
+            if scheme_view:
+                where += " AND (d.raw_data LIKE ? OR COALESCE(latest.scheme_model_result, '') LIKE ?)"
+                params.extend([f"%{search_text}%", f"%{search_text}%"])
+            else:
+                where += " AND raw_data LIKE ?"
+                params.append(f"%{search_text}%")
         status_values = _normalize_status_filters(statuses)
         if status_values:
             concrete_statuses = [status for status in status_values if status != "未标注"]
             clauses: list[str] = []
             if "未标注" in status_values:
-                clauses.append("(annotation_status IS NULL OR annotation_status='' OR annotation_status='未标注')")
+                clauses.append(f"({status_expr} IS NULL OR {status_expr}='' OR {status_expr}='未标注')")
             if concrete_statuses:
                 placeholders = ", ".join(["?"] * len(concrete_statuses))
-                clauses.append(f"annotation_status IN ({placeholders})")
+                clauses.append(f"{status_expr} IN ({placeholders})")
                 params.extend(concrete_statuses)
             where += f" AND ({' OR '.join(clauses)})"
 
-        total = conn.execute(
-            f"SELECT COUNT(*) AS total FROM {table_name} WHERE {where}",
-            params,
-        ).fetchone()["total"]
-        rows = conn.execute(
-            f"""
-            SELECT id, row_index, raw_data, annotation_status
-            FROM {table_name}
-            WHERE {where}
-            ORDER BY row_index ASC
-            LIMIT ? OFFSET ?
-            """,
-            [*params, page_size, offset],
-        ).fetchall()
+        if scheme_view:
+            latest_cte = _latest_scheme_rows_cte()
+            latest_params = [dataset_id, scheme_id]
+            total = conn.execute(
+                f"""
+                {latest_cte}
+                SELECT COUNT(*) AS total
+                FROM {table_name} d
+                LEFT JOIN latest_scheme_rows latest ON latest.row_id=d.id
+                WHERE {where}
+                """,
+                [*latest_params, *params],
+            ).fetchone()["total"]
+            rows = conn.execute(
+                f"""
+                {latest_cte}
+                SELECT
+                    d.id,
+                    d.row_index,
+                    d.raw_data,
+                    d.annotation_status,
+                    d.model_result,
+                    d.analysis_data,
+                    d.rendered_prompt,
+                    latest.scheme_status,
+                    latest.scheme_model_result,
+                    latest.scheme_analysis_data,
+                    latest.scheme_rendered_prompt
+                FROM {table_name} d
+                LEFT JOIN latest_scheme_rows latest ON latest.row_id=d.id
+                WHERE {where}
+                ORDER BY d.row_index ASC
+                LIMIT ? OFFSET ?
+                """,
+                [*latest_params, *params, page_size, offset],
+            ).fetchall()
+        else:
+            total = conn.execute(
+                f"SELECT COUNT(*) AS total FROM {table_name} WHERE {where}",
+                params,
+            ).fetchone()["total"]
+            rows = conn.execute(
+                f"""
+                SELECT id, row_index, raw_data, annotation_status
+                FROM {table_name}
+                WHERE {where}
+                ORDER BY row_index ASC
+                LIMIT ? OFFSET ?
+                """,
+                [*params, page_size, offset],
+            ).fetchall()
 
-    data = [_format_row(row, columns, preview=True) for row in rows]
+    data = [_format_row(row, columns, preview=True, scheme_view=bool(scheme_id)) for row in rows]
 
     return {
         "data": data,
@@ -418,21 +478,44 @@ def export_dataset_rows(dataset_id: str) -> dict:
     }
 
 
-def _load_dataset_row(conn, dataset_id: str, row_id: str) -> tuple[dict, dict, dict]:
+def _load_dataset_row(conn, dataset_id: str, row_id: str, scheme_id: str = "") -> tuple[dict, dict, dict]:
     dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
     if not dataset:
         raise HTTPException(status_code=404, detail="数据集不存在")
     scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
     if not scene:
         raise HTTPException(status_code=404, detail="场景不存在")
-    row = conn.execute(
-        f"""
-        SELECT id, row_index, raw_data, annotation_status, model_result, analysis_data, rendered_prompt
-        FROM {scene['data_table_name']}
-        WHERE id=? AND dataset_id=?
-        """,
-        (row_id, dataset_id),
-    ).fetchone()
+    if scheme_id:
+        row = conn.execute(
+            f"""
+            {_latest_scheme_rows_cte()}
+            SELECT
+                d.id,
+                d.row_index,
+                d.raw_data,
+                d.annotation_status,
+                d.model_result,
+                d.analysis_data,
+                d.rendered_prompt,
+                latest.scheme_status,
+                latest.scheme_model_result,
+                latest.scheme_analysis_data,
+                latest.scheme_rendered_prompt
+            FROM {scene['data_table_name']} d
+            LEFT JOIN latest_scheme_rows latest ON latest.row_id=d.id
+            WHERE d.id=? AND d.dataset_id=?
+            """,
+            (dataset_id, scheme_id, row_id, dataset_id),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            f"""
+            SELECT id, row_index, raw_data, annotation_status, model_result, analysis_data, rendered_prompt
+            FROM {scene['data_table_name']}
+            WHERE id=? AND dataset_id=?
+            """,
+            (row_id, dataset_id),
+        ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="数据行不存在")
     return dataset, scene, row
@@ -445,22 +528,52 @@ def _normalize_status_filters(statuses: Optional[list[str]]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
-def _format_row(row: dict, columns: list[str], preview: bool) -> dict:
+def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool = False) -> dict:
     raw_data = decode_json(row["raw_data"], {})
+    if scheme_view:
+        model_result = decode_json(row.get("scheme_model_result"), {})
+        raw_data = {**raw_data, **model_result}
+        status = row.get("scheme_status") or "未标注"
+    else:
+        model_result = decode_json(row.get("model_result"), {})
+        status = row.get("annotation_status") or raw_data.get("状态") or raw_data.get("status") or "未标注"
     item = {
         "row_id": row["id"],
         "row_index": row["row_index"],
-        "状态": row.get("annotation_status") or raw_data.get("状态") or raw_data.get("status") or "未标注",
+        "状态": status,
     }
     for column in columns:
         value = raw_data.get(column, "")
         item[column] = _preview(value) if preview and column in PREVIEW_FIELDS else value
     if not preview:
-        model_result = decode_json(row.get("model_result"), {})
-        analysis_data = decode_json(row.get("analysis_data"), {})
+        analysis_data = decode_json(row.get("scheme_analysis_data") if scheme_view else row.get("analysis_data"), {})
         item["model_result"] = model_result
         item["analysis_data"] = analysis_data
-        item["rendered_prompt"] = row.get("rendered_prompt") or ""
+        item["rendered_prompt"] = (row.get("scheme_rendered_prompt") if scheme_view else row.get("rendered_prompt")) or ""
         if analysis_data and "分析数据" not in item:
             item["分析数据"] = analysis_data
     return item
+
+
+def _latest_scheme_rows_cte() -> str:
+    return """
+    WITH latest_scheme_rows AS (
+      SELECT row_id, scheme_status, scheme_model_result, scheme_analysis_data, scheme_rendered_prompt
+      FROM (
+        SELECT
+          task_row.row_id,
+          task_row.status AS scheme_status,
+          task_row.model_result AS scheme_model_result,
+          task_row.analysis_data AS scheme_analysis_data,
+          task_row.rendered_prompt AS scheme_rendered_prompt,
+          ROW_NUMBER() OVER (
+            PARTITION BY task_row.row_id
+            ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
+          ) AS rn
+        FROM annotation_task_rows task_row
+        JOIN annotation_tasks task ON task.id=task_row.task_id
+        WHERE task.dataset_id=? AND task.scheme_id=?
+      )
+      WHERE rn=1
+    )
+    """

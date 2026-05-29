@@ -40,8 +40,8 @@ def create_annotation_task(payload: dict) -> dict:
         dataset, scene, scheme = _load_dataset_scene_scheme(conn, dataset_id, scheme_id)
         table_name = scene["data_table_name"]
         requested_row_ids = row_ids if mode == "selected" else []
-        skipped_counts = _count_active_rows(conn, table_name, dataset_id, requested_row_ids)
-        rows = _select_task_rows(conn, table_name, dataset_id, requested_row_ids)
+        skipped_counts = _count_active_rows(conn, table_name, dataset_id, requested_row_ids, scheme_id)
+        rows = _select_task_rows(conn, table_name, dataset_id, requested_row_ids, scheme_id)
         if not rows:
             raise HTTPException(status_code=400, detail="没有可创建任务的数据行，排队中和标注中的数据会被跳过")
 
@@ -106,9 +106,18 @@ def create_annotation_task(payload: dict) -> dict:
     return task
 
 
-def list_annotation_tasks(dataset_id: Optional[str] = None) -> list[dict]:
+def list_annotation_tasks(dataset_id: Optional[str] = None, scheme_id: Optional[str] = None) -> list[dict]:
     with get_db() as conn:
-        if dataset_id:
+        if dataset_id and scheme_id:
+            rows = conn.execute(
+                """
+                SELECT * FROM annotation_tasks
+                WHERE dataset_id=? AND scheme_id=?
+                ORDER BY created_at DESC
+                """,
+                (dataset_id, scheme_id),
+            ).fetchall()
+        elif dataset_id:
             rows = conn.execute(
                 "SELECT * FROM annotation_tasks WHERE dataset_id=? ORDER BY created_at DESC",
                 (dataset_id,),
@@ -165,7 +174,7 @@ def stop_unfinished(task_id: str) -> dict:
     return event
 
 
-def analyze_dataset_row(dataset_id: str, row_id: str) -> dict:
+def analyze_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "") -> dict:
     timestamp = now_iso()
     with get_db() as conn:
         dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
@@ -180,7 +189,11 @@ def analyze_dataset_row(dataset_id: str, row_id: str) -> dict:
         if not row:
             raise HTTPException(status_code=404, detail="数据行不存在")
         raw_data = decode_json(row["raw_data"], {})
-        model_result = decode_json(row["model_result"], {})
+        if scheme_id:
+            latest = _latest_task_row_for_scheme(conn, dataset_id, row_id, scheme_id)
+            model_result = decode_json(latest.get("model_result") if latest else "{}", {})
+        else:
+            model_result = decode_json(row["model_result"], {})
 
     analysis_result = hooks.analyze_row(raw_data, model_result)
     if not isinstance(analysis_result, dict):
@@ -205,7 +218,7 @@ def analyze_dataset_row(dataset_id: str, row_id: str) -> dict:
             """,
             (encode_json(raw_data), encode_json(analysis_result), timestamp, row_id, dataset_id),
         )
-        latest = conn.execute(
+        latest = _latest_task_row_for_scheme(conn, dataset_id, row_id, scheme_id) if scheme_id else conn.execute(
             """
             SELECT * FROM annotation_task_rows
             WHERE row_id=?
@@ -260,13 +273,17 @@ def list_row_analysis_history(dataset_id: str, row_id: str) -> list[dict]:
     return rows
 
 
-def list_row_annotation_history(dataset_id: str, row_id: str) -> list[dict]:
+def list_row_annotation_history(dataset_id: str, row_id: str, scheme_id: str = "") -> list[dict]:
     with get_db() as conn:
         dataset = conn.execute("SELECT id FROM datasets WHERE id=?", (dataset_id,)).fetchone()
         if not dataset:
             raise HTTPException(status_code=404, detail="数据集不存在")
+        scheme_filter = "AND task.scheme_id=?" if scheme_id else ""
+        params = [dataset_id, row_id]
+        if scheme_id:
+            params.append(scheme_id)
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 task_row.id,
                 task_row.task_id,
@@ -286,9 +303,10 @@ def list_row_annotation_history(dataset_id: str, row_id: str) -> list[dict]:
             FROM annotation_task_rows task_row
             JOIN annotation_tasks task ON task.id = task_row.task_id
             WHERE task.dataset_id=? AND task_row.row_id=?
+              {scheme_filter}
             ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
             """,
-            (dataset_id, row_id),
+            params,
         ).fetchall()
     for row in rows:
         row["model_result"] = decode_json(row.get("model_result"), {})
@@ -296,7 +314,7 @@ def list_row_annotation_history(dataset_id: str, row_id: str) -> list[dict]:
     return rows
 
 
-def get_dataset_metrics(dataset_id: str) -> dict:
+def get_dataset_metrics(dataset_id: str, scheme_id: str = "") -> dict:
     with get_db() as conn:
         dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
         if not dataset:
@@ -307,15 +325,43 @@ def get_dataset_metrics(dataset_id: str) -> dict:
             f"SELECT COUNT(*) AS total FROM {table_name} WHERE dataset_id=?",
             (dataset_id,),
         ).fetchone()["total"]
-        rows = conn.execute(
-            f"""
-            SELECT annotation_status, COUNT(*) AS count
-            FROM {table_name}
-            WHERE dataset_id=?
-            GROUP BY annotation_status
-            """,
-            (dataset_id,),
-        ).fetchall()
+        if scheme_id:
+            rows = conn.execute(
+                f"""
+                WITH latest_scheme_rows AS (
+                  SELECT row_id, annotation_status
+                  FROM (
+                    SELECT
+                      task_row.row_id,
+                      task_row.status AS annotation_status,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY task_row.row_id
+                        ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
+                      ) AS rn
+                    FROM annotation_task_rows task_row
+                    JOIN annotation_tasks task ON task.id=task_row.task_id
+                    WHERE task.dataset_id=? AND task.scheme_id=?
+                  )
+                  WHERE rn=1
+                )
+                SELECT COALESCE(latest.annotation_status, '未标注') AS annotation_status, COUNT(*) AS count
+                FROM {table_name} data_row
+                LEFT JOIN latest_scheme_rows latest ON latest.row_id=data_row.id
+                WHERE data_row.dataset_id=?
+                GROUP BY COALESCE(latest.annotation_status, '未标注')
+                """,
+                (dataset_id, scheme_id, dataset_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""
+                SELECT annotation_status, COUNT(*) AS count
+                FROM {table_name}
+                WHERE dataset_id=?
+                GROUP BY annotation_status
+                """,
+                (dataset_id,),
+            ).fetchall()
     counts = {row["annotation_status"] or "未标注": row["count"] for row in rows}
     tp = counts.get(ROW_STATUS_TP, 0)
     tn = counts.get("TN", 0)
@@ -430,7 +476,7 @@ def _run_task_row(task_id: str, task_row_id: str) -> None:
                 "row_id": task_row["row_id"],
                 "status": ROW_STATUS_RUNNING,
                 "task": get_annotation_task(task_id),
-                "metrics": get_dataset_metrics(task["dataset_id"]),
+                "metrics": get_dataset_metrics(task["dataset_id"], task["scheme_id"]),
             },
         )
 
@@ -532,7 +578,7 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
         "model_result": model_result,
         "rendered_prompt": rendered_prompt,
         "rendered_prompts": rendered_prompts,
-        "metrics": get_dataset_metrics(context["dataset_id"]),
+        "metrics": get_dataset_metrics(context["dataset_id"], task["scheme_id"]),
         "task": get_annotation_task(task_id),
     }
 
@@ -567,7 +613,7 @@ def _mark_row_failed(task_id: str, task_row_id: str, error: str) -> dict:
         "row_id": task_row["row_id"],
         "status": ROW_STATUS_FAILED,
         "error": error,
-        "metrics": get_dataset_metrics(dataset_id),
+        "metrics": get_dataset_metrics(dataset_id, task["scheme_id"]),
         "task": get_annotation_task(task_id),
     }
 
@@ -587,46 +633,89 @@ def _load_dataset_scene_scheme(conn, dataset_id: str, scheme_id: str) -> tuple[d
     return dataset, scene, scheme
 
 
-def _select_task_rows(conn, table_name: str, dataset_id: str, row_ids: list[str]) -> list[dict]:
+def _latest_task_row_for_scheme(conn, dataset_id: str, row_id: str, scheme_id: str) -> Optional[dict]:
+    return conn.execute(
+        """
+        SELECT task_row.*
+        FROM annotation_task_rows task_row
+        JOIN annotation_tasks task ON task.id=task_row.task_id
+        WHERE task.dataset_id=? AND task.scheme_id=? AND task_row.row_id=?
+        ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
+        LIMIT 1
+        """,
+        (dataset_id, scheme_id, row_id),
+    ).fetchone()
+
+
+def _select_task_rows(conn, table_name: str, dataset_id: str, row_ids: list[str], scheme_id: str) -> list[dict]:
+    row_filter = ""
+    params: list[Any] = [dataset_id, scheme_id, dataset_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING]
     if row_ids:
         placeholders = ", ".join(["?"] * len(row_ids))
-        return conn.execute(
-            f"""
-            SELECT id, row_index
-            FROM {table_name}
-            WHERE dataset_id=? AND id IN ({placeholders})
-              AND annotation_status NOT IN (?, ?)
-            ORDER BY row_index ASC
-            """,
-            [dataset_id, *row_ids, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING],
-        ).fetchall()
+        row_filter = f"AND data_row.id IN ({placeholders})"
+        params.extend(row_ids)
     return conn.execute(
         f"""
-        SELECT id, row_index
-        FROM {table_name}
-        WHERE dataset_id=?
-          AND annotation_status NOT IN (?, ?)
-        ORDER BY row_index ASC
+        WITH latest_scheme_rows AS (
+          SELECT row_id, status
+          FROM (
+            SELECT
+              task_row.row_id,
+              task_row.status,
+              ROW_NUMBER() OVER (
+                PARTITION BY task_row.row_id
+                ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
+              ) AS rn
+            FROM annotation_task_rows task_row
+            JOIN annotation_tasks task ON task.id=task_row.task_id
+            WHERE task.dataset_id=? AND task.scheme_id=?
+          )
+          WHERE rn=1
+        )
+        SELECT data_row.id, data_row.row_index
+        FROM {table_name} data_row
+        LEFT JOIN latest_scheme_rows latest ON latest.row_id=data_row.id
+        WHERE data_row.dataset_id=?
+          AND (latest.status IS NULL OR latest.status NOT IN (?, ?))
+          {row_filter}
+        ORDER BY data_row.row_index ASC
         """,
-        (dataset_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING),
+        params,
     ).fetchall()
 
 
-def _count_active_rows(conn, table_name: str, dataset_id: str, row_ids: list[str]) -> dict[str, int]:
-    params: list[Any] = [dataset_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING]
+def _count_active_rows(conn, table_name: str, dataset_id: str, row_ids: list[str], scheme_id: str) -> dict[str, int]:
+    params: list[Any] = [dataset_id, scheme_id, dataset_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING]
     row_filter = ""
     if row_ids:
         placeholders = ", ".join(["?"] * len(row_ids))
-        row_filter = f" AND id IN ({placeholders})"
+        row_filter = f" AND data_row.id IN ({placeholders})"
         params.extend(row_ids)
     rows = conn.execute(
         f"""
-        SELECT annotation_status, COUNT(*) AS count
-        FROM {table_name}
-        WHERE dataset_id=?
-          AND annotation_status IN (?, ?)
+        WITH latest_scheme_rows AS (
+          SELECT row_id, status
+          FROM (
+            SELECT
+              task_row.row_id,
+              task_row.status,
+              ROW_NUMBER() OVER (
+                PARTITION BY task_row.row_id
+                ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
+              ) AS rn
+            FROM annotation_task_rows task_row
+            JOIN annotation_tasks task ON task.id=task_row.task_id
+            WHERE task.dataset_id=? AND task.scheme_id=?
+          )
+          WHERE rn=1
+        )
+        SELECT latest.status AS annotation_status, COUNT(*) AS count
+        FROM {table_name} data_row
+        JOIN latest_scheme_rows latest ON latest.row_id=data_row.id
+        WHERE data_row.dataset_id=?
+          AND latest.status IN (?, ?)
           {row_filter}
-        GROUP BY annotation_status
+        GROUP BY latest.status
         """,
         params,
     ).fetchall()

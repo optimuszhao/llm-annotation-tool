@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="white" data-mode="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -24,20 +24,20 @@
       <button class="workflow-tab active" data-page="workbench"><span>2</span>标注工作台</button>
     </nav>
     <div class="theme-tools">
+      <button class="btn shell-source-switch" id="shellSourceSwitchButton" type="button" title="切换数据源与方案">
+        <span>点击切换</span>
+        <strong id="shellSourceSchemeName">未选择方案</strong>
+      </button>
       <button class="icon-btn" id="modeToggle" type="button" title="切换明暗模式" onclick="window.__toggleMode?.()">◐</button>
       <button class="btn" id="themeButton" type="button" onclick="window.__toggleThemePopover?.(event)">主题</button>
       <div class="theme-popover" id="themePopover">
-        <button type="button" data-theme-choice="default" onclick="window.__chooseTheme?.('default', event)"><i class="swatch cobalt"></i>Cobalt</button>
-        <button type="button" data-theme-choice="white" onclick="window.__chooseTheme?.('white', event)"><i class="swatch white"></i>White</button>
-        <button type="button" data-theme-choice="teal" onclick="window.__chooseTheme?.('teal', event)"><i class="swatch teal"></i>Teal</button>
-        <button type="button" data-theme-choice="indigo" onclick="window.__chooseTheme?.('indigo', event)"><i class="swatch indigo"></i>Indigo</button>
-        <button type="button" data-theme-choice="emerald" onclick="window.__chooseTheme?.('emerald', event)"><i class="swatch emerald"></i>Emerald</button>
-        <button type="button" data-theme-choice="graphite" onclick="window.__chooseTheme?.('graphite', event)"><i class="swatch graphite"></i>Graphite</button>
-        <button type="button" data-theme-choice="berry" onclick="window.__chooseTheme?.('berry', event)"><i class="swatch berry"></i>Berry</button>
-        <button type="button" data-theme-choice="coral" onclick="window.__chooseTheme?.('coral', event)"><i class="swatch coral"></i>Coral</button>
-        <button type="button" data-theme-choice="lime" onclick="window.__chooseTheme?.('lime', event)"><i class="swatch lime"></i>Lime</button>
-        <button type="button" data-theme-choice="sky" onclick="window.__chooseTheme?.('sky', event)"><i class="swatch sky"></i>Sky</button>
-        <button type="button" data-theme-choice="rose" onclick="window.__chooseTheme?.('rose', event)"><i class="swatch rose"></i>Rose</button>
+        <button type="button" data-theme-choice="white" onclick="window.__chooseTheme?.('white', event)"><i class="swatch white"></i>白色</button>
+        <button type="button" data-theme-choice="blue" onclick="window.__chooseTheme?.('blue', event)"><i class="swatch blue"></i>蓝色</button>
+        <button type="button" data-theme-choice="purple" onclick="window.__chooseTheme?.('purple', event)"><i class="swatch purple"></i>紫色</button>
+        <button type="button" data-theme-choice="orange" onclick="window.__chooseTheme?.('orange', event)"><i class="swatch orange"></i>橙色</button>
+        <button type="button" data-theme-choice="green" onclick="window.__chooseTheme?.('green', event)"><i class="swatch green"></i>绿色</button>
+        <button type="button" data-theme-choice="black" onclick="window.__chooseTheme?.('black', event)"><i class="swatch black"></i>黑色</button>
+        <button type="button" data-theme-choice="red" onclick="window.__chooseTheme?.('red', event)"><i class="swatch red"></i>红色</button>
       </div>
     </div>
   </header>
@@ -74,12 +74,16 @@
         }
       };
 
+      const themeAliases = { default: "white", cobalt: "blue", teal: "green", indigo: "purple", emerald: "green", graphite: "black", berry: "purple", coral: "orange", lime: "green", sky: "blue", rose: "red" };
+      const allowedThemes = new Set(["white", "blue", "purple", "orange", "green", "black", "red"]);
+      const normalizeThemeChoice = (theme) => {
+        const normalized = themeAliases[theme] || theme || "white";
+        return allowedThemes.has(normalized) ? normalized : "white";
+      };
       const applyThemeChoice = (theme) => {
-        if (theme && theme !== "default") {
-          root.dataset.theme = theme;
-        } else {
-          root.removeAttribute("data-theme");
-        }
+        const normalized = normalizeThemeChoice(theme);
+        root.dataset.theme = normalized;
+        return normalized;
       };
       const applyModeChoice = (mode) => {
         root.dataset.mode = mode === "dark" ? "dark" : "light";
@@ -89,7 +93,9 @@
       const themePopover = document.querySelector("#themePopover");
       const modeToggle = document.querySelector("#modeToggle");
 
-      applyThemeChoice(readPreference("themeChoice", "default"));
+      const storedThemeChoice = readPreference("themeChoice", "white");
+      const initialThemeChoice = applyThemeChoice(storedThemeChoice);
+      if (storedThemeChoice !== initialThemeChoice) writePreference("themeChoice", initialThemeChoice);
       applyModeChoice(readPreference("modeChoice", root.dataset.mode || "light"));
 
       if (!themeButton || !themePopover || !modeToggle) return;
@@ -100,8 +106,8 @@
       };
       window.__chooseTheme = (theme, event) => {
         event?.stopPropagation();
-        applyThemeChoice(theme);
-        writePreference("themeChoice", theme);
+        const normalized = applyThemeChoice(theme);
+        writePreference("themeChoice", normalized);
         themePopover.classList.remove("open");
       };
       window.__toggleMode = () => {

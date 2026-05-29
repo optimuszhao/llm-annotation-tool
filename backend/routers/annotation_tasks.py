@@ -26,8 +26,8 @@ def post_annotation_task(payload: AnnotationTaskCreate):
 
 
 @router.get("")
-def get_annotation_tasks(dataset_id: Optional[str] = None):
-    return list_annotation_tasks(dataset_id)
+def get_annotation_tasks(dataset_id: Optional[str] = None, scheme_id: Optional[str] = None):
+    return list_annotation_tasks(dataset_id, scheme_id)
 
 
 @router.get("/{task_id}")

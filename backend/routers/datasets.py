@@ -47,9 +47,10 @@ def get_rows(
     page_size: int = Query(default=50, ge=1),
     search: str = "",
     search_column: str = "",
+    scheme_id: str = "",
     statuses: list[str] = Query(default=[]),
 ):
-    return get_dataset_rows(dataset_id, page, page_size, search, search_column, statuses)
+    return get_dataset_rows(dataset_id, page, page_size, search, search_column, scheme_id, statuses)
 
 
 @router.get("/{dataset_id}/export")
@@ -58,8 +59,8 @@ def export_rows(dataset_id: str):
 
 
 @router.get("/{dataset_id}/rows/{row_id}")
-def get_row(dataset_id: str, row_id: str):
-    return get_dataset_row(dataset_id, row_id)
+def get_row(dataset_id: str, row_id: str, scheme_id: str = ""):
+    return get_dataset_row(dataset_id, row_id, scheme_id)
 
 
 @router.put("/{dataset_id}/rows/{row_id}")
@@ -78,8 +79,8 @@ def remove_rows(dataset_id: str, payload: dict = Body(...)):
 
 
 @router.post("/{dataset_id}/rows/{row_id}/analysis")
-def post_row_analysis(dataset_id: str, row_id: str):
-    return analyze_dataset_row(dataset_id, row_id)
+def post_row_analysis(dataset_id: str, row_id: str, scheme_id: str = ""):
+    return analyze_dataset_row(dataset_id, row_id, scheme_id)
 
 
 @router.get("/{dataset_id}/rows/{row_id}/analysis-history")
@@ -88,10 +89,10 @@ def get_row_analysis_history(dataset_id: str, row_id: str):
 
 
 @router.get("/{dataset_id}/rows/{row_id}/annotation-history")
-def get_row_annotation_history(dataset_id: str, row_id: str):
-    return list_row_annotation_history(dataset_id, row_id)
+def get_row_annotation_history(dataset_id: str, row_id: str, scheme_id: str = ""):
+    return list_row_annotation_history(dataset_id, row_id, scheme_id)
 
 
 @router.get("/{dataset_id}/metrics")
-def get_metrics(dataset_id: str):
-    return get_dataset_metrics(dataset_id)
+def get_metrics(dataset_id: str, scheme_id: str = ""):
+    return get_dataset_metrics(dataset_id, scheme_id)

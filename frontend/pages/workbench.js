@@ -2,6 +2,7 @@ import { api, loadSceneResources, state, toast } from "/assets/app.js";
 
 let table = null;
 let tableBuildKey = "";
+let refreshToken = 0;
 let searchTimer = 0;
 let pendingSource = { sceneId: "", datasetId: "", schemeId: "" };
 let pendingResources = { datasets: [], schemes: [] };
@@ -9,6 +10,8 @@ let documentMenusBound = false;
 let currentTask = null;
 let taskEvents = null;
 let metricsTimer = 0;
+let tableReadyForRealtime = false;
+let tableAjaxReadyResolver = null;
 let currentDetailRow = null;
 let currentDetailMode = "view";
 let currentDetailKind = "row";
@@ -53,7 +56,6 @@ export function renderWorkbenchPage() {
       <div class="workbench-head">
         <div class="workbench-titleline">
           <h2 id="workbenchTitle">标注工作台</h2>
-          <button class="btn quiet-button" type="button" id="sourceSwitchButton">切换数据源与方案</button>
         </div>
       </div>
 
@@ -227,7 +229,16 @@ export function renderWorkbenchPage() {
               <strong>编辑 JSON</strong>
               <span id="drawerEditStatus">修改后点击保存</span>
             </div>
-            <textarea class="drawer-json-editor" id="drawerEditor" spellcheck="false"></textarea>
+            <div class="drawer-edit-layout">
+              <textarea class="drawer-json-editor" id="drawerEditor" spellcheck="false"></textarea>
+              <section class="drawer-edit-analysis-card">
+                <div class="drawer-section-title">
+                  <strong>最新分析结果</strong>
+                  <span id="drawerEditAnalysisStatus">只读预览</span>
+                </div>
+                <pre class="drawer-json-view" id="drawerEditAnalysisJson">{}</pre>
+              </section>
+            </div>
           </section>
           <section class="drawer-pane drawer-result-pane" id="drawerResultPane" hidden>
             <div class="drawer-result-layout">
@@ -319,11 +330,11 @@ export function renderWorkbenchPage() {
 
   `;
   bindWorkbenchEvents();
-  refreshWorkbench();
 }
 
 function bindWorkbenchEvents() {
-  document.querySelector("#sourceSwitchButton").addEventListener("click", openSourceModal);
+  const shellSourceSwitchButton = document.querySelector("#shellSourceSwitchButton");
+  if (shellSourceSwitchButton) shellSourceSwitchButton.onclick = openSourceModal;
   document.querySelector("#sourceModalClose").addEventListener("click", closeSourceModal);
   document.querySelector("#sourceModalCancel").addEventListener("click", closeSourceModal);
   document.querySelector("#sourceApplyButton").addEventListener("click", applySourceModal);
@@ -457,9 +468,12 @@ async function refreshTableData() {
 }
 
 export async function refreshWorkbench() {
+  const token = ++refreshToken;
   const container = document.querySelector("#workbenchTable");
   if (!container) return;
   updateWorkbenchTitle();
+  closeTaskEvents();
+  tableReadyForRealtime = false;
   if (!state.activeDatasetId) {
     if (table) {
       table.destroy();
@@ -472,8 +486,8 @@ export async function refreshWorkbench() {
     setBatchButtonState();
     return;
   }
-  await loadLatestTask();
   const response = await api(`/api/datasets/${state.activeDatasetId}/rows?${buildRowsQuery(1, table?.getPageSize?.() || 20)}`);
+  if (token !== refreshToken) return;
   document.querySelector("#metricTotal").textContent = response.total.toLocaleString();
   availableDatasetColumns = response.columns.length ? response.columns : defaultColumns;
   fillSearchColumnOptions(availableDatasetColumns);
@@ -482,23 +496,24 @@ export async function refreshWorkbench() {
   const nextBuildKey = [
     state.activeDatasetId,
     state.activeSceneId,
+    state.activeSchemeId,
     visibleColumns.join("\u001f"),
     fixedMappingColumns(availableDatasetColumns).join("\u001f"),
   ].join("\u001e");
   if (table && tableBuildKey === nextBuildKey) {
-    try {
-      await table.setPage(1);
-      await table.replaceData?.();
-    } catch {
-      await table.setData?.();
-    }
+    const tableReady = waitForNextTableAjax();
+    await reloadCurrentTableData();
+    await tableReady;
+    if (token !== refreshToken) return;
     await refreshMetrics();
     syncStatusFilterMenu();
     setBatchButtonState();
+    await loadLatestTask();
     return;
   }
   if (table) table.destroy();
   tableBuildKey = nextBuildKey;
+  const tableReady = waitForNextTableAjax();
   table = new Tabulator("#workbenchTable", {
     height: "100%",
     layout: "fitColumns",
@@ -554,6 +569,7 @@ export async function refreshWorkbench() {
       }
       refreshMetrics();
       setBatchButtonState();
+      resolveTableAjaxReady();
       return payload;
     },
     rowSelectionChanged: setBatchButtonState,
@@ -565,9 +581,51 @@ export async function refreshWorkbench() {
   table.on?.("rowSelectionChanged", setBatchButtonState);
   table.on?.("cellDblClick", (event, cell) => openCellDetail(cell));
   document.querySelector("#workbenchTable").ondblclick = handleTableCellDoubleClick;
+  await tableReady;
+  if (token !== refreshToken) return;
+  tableReadyForRealtime = true;
   await refreshMetrics();
   syncStatusFilterMenu();
   setBatchButtonState();
+  await loadLatestTask();
+}
+
+async function reloadCurrentTableData() {
+  if (!table) return;
+  tableReadyForRealtime = false;
+  try {
+    const currentPage = Number(table.getPage?.() || 1);
+    let result = null;
+    if (currentPage !== 1 && typeof table.setPage === "function") {
+      result = table.setPage(1);
+    } else if (typeof table.replaceData === "function") {
+      result = table.replaceData();
+    } else if (typeof table.setData === "function") {
+      result = table.setData();
+    }
+    if (result && typeof result.then === "function") await result;
+  } finally {
+    tableReadyForRealtime = true;
+  }
+}
+
+function waitForNextTableAjax(timeout = 6000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      if (tableAjaxReadyResolver === finish) tableAjaxReadyResolver = null;
+      window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+    };
+    const timer = window.setTimeout(finish, timeout);
+    tableAjaxReadyResolver = finish;
+  });
+}
+
+function resolveTableAjaxReady() {
+  tableAjaxReadyResolver?.();
 }
 
 function buildColumns(columns, sampleRows = []) {
@@ -638,8 +696,13 @@ function buildRowsQuery(page, pageSize) {
   params.set("page_size", String(pageSize));
   params.set("search", document.querySelector("#tableSearch")?.value || "");
   params.set("search_column", document.querySelector("#tableSearchColumn")?.value || "");
+  if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
   statusFilters.forEach((status) => params.append("statuses", status));
   return params.toString();
+}
+
+function schemeQuery(prefix = "?") {
+  return state.activeSchemeId ? `${prefix}scheme_id=${encodeURIComponent(state.activeSchemeId)}` : "";
 }
 
 function fillSearchColumnOptions(columns) {
@@ -686,11 +749,16 @@ function updateWorkbenchTitle() {
   const scene = state.scenes.find((item) => item.id === state.activeSceneId);
   const dataset = state.datasets.find((item) => item.id === state.activeDatasetId);
   const scheme = state.schemes.find((item) => item.id === state.activeSchemeId);
-  document.querySelector("#workbenchTitle").textContent = [
+  const title = [
     scene?.name || "未选择场景",
     dataset?.name || "未选择数据集",
     scheme?.name || "未选择方案",
   ].join(" · ");
+  document.querySelector("#workbenchTitle").textContent = title;
+  const shellSchemeName = document.querySelector("#shellSourceSchemeName");
+  const shellSwitch = document.querySelector("#shellSourceSwitchButton");
+  if (shellSchemeName) shellSchemeName.textContent = scheme?.name || "未选择方案";
+  if (shellSwitch) shellSwitch.title = `切换数据源与方案：${title}`;
 }
 
 async function openSourceModal() {
@@ -923,7 +991,7 @@ async function openCellValue(field, value, rowId = "") {
   if (rowId && state.activeDatasetId) {
     document.querySelector("#rowDetailMeta").textContent = "正在读取完整单元格内容...";
     try {
-      const fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}`);
+      const fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}${schemeQuery()}`);
       setCellDetailValue(Object.prototype.hasOwnProperty.call(fullRow, field) ? fullRow[field] : value);
     } catch {
       setCellDetailValue(value);
@@ -934,9 +1002,9 @@ async function openCellValue(field, value, rowId = "") {
 function setCellDetailValue(value) {
   currentCellRawValue = value;
   const parsed = parseJsonLike(value);
-  currentCellContent = formatCellRawValue(value);
-  document.querySelector("#rowDetailMeta").textContent = parsed.ok ? "检测到 JSON，可点击格式化并高亮显示。" : "按纯文本展示，支持一键复制。";
-  renderCellDetailContent(false);
+  currentCellContent = parsed.ok ? JSON.stringify(parsed.value, null, 2) : formatCellRawValue(value);
+  document.querySelector("#rowDetailMeta").textContent = parsed.ok ? "JSON 已格式化并高亮显示，支持一键复制。" : "按纯文本展示，支持一键复制。";
+  renderCellDetailContent(parsed.ok);
 }
 
 function closeRowDetail() {
@@ -1060,7 +1128,7 @@ async function openRowDrawer(rowData, mode = "view") {
   document.querySelector("#drawerAnalysisStatus").textContent = "读取中";
   document.querySelector("#drawerAnalysisJson").textContent = "{}";
   try {
-    drawerRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowData.row_id}`);
+    drawerRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowData.row_id}${schemeQuery()}`);
   } catch {
     drawerRow = rowData;
   }
@@ -1095,6 +1163,7 @@ function renderDrawerPayload() {
   renderDrawerResult();
   renderDrawerAnalysisRaw();
   renderDrawerAnalysisResult();
+  renderDrawerEditAnalysis();
 }
 
 function setDrawerMode(mode) {
@@ -1118,6 +1187,7 @@ function setDrawerMode(mode) {
   if (mode === "edit") {
     document.querySelector("#drawerEditor").value = JSON.stringify(drawerEditableData(), null, 2);
     document.querySelector("#drawerEditStatus").textContent = "修改后点击保存";
+    renderDrawerEditAnalysis();
   }
   if (mode === "analysis") {
     renderDrawerAnalysisRaw();
@@ -1178,7 +1248,7 @@ async function analyzeDrawerRow() {
   document.querySelector("#drawerAnalysisStatus").textContent = "分析中...";
   document.querySelector("#drawerAnalysisJson").textContent = "后台分析中，关闭抽屉不会中断请求。";
   try {
-    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/analysis`, { method: "POST" });
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/analysis${schemeQuery()}`, { method: "POST" });
     const analysisData = result.analysis_data || {};
     if (drawerRow?.row_id === rowId) {
       drawerRow = { ...drawerRow, analysis_data: analysisData, 分析数据: analysisData };
@@ -1204,14 +1274,24 @@ function renderDrawerAnalysisResult() {
   const analysis = drawerRow?.analysis_data || drawerRow?.["分析数据"] || {};
   const hasAnalysis = analysis && typeof analysis === "object" && Object.keys(analysis).length;
   document.querySelector("#drawerAnalysisStatus").textContent = hasAnalysis ? "最新结果" : "暂无结果";
-  document.querySelector("#drawerAnalysisJson").textContent = hasAnalysis ? JSON.stringify(analysis, null, 2) : "{}";
+  renderHighlightedJson("#drawerAnalysisJson", hasAnalysis ? analysis : {});
+  renderDrawerEditAnalysis();
+}
+
+function renderDrawerEditAnalysis() {
+  const element = document.querySelector("#drawerEditAnalysisJson");
+  if (!element) return;
+  const analysis = drawerRow?.analysis_data || drawerRow?.["分析数据"] || {};
+  const hasAnalysis = analysis && typeof analysis === "object" && Object.keys(analysis).length;
+  document.querySelector("#drawerEditAnalysisStatus").textContent = hasAnalysis ? "最新结果" : "暂无结果";
+  renderHighlightedJson("#drawerEditAnalysisJson", hasAnalysis ? analysis : {});
 }
 
 function renderDrawerResult() {
   const result = drawerRow?.model_result || {};
   const hasResult = result && typeof result === "object" && Object.keys(result).length;
   document.querySelector("#drawerResultStatus").textContent = hasResult ? "最新标注结果" : "暂无标注结果";
-  document.querySelector("#drawerResultJson").textContent = hasResult ? JSON.stringify(result, null, 2) : "{}";
+  renderHighlightedJson("#drawerResultJson", hasResult ? result : {});
   document.querySelector("#drawerPromptText").textContent = formatRenderedPrompts(drawerRow?.rendered_prompt);
 }
 
@@ -1245,13 +1325,13 @@ async function renderDrawerAnnotationHistory() {
   status.textContent = "加载中";
   list.innerHTML = `<div class="empty">正在读取历史标注...</div>`;
   try {
-    const rows = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}/annotation-history`);
+    const rows = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}/annotation-history${schemeQuery()}`);
     if (requestId !== drawerAnnotationHistoryRequest || drawerMode !== "result") return;
     status.textContent = rows.length ? `${rows.length} 次记录` : "暂无历史";
     list.innerHTML = rows.map((row) => {
-      const result = row.model_result && Object.keys(row.model_result).length
-        ? JSON.stringify(row.model_result, null, 2)
-        : row.error || "暂无返回";
+      const hasResult = row.model_result && Object.keys(row.model_result).length;
+      const result = hasResult ? JSON.stringify(row.model_result, null, 2) : row.error || "暂无返回";
+      const resultHtml = hasResult ? highlightJsonText(result) : escapeHtml(result);
       return `
         <article class="drawer-history-item">
           <div class="drawer-history-head">
@@ -1259,7 +1339,7 @@ async function renderDrawerAnnotationHistory() {
             <strong>${escapeHtml(formatHistoryTime(row.finished_at || row.updated_at || row.created_at))}</strong>
           </div>
           <div class="drawer-history-meta">任务 ${escapeHtml(row.task_id || "-")} · 方案 ${escapeHtml(row.scheme_id || "-")}</div>
-          <pre>${escapeHtml(result)}</pre>
+          <pre class="${hasResult ? "json-highlight" : ""}">${resultHtml}</pre>
         </article>
       `;
     }).join("") || `<div class="empty">暂无历史标注记录</div>`;
@@ -1268,6 +1348,23 @@ async function renderDrawerAnnotationHistory() {
     status.textContent = "读取失败";
     list.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
   }
+}
+
+function renderHighlightedJson(selector, value) {
+  const element = document.querySelector(selector);
+  if (!element) return;
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? {}, null, 2);
+  element.innerHTML = highlightJsonText(text || "{}");
+}
+
+function formatDisplayPayload(value) {
+  const parsed = parseJsonLike(value);
+  if (parsed.ok) {
+    const text = JSON.stringify(parsed.value, null, 2);
+    return { text, html: highlightJsonText(text), isJson: true };
+  }
+  const text = formatDisplayValue(value);
+  return { text, html: escapeHtml(text), isJson: false };
 }
 
 function renderDrawerAnalysisRaw() {
@@ -1316,8 +1413,8 @@ function renderDrawerKeyValues(selector, payload, emptyText = "暂无数据") {
   const container = document.querySelector(selector);
   const entries = Object.entries(payload || {});
   container.innerHTML = entries.map(([key, value]) => {
-    const text = formatDisplayValue(value);
-    const collapsed = shouldCollapseDrawerValue(text);
+    const display = formatDisplayPayload(value);
+    const collapsed = shouldCollapseDrawerValue(display.text);
     return `
     <article class="drawer-kv-row ${collapsed ? "is-collapsible is-collapsed" : ""}">
       <div class="drawer-kv-key" title="${escapeHtml(key)}">
@@ -1325,7 +1422,7 @@ function renderDrawerKeyValues(selector, payload, emptyText = "暂无数据") {
         ${collapsed ? `<button class="drawer-kv-toggle" type="button" data-drawer-kv-toggle>展开</button>` : ""}
       </div>
       <div class="drawer-kv-value-wrap">
-        <div class="drawer-kv-value">${escapeHtml(text)}</div>
+        <div class="drawer-kv-value ${display.isJson ? "json-highlight" : ""}">${display.html}</div>
       </div>
     </article>
   `;
@@ -1392,21 +1489,24 @@ function renderDetailPayload() {
   const text = JSON.stringify(currentDetailRow || {}, null, 2);
   renderDetailKeyValues(currentDetailRow || {});
   document.querySelector("#rowDetailKv").hidden = false;
-  document.querySelector("#rowDetailJson").textContent = text;
+  renderHighlightedJson("#rowDetailJson", text);
   document.querySelector("#rowDetailEditor").value = JSON.stringify(editableDetailData(), null, 2);
   const analysis = currentDetailRow?.analysis_data || currentDetailRow?.["分析数据"];
-  document.querySelector("#rowAnalysisJson").textContent = analysis ? JSON.stringify(analysis, null, 2) : "{}";
+  renderHighlightedJson("#rowAnalysisJson", analysis || {});
 }
 
 function renderDetailKeyValues(payload) {
   const container = document.querySelector("#rowDetailKv");
   const entries = Object.entries(payload || {});
-  container.innerHTML = entries.map(([key, value]) => `
-    <div class="kv-row">
-      <div class="kv-key" title="${escapeHtml(key)}">${escapeHtml(key)}</div>
-      <div class="kv-value">${escapeHtml(formatDisplayValue(value))}</div>
-    </div>
-  `).join("") || `<div class="empty">暂无数据</div>`;
+  container.innerHTML = entries.map(([key, value]) => {
+    const display = formatDisplayPayload(value);
+    return `
+      <div class="kv-row">
+        <div class="kv-key" title="${escapeHtml(key)}">${escapeHtml(key)}</div>
+        <div class="kv-value ${display.isJson ? "json-highlight" : ""}">${display.html}</div>
+      </div>
+    `;
+  }).join("") || `<div class="empty">暂无数据</div>`;
 }
 
 function setDetailMode(mode) {
@@ -1517,13 +1617,13 @@ async function analyzeCurrentDetailRow() {
   document.querySelector("#rowAnalysisStatus").textContent = "分析中...";
   document.querySelector("#rowAnalysisJson").textContent = "后台分析中，关闭窗口不会中断请求。";
   try {
-    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentDetailRow.row_id}/analysis`, { method: "POST" });
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentDetailRow.row_id}/analysis${schemeQuery()}`, { method: "POST" });
     const analysisData = result.analysis_data || {};
     currentDetailRow = { ...currentDetailRow, analysis_data: analysisData, 分析数据: analysisData };
     await ensureDynamicResultColumns({ 分析数据: analysisData });
     updateVisibleRow(currentDetailRow.row_id, { 分析数据: analysisData });
     document.querySelector("#rowAnalysisStatus").textContent = "分析完成";
-    document.querySelector("#rowAnalysisJson").textContent = JSON.stringify(analysisData, null, 2);
+    renderHighlightedJson("#rowAnalysisJson", analysisData);
     toast("分析数据已写入");
   } catch (error) {
     document.querySelector("#rowAnalysisStatus").textContent = "分析失败";
@@ -1693,7 +1793,13 @@ function textPreviewFormatter(cell) {
   const value = cell.getValue();
   if (value === null || value === undefined) return "";
   const text = String(value);
-  return `<span title="${escapeHtml(text)}">${escapeHtml(text.length > 72 ? `${text.slice(0, 72)}...` : text)}</span>`;
+  const preview = text.length > 72 ? `${text.slice(0, 72)}...` : text;
+  return `
+    <span class="cell-preview-text" title="${escapeHtml(text)}">
+      <i class="cell-preview-dot" aria-hidden="true"></i>
+      <span>${escapeHtml(preview)}</span>
+    </span>
+  `;
 }
 
 function escapeHtml(value) {
@@ -1765,7 +1871,7 @@ async function startAnnotationTask(mode, rowIds = []) {
 
 async function confirmFullAnnotationTask() {
   try {
-    const metrics = await api(`/api/datasets/${state.activeDatasetId}/metrics`);
+    const metrics = await api(`/api/datasets/${state.activeDatasetId}/metrics${schemeQuery()}`);
     const queued = Number(metrics.queued || 0);
     const running = Number(metrics.running || 0);
     const total = Number(metrics.total || 0);
@@ -1848,7 +1954,7 @@ async function refreshMetrics() {
     return;
   }
   try {
-    setMetrics(await api(`/api/datasets/${state.activeDatasetId}/metrics`));
+    setMetrics(await api(`/api/datasets/${state.activeDatasetId}/metrics${schemeQuery()}`));
   } catch {
     // 指标接口异常时保持当前表格可用。
   }
@@ -1880,7 +1986,9 @@ async function loadLatestTask() {
     return;
   }
   try {
-    const tasks = await api(`/api/annotation-tasks?dataset_id=${encodeURIComponent(state.activeDatasetId)}`);
+    const params = new URLSearchParams({ dataset_id: state.activeDatasetId });
+    if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
+    const tasks = await api(`/api/annotation-tasks?${params.toString()}`);
     const running = tasks.find((task) => task.status === "queued" || task.status === "running");
     currentTask = running || tasks[0] || null;
     updateTaskStrip(currentTask);
@@ -1900,6 +2008,7 @@ function connectTaskEvents(taskId) {
   taskEvents.onmessage = async (event) => {
     const payload = JSON.parse(event.data);
     if (payload.type === "heartbeat") return;
+    if (payload.task?.scheme_id && state.activeSchemeId && payload.task.scheme_id !== state.activeSchemeId) return;
     if (payload.task) {
       currentTask = payload.task;
       updateTaskStrip(payload.task);
@@ -1936,21 +2045,40 @@ function dataColumnDef(column, sampleRows = []) {
   return {
     title: mappedAnswerTitle(column) || column,
     field: column,
-    minWidth: mappedAnswer ? 76 : 72,
-    width: mappedAnswer ? 86 : estimateColumnWidth(column, sampleRows),
-    maxWidth: mappedAnswer ? 96 : (previewColumn(column) ? 320 : 220),
+    minWidth: mappedAnswer ? 68 : 72,
+    width: mappedAnswer ? 74 : estimateColumnWidth(column, sampleRows),
+    maxWidth: mappedAnswer ? 82 : (previewColumn(column) ? 320 : 220),
     widthGrow: 0,
     widthShrink: 0,
     frozen: mappedAnswer,
-    formatter: previewColumn(column) ? textPreviewFormatter : undefined,
-    cssClass: previewColumn(column) ? "cell-preview" : "",
+    formatter: mappedAnswer ? answerValueFormatter : (previewColumn(column) ? textPreviewFormatter : undefined),
+    cssClass: [mappedAnswer ? "answer-cell" : "", previewColumn(column) ? "cell-preview" : ""].filter(Boolean).join(" "),
   };
 }
 
 function mappedAnswerTitle(column) {
-  if (column && column === latestFieldMapping?.human_answer_column) return "人工答案";
-  if (column && column === latestFieldMapping?.model_answer_column) return "标注答案";
+  if (column && column === latestFieldMapping?.human_answer_column) return "人工";
+  if (column && column === latestFieldMapping?.model_answer_column) return "标注";
   return "";
+}
+
+function answerValueFormatter(cell) {
+  const rawValue = cell.getValue();
+  const text = String(rawValue ?? "").trim();
+  const normalized = normalizeAnswerValue(text);
+  const className = normalized === "是" ? "yes" : (normalized === "否" ? "no" : "neutral");
+  const label = normalized || text || "-";
+  return `<span class="answer-pill ${className}" title="${escapeHtml(text)}">${escapeHtml(label)}</span>`;
+}
+
+function normalizeAnswerValue(value) {
+  let text = String(value ?? "").trim();
+  if (!text) return "";
+  text = text.replace(/^mock[_\-:：\s]*/i, "").trim();
+  const compact = text.toLowerCase().replace(/\s+/g, "");
+  if (["1", "true", "yes", "y", "positive", "pos", "是", "有", "正", "正例", "阳性", "命中"].includes(compact)) return "是";
+  if (["0", "false", "no", "n", "negative", "neg", "否", "无", "负", "负例", "阴性", "未命中"].includes(compact)) return "否";
+  return text;
 }
 
 function estimateColumnWidth(column, sampleRows = []) {
@@ -2025,7 +2153,7 @@ function markRowsCancelled(rowIds) {
 }
 
 async function applyTaskEventToTable(payload) {
-  if (!table || !payload?.type) return;
+  if (!table || !payload?.type || !tableReadyForRealtime) return;
   if (payload.type === "row_started") {
     updateVisibleRow(payload.row_id, { 状态: payload.status || "标注中" });
     return;
@@ -2036,7 +2164,7 @@ async function applyTaskEventToTable(payload) {
     let fullRow = null;
     if (!status && state.activeDatasetId && payload.row_id) {
       try {
-        fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${payload.row_id}`);
+        fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${payload.row_id}${schemeQuery()}`);
         status = fullRow?.["状态"] || "";
       } catch {
         status = "";
@@ -2074,15 +2202,14 @@ async function applyTaskEventToTable(payload) {
 function updateVisibleRow(rowId, patch) {
   if (!table || !rowId || !patch) return;
   try {
-    const row = table.getRow(rowId);
+    const row = (table.getRows?.("visible") || table.getRows?.() || [])
+      .find((item) => item.getData?.()?.row_id === rowId);
     if (row) {
       updateTableRow(row, patch);
-      return;
     }
   } catch {
     // 行不在当前页时无需处理，切页时会从后端读取最新状态。
   }
-  table.updateData?.([{ row_id: rowId, ...patch }]);
 }
 
 function updateTableRow(row, patch) {
@@ -2105,7 +2232,7 @@ function refreshTableRow(row) {
 }
 
 async function ensureDynamicResultColumns(result) {
-  if (!table || !result || typeof result !== "object") return;
+  if (!table || !tableReadyForRealtime || !result || typeof result !== "object") return;
   const existing = new Set(
     table.getColumns?.()
       .map((column) => column.getField?.())
@@ -2141,7 +2268,7 @@ function updateTaskStrip(task) {
   const total = task.total_count || 0;
   const percent = total ? Math.round((finished / total) * 100) : 0;
   title.textContent = `任务 ${task.status}`;
-  meta.textContent = `总数 ${total} · 排队 ${task.queued_count || 0} · 标注中 ${task.running_count || 0} · 完成 ${task.done_count || 0} · 失败 ${task.failed_count || 0}`;
+  meta.textContent = `总 ${total} · 排 ${task.queued_count || 0} · 中 ${task.running_count || 0} · 完 ${task.done_count || 0} · 失败 ${task.failed_count || 0}`;
   progress.style.setProperty("--value", `${percent}%`);
 }
 
