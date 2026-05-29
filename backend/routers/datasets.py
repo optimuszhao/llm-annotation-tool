@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Body, File, Form, Query, UploadFile
 
-from backend.services.annotation_service import analyze_dataset_row, get_dataset_metrics
+from backend.services.annotation_service import analyze_dataset_row, get_dataset_metrics, list_row_analysis_history
 from backend.services.dataset_service import (
     delete_dataset,
     delete_dataset_row,
@@ -74,6 +74,11 @@ def remove_rows(dataset_id: str, payload: dict = Body(...)):
 @router.post("/{dataset_id}/rows/{row_id}/analysis")
 def post_row_analysis(dataset_id: str, row_id: str):
     return analyze_dataset_row(dataset_id, row_id)
+
+
+@router.get("/{dataset_id}/rows/{row_id}/analysis-history")
+def get_row_analysis_history(dataset_id: str, row_id: str):
+    return list_row_analysis_history(dataset_id, row_id)
 
 
 @router.get("/{dataset_id}/metrics")

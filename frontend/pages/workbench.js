@@ -12,6 +12,12 @@ let currentDetailRow = null;
 let currentDetailMode = "view";
 let currentDetailKind = "row";
 let detailEditDirty = false;
+let drawerRow = null;
+let drawerMode = "view";
+let drawerEditDirty = false;
+let drawerSelectedColumns = new Set();
+let drawerAnalysisRequest = 0;
+let drawerResizeCleanup = null;
 let statusFilters = new Set();
 let availableDatasetColumns = [];
 let latestFieldMapping = null;
@@ -62,12 +68,12 @@ export function renderWorkbenchPage() {
           <div><span>FN</span><strong id="metricFn">0</strong></div>
         </section>
         <section class="metric-group metric-group-rate" aria-label="评估率">
-          <div><span>准确率</span><strong id="metricAccuracy">--</strong></div>
-          <div><span>精确率</span><strong id="metricPrecision">--</strong></div>
-          <div><span>召回率</span><strong id="metricRecall">--</strong></div>
-          <div><span>F1</span><strong id="metricF1">--</strong></div>
-          <div><span>特异度</span><strong id="metricSpecificity">--</strong></div>
-          <div><span>误报率</span><strong id="metricFpr">--</strong></div>
+          <div><span>算法准确率</span><strong id="metricAccuracy">--</strong></div>
+          <div><span>正确查全率</span><strong id="metricRecall">--</strong></div>
+          <div><span>正确查准率</span><strong id="metricPrecision">--</strong></div>
+          <div><span>错误查准率</span><strong id="metricSpecificity">--</strong></div>
+          <div><span>F1 score</span><strong id="metricF1">--</strong></div>
+          <div><span>业务准确率</span><strong id="metricFpr">--</strong></div>
         </section>
       </div>
 
@@ -81,6 +87,7 @@ export function renderWorkbenchPage() {
           <button class="btn primary" type="button" id="fullAnnotateButton">全量标注</button>
         </div>
         <div class="toolbar-right">
+          <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新列表</button>
           <label class="column-search">
             <input type="search" id="tableSearch" placeholder="搜索当前数据集内容" aria-label="搜索当前数据集内容">
           </label>
@@ -191,6 +198,96 @@ export function renderWorkbenchPage() {
       </div>
     </div>
 
+    <div class="detail-drawer-layer" id="rowDetailDrawer" aria-hidden="true">
+      <button class="detail-drawer-scrim" type="button" id="rowDetailDrawerScrim" aria-label="关闭行详情"></button>
+      <aside class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+        <div class="detail-drawer-resizer" id="drawerResizer" role="separator" aria-label="拖动调整详情宽度"></div>
+        <header class="detail-drawer-head">
+          <div>
+            <span class="scheme-badge">ROW</span>
+            <h2 id="drawerTitle">行详情</h2>
+            <p class="card-meta" id="drawerMeta">查看当前行完整数据。</p>
+          </div>
+          <button class="icon-btn" type="button" id="drawerClose" aria-label="关闭行详情">×</button>
+        </header>
+        <div class="detail-drawer-toolbar">
+          <div class="drawer-tabs" aria-label="行详情模式">
+            <button type="button" data-drawer-mode="view">查看</button>
+            <button type="button" data-drawer-mode="result">标注结果</button>
+            <button type="button" data-drawer-mode="edit">编辑</button>
+            <button type="button" data-drawer-mode="analysis">分析</button>
+          </div>
+          <div class="drawer-actions">
+            <button class="btn" type="button" id="drawerExitEdit" hidden>退出编辑</button>
+            <button class="btn primary" type="button" id="drawerSave" hidden>保存</button>
+            <button class="btn primary" type="button" id="drawerReanalyze" hidden>重新分析</button>
+          </div>
+        </div>
+        <div class="detail-drawer-body">
+          <section class="drawer-pane" id="drawerViewPane">
+            <div class="drawer-section-title">
+              <strong>原始数据</strong>
+              <span>长文本自动换行展示</span>
+            </div>
+            <div class="drawer-kv" id="drawerViewKv"></div>
+          </section>
+          <section class="drawer-pane drawer-edit-pane" id="drawerEditPane" hidden>
+            <div class="drawer-section-title">
+              <strong>编辑 JSON</strong>
+              <span id="drawerEditStatus">修改后点击保存</span>
+            </div>
+            <textarea class="drawer-json-editor" id="drawerEditor" spellcheck="false"></textarea>
+          </section>
+          <section class="drawer-pane drawer-result-pane" id="drawerResultPane" hidden>
+            <div class="drawer-result-layout">
+              <section class="drawer-result-card">
+                <div class="drawer-section-title">
+                  <strong>标注结果</strong>
+                  <span id="drawerResultStatus">最新模型返回</span>
+                </div>
+                <pre class="drawer-json-view" id="drawerResultJson">{}</pre>
+              </section>
+              <section class="drawer-result-card">
+                <div class="drawer-section-title">
+                  <strong>渲染 Prompt</strong>
+                  <span>本次标注使用的完整 Prompt</span>
+                </div>
+                <pre class="drawer-prompt-view" id="drawerPromptText">暂无 Prompt</pre>
+              </section>
+            </div>
+          </section>
+          <section class="drawer-pane drawer-analysis-pane" id="drawerAnalysisPane" hidden>
+            <div class="drawer-analysis-layout">
+              <section class="drawer-analysis-card">
+                <div class="drawer-section-title">
+                  <strong>原始数据</strong>
+                  <div class="drawer-field-filter">
+                    <button class="btn" type="button" id="drawerFieldFilterButton">显示字段</button>
+                    <div class="drawer-field-popover" id="drawerFieldPopover" hidden>
+                      <div class="drawer-field-actions">
+                        <button type="button" data-drawer-field-action="all">全选</button>
+                        <button type="button" data-drawer-field-action="visible">默认列</button>
+                        <button type="button" data-drawer-field-action="clear">清空</button>
+                      </div>
+                      <div class="drawer-field-grid" id="drawerFieldGrid"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="drawer-kv" id="drawerAnalysisRaw"></div>
+              </section>
+              <section class="drawer-analysis-card">
+                <div class="drawer-section-title">
+                  <strong>最新分析结果</strong>
+                  <span id="drawerAnalysisStatus">未分析</span>
+                </div>
+                <pre class="drawer-json-view" id="drawerAnalysisJson">{}</pre>
+              </section>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
     <div class="modal-backdrop" id="columnSettingsModal">
       <div class="modal modal-wide">
         <div class="modal-head">
@@ -249,6 +346,7 @@ function bindWorkbenchEvents() {
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => refreshWorkbench(), 260);
   });
+  document.querySelector("#refreshTableButton").addEventListener("click", refreshTableData);
   document.querySelector("#selectCurrentPage").addEventListener("change", (event) => {
     selectVisibleRows(event.target.checked);
   });
@@ -306,6 +404,18 @@ function bindWorkbenchEvents() {
   });
   document.querySelector("#rowDetailEditor").addEventListener("input", markDetailEditable);
   document.querySelector("#rowDetailEditor").addEventListener("select", markDetailEditable);
+  document.querySelector("#drawerClose").addEventListener("click", closeRowDrawer);
+  document.querySelector("#rowDetailDrawerScrim").addEventListener("click", closeRowDrawer);
+  document.querySelectorAll("[data-drawer-mode]").forEach((button) => {
+    button.addEventListener("click", () => setDrawerMode(button.dataset.drawerMode));
+  });
+  document.querySelector("#drawerSave").addEventListener("click", saveDrawerEdit);
+  document.querySelector("#drawerExitEdit").addEventListener("click", () => setDrawerMode("view"));
+  document.querySelector("#drawerReanalyze").addEventListener("click", analyzeDrawerRow);
+  document.querySelector("#drawerEditor").addEventListener("input", markDrawerDirty);
+  document.querySelector("#drawerFieldFilterButton").addEventListener("click", toggleDrawerFieldPopover);
+  document.querySelector("#drawerFieldPopover").addEventListener("click", handleDrawerFieldPopoverClick);
+  document.querySelector("#drawerResizer").addEventListener("pointerdown", startDrawerResize);
   document.querySelector("#closeColumnSettings").addEventListener("click", closeColumnSettings);
   document.querySelector("#cancelColumnSettings").addEventListener("click", closeColumnSettings);
   document.querySelector("#columnSettingsModal").addEventListener("click", (event) => {
@@ -319,6 +429,26 @@ function bindWorkbenchEvents() {
     document.addEventListener("click", handleRowActionClick, true);
     document.addEventListener("click", handleMoreMenu);
     documentMenusBound = true;
+  }
+}
+
+async function refreshTableData() {
+  const button = document.querySelector("#refreshTableButton");
+  if (!button) return;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "刷新中...";
+  try {
+    await refreshWorkbench();
+    toast("列表已刷新");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    const nextButton = document.querySelector("#refreshTableButton");
+    if (nextButton) {
+      nextButton.disabled = false;
+      nextButton.textContent = originalText || "刷新列表";
+    }
   }
 }
 
@@ -446,18 +576,20 @@ function buildColumns(columns, sampleRows = []) {
     {
       title: "操作",
       field: "row_id",
-      width: 138,
-      minWidth: 138,
-      maxWidth: 138,
+      width: 160,
+      minWidth: 160,
+      maxWidth: 160,
       resizable: false,
       widthGrow: 0,
       widthShrink: 0,
       headerSort: false,
       formatter: (cell) => {
-        const rowId = cell.getData().row_id || "";
+        const rowData = cell.getData();
+        const rowId = rowData.row_id || "";
+        const annotateButton = annotationButtonMeta(rowData["状态"]);
         return `
           <div class="row-actions">
-            <button class="action-mini primary" data-row-action="annotate" data-row-id="${rowId}">标注</button>
+            <button class="action-mini ${annotateButton.className}" data-row-action="annotate" data-row-id="${rowId}">${annotateButton.label}</button>
             <button class="action-mini info" data-row-action="view" data-row-id="${rowId}">查看</button>
             <button class="action-mini more" data-row-more data-row-id="${rowId}" aria-expanded="false">更多</button>
           </div>
@@ -740,6 +872,260 @@ function closeRowDetail() {
   document.querySelector("#rowDetailModal")?.classList.remove("open");
 }
 
+async function openRowDrawer(rowData, mode = "view") {
+  if (!rowData?.row_id || !state.activeDatasetId) return;
+  drawerMode = "view";
+  drawerEditDirty = false;
+  drawerRow = rowData;
+  document.querySelector("#rowDetailDrawer").classList.add("open");
+  document.querySelector("#rowDetailDrawer").setAttribute("aria-hidden", "false");
+  document.querySelector("#drawerTitle").textContent = `行详情 · ${rowData.ID || rowData.row_id || ""}`;
+  document.querySelector("#drawerMeta").textContent = "正在加载完整行数据...";
+  document.querySelector("#drawerViewKv").innerHTML = `<div class="empty">正在加载完整数据...</div>`;
+  document.querySelector("#drawerAnalysisStatus").textContent = "读取中";
+  document.querySelector("#drawerAnalysisJson").textContent = "{}";
+  try {
+    drawerRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowData.row_id}`);
+  } catch {
+    drawerRow = rowData;
+  }
+  initializeDrawerColumns();
+  renderDrawerPayload();
+  setDrawerMode(mode);
+}
+
+function closeRowDrawer() {
+  document.querySelector("#rowDetailDrawer")?.classList.remove("open");
+  document.querySelector("#rowDetailDrawer")?.setAttribute("aria-hidden", "true");
+  document.querySelector("#drawerFieldPopover")?.setAttribute("hidden", "");
+  stopDrawerResize();
+}
+
+function initializeDrawerColumns() {
+  const raw = drawerEditableData();
+  const keys = Object.keys(raw);
+  const preferred = latestFieldMapping?.visible_columns?.filter((column) => keys.includes(column)) || [];
+  const defaults = preferred.length ? preferred : keys.slice(0, Math.min(keys.length, 10));
+  drawerSelectedColumns = new Set(defaults);
+}
+
+function renderDrawerPayload() {
+  if (!drawerRow) return;
+  const titleValue = drawerRow.ID || drawerRow["工单名称"] || drawerRow.row_id || "";
+  document.querySelector("#drawerTitle").textContent = `行详情 · ${titleValue}`;
+  document.querySelector("#drawerMeta").textContent = `状态：${drawerRow["状态"] || "未标注"} · 行号：${drawerRow.row_index || "-"}`;
+  document.querySelector("#drawerEditor").value = JSON.stringify(drawerEditableData(), null, 2);
+  renderDrawerKeyValues("#drawerViewKv", drawerEditableData());
+  renderDrawerFieldGrid();
+  renderDrawerResult();
+  renderDrawerAnalysisRaw();
+  renderDrawerAnalysisResult();
+}
+
+function setDrawerMode(mode) {
+  if (!drawerRow) return;
+  drawerMode = mode;
+  drawerEditDirty = false;
+  document.querySelector("#drawerViewPane").hidden = mode !== "view";
+  document.querySelector("#drawerEditPane").hidden = mode !== "edit";
+  document.querySelector("#drawerResultPane").hidden = mode !== "result";
+  document.querySelector("#drawerAnalysisPane").hidden = mode !== "analysis";
+  document.querySelector("#drawerSave").hidden = mode !== "edit";
+  document.querySelector("#drawerExitEdit").hidden = mode !== "edit";
+  document.querySelector("#drawerReanalyze").hidden = mode !== "analysis";
+  document.querySelector(".drawer-actions").hidden = mode !== "edit" && mode !== "analysis";
+  document.querySelector("#drawerSave").disabled = true;
+  document.querySelector("#drawerFieldPopover")?.setAttribute("hidden", "");
+  document.querySelectorAll("[data-drawer-mode]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.drawerMode === mode);
+  });
+  if (mode === "edit") {
+    document.querySelector("#drawerEditor").value = JSON.stringify(drawerEditableData(), null, 2);
+    document.querySelector("#drawerEditStatus").textContent = "修改后点击保存";
+  }
+  if (mode === "analysis") {
+    renderDrawerAnalysisRaw();
+    renderDrawerAnalysisResult();
+  }
+  if (mode === "result") {
+    renderDrawerResult();
+  }
+}
+
+function markDrawerDirty() {
+  if (drawerMode !== "edit") return;
+  drawerEditDirty = true;
+  document.querySelector("#drawerSave").disabled = false;
+  document.querySelector("#drawerEditStatus").textContent = "有未保存修改";
+}
+
+async function saveDrawerEdit() {
+  if (!drawerRow?.row_id || !state.activeDatasetId) return;
+  let rawData;
+  try {
+    rawData = JSON.parse(document.querySelector("#drawerEditor").value || "{}");
+  } catch {
+    toast("JSON 格式不正确");
+    return;
+  }
+  try {
+    const updated = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}`, {
+      method: "PUT",
+      body: JSON.stringify({ raw_data: rawData }),
+    });
+    drawerRow = updated;
+    currentDetailRow = updated;
+    await ensureDynamicResultColumns(updated);
+    updateVisibleRow(updated.row_id, updated);
+    initializeDrawerColumns();
+    renderDrawerPayload();
+    setDrawerMode("view");
+    scheduleMetricsRefresh();
+    toast("行数据已保存");
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function analyzeDrawerRow() {
+  if (!drawerRow?.row_id || !state.activeDatasetId) return;
+  const requestId = ++drawerAnalysisRequest;
+  const rowId = drawerRow.row_id;
+  document.querySelector("#drawerAnalysisStatus").textContent = "分析中...";
+  document.querySelector("#drawerAnalysisJson").textContent = "后台分析中，关闭抽屉不会中断请求。";
+  try {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/analysis`, { method: "POST" });
+    const analysisData = result.analysis_data || {};
+    if (drawerRow?.row_id === rowId) {
+      drawerRow = { ...drawerRow, analysis_data: analysisData, 分析数据: analysisData };
+      currentDetailRow = drawerRow;
+    }
+    await ensureDynamicResultColumns({ 分析数据: analysisData });
+    updateVisibleRow(rowId, { 分析数据: analysisData });
+    if (requestId === drawerAnalysisRequest && drawerRow?.row_id === rowId) {
+      document.querySelector("#drawerAnalysisStatus").textContent = "分析完成";
+      renderDrawerAnalysisResult();
+    }
+    toast("分析数据已写入");
+  } catch (error) {
+    if (requestId === drawerAnalysisRequest) {
+      document.querySelector("#drawerAnalysisStatus").textContent = "分析失败";
+      document.querySelector("#drawerAnalysisJson").textContent = error.message;
+    }
+    toast(error.message);
+  }
+}
+
+function renderDrawerAnalysisResult() {
+  const analysis = drawerRow?.analysis_data || drawerRow?.["分析数据"] || {};
+  const hasAnalysis = analysis && typeof analysis === "object" && Object.keys(analysis).length;
+  document.querySelector("#drawerAnalysisStatus").textContent = hasAnalysis ? "最新结果" : "暂无结果";
+  document.querySelector("#drawerAnalysisJson").textContent = hasAnalysis ? JSON.stringify(analysis, null, 2) : "{}";
+}
+
+function renderDrawerResult() {
+  const result = drawerRow?.model_result || {};
+  const hasResult = result && typeof result === "object" && Object.keys(result).length;
+  document.querySelector("#drawerResultStatus").textContent = hasResult ? "最新标注结果" : "暂无标注结果";
+  document.querySelector("#drawerResultJson").textContent = hasResult ? JSON.stringify(result, null, 2) : "{}";
+  document.querySelector("#drawerPromptText").textContent = drawerRow?.rendered_prompt || "暂无 Prompt";
+}
+
+function renderDrawerAnalysisRaw() {
+  const raw = drawerEditableData();
+  const selected = Object.fromEntries(
+    Object.entries(raw).filter(([key]) => drawerSelectedColumns.has(key)),
+  );
+  renderDrawerKeyValues("#drawerAnalysisRaw", selected, "当前未选择字段。");
+}
+
+function renderDrawerFieldGrid() {
+  const grid = document.querySelector("#drawerFieldGrid");
+  const keys = Object.keys(drawerEditableData());
+  grid.innerHTML = keys.map((key) => `
+    <label class="drawer-field-chip">
+      <input type="checkbox" value="${escapeHtml(key)}" ${drawerSelectedColumns.has(key) ? "checked" : ""}>
+      <span title="${escapeHtml(key)}">${escapeHtml(key)}</span>
+    </label>
+  `).join("") || `<div class="empty">暂无可选字段</div>`;
+}
+
+function toggleDrawerFieldPopover() {
+  const popover = document.querySelector("#drawerFieldPopover");
+  popover.hidden = !popover.hidden;
+}
+
+function handleDrawerFieldPopoverClick(event) {
+  const action = event.target.closest("[data-drawer-field-action]")?.dataset.drawerFieldAction;
+  if (action) {
+    const keys = Object.keys(drawerEditableData());
+    if (action === "all") drawerSelectedColumns = new Set(keys);
+    if (action === "clear") drawerSelectedColumns = new Set();
+    if (action === "visible") initializeDrawerColumns();
+    renderDrawerFieldGrid();
+    renderDrawerAnalysisRaw();
+    return;
+  }
+  if (event.target.matches('input[type="checkbox"]')) {
+    if (event.target.checked) drawerSelectedColumns.add(event.target.value);
+    else drawerSelectedColumns.delete(event.target.value);
+    renderDrawerAnalysisRaw();
+  }
+}
+
+function renderDrawerKeyValues(selector, payload, emptyText = "暂无数据") {
+  const container = document.querySelector(selector);
+  const entries = Object.entries(payload || {});
+  container.innerHTML = entries.map(([key, value]) => `
+    <article class="drawer-kv-row">
+      <div class="drawer-kv-key" title="${escapeHtml(key)}">${escapeHtml(key)}</div>
+      <div class="drawer-kv-value">${escapeHtml(formatDisplayValue(value))}</div>
+    </article>
+  `).join("") || `<div class="empty">${emptyText}</div>`;
+}
+
+function drawerEditableData() {
+  return editableDetailDataFrom(drawerRow || {});
+}
+
+function startDrawerResize(event) {
+  const drawer = document.querySelector(".detail-drawer");
+  if (!drawer) return;
+  event.preventDefault();
+  stopDrawerResize();
+  document.body.classList.add("is-resizing-drawer");
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  const move = (moveEvent) => {
+    const width = window.innerWidth - moveEvent.clientX;
+    setDrawerWidth(width);
+  };
+  const stop = () => stopDrawerResize();
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", stop, { once: true });
+  window.addEventListener("pointercancel", stop, { once: true });
+  drawerResizeCleanup = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", stop);
+    window.removeEventListener("pointercancel", stop);
+    document.body.classList.remove("is-resizing-drawer");
+  };
+}
+
+function stopDrawerResize() {
+  if (!drawerResizeCleanup) return;
+  drawerResizeCleanup();
+  drawerResizeCleanup = null;
+}
+
+function setDrawerWidth(width) {
+  const drawer = document.querySelector(".detail-drawer");
+  if (!drawer) return;
+  const max = Math.max(window.innerWidth - 56, 360);
+  const min = Math.min(620, max);
+  const clamped = Math.max(min, Math.min(width, max));
+  drawer.style.setProperty("--drawer-width", `${Math.round(clamped)}px`);
+}
+
 function renderDetailPayload() {
   const text = JSON.stringify(currentDetailRow || {}, null, 2);
   renderDetailKeyValues(currentDetailRow || {});
@@ -850,9 +1236,13 @@ async function saveDetailEdit() {
 }
 
 function editableDetailData() {
+  return editableDetailDataFrom(currentDetailRow || {});
+}
+
+function editableDetailDataFrom(row) {
   const reserved = new Set(["row_id", "row_index", "状态", "model_result", "analysis_data", "rendered_prompt"]);
   return Object.fromEntries(
-    Object.entries(currentDetailRow || {}).filter(([key]) => !reserved.has(key)),
+    Object.entries(row || {}).filter(([key]) => !reserved.has(key)),
   );
 }
 
@@ -1062,6 +1452,14 @@ function formatStatusPill(value) {
   return `<span class="status-pill ${statusClass(value)}">${loading}<span>${safeValue}</span></span>`;
 }
 
+function annotationButtonMeta(status) {
+  const freshStatuses = new Set(["未标注", "排队中", "标注中"]);
+  if (freshStatuses.has(status || "未标注")) {
+    return { label: "标注", className: "primary" };
+  }
+  return { label: "重新标注", className: "reannotate" };
+}
+
 async function startAnnotationTask(mode, rowIds = []) {
   if (!state.activeDatasetId || !state.activeSchemeId) {
     toast("请先选择数据集和标注方案");
@@ -1175,6 +1573,11 @@ async function refreshMetrics() {
       fp: 0,
       fn: 0,
       accuracy: null,
+      algorithm_accuracy: null,
+      correct_recall: null,
+      correct_precision: null,
+      error_precision: null,
+      business_accuracy: null,
       precision: null,
       recall: null,
       f1: null,
@@ -1201,12 +1604,12 @@ function setMetrics(metrics) {
   document.querySelector("#metricTn").textContent = formatNumber(metrics.tn);
   document.querySelector("#metricFp").textContent = formatNumber(metrics.fp);
   document.querySelector("#metricFn").textContent = formatNumber(metrics.fn);
-  document.querySelector("#metricAccuracy").textContent = formatRate(metrics.accuracy);
-  document.querySelector("#metricPrecision").textContent = formatRate(metrics.precision);
-  document.querySelector("#metricRecall").textContent = formatRate(metrics.recall);
+  document.querySelector("#metricAccuracy").textContent = formatRate(metrics.algorithm_accuracy ?? metrics.accuracy);
+  document.querySelector("#metricRecall").textContent = formatRate(metrics.correct_recall ?? metrics.recall);
+  document.querySelector("#metricPrecision").textContent = formatRate(metrics.correct_precision ?? metrics.precision);
+  document.querySelector("#metricSpecificity").textContent = formatRate(metrics.error_precision ?? metrics.specificity);
   document.querySelector("#metricF1").textContent = formatRate(metrics.f1);
-  document.querySelector("#metricSpecificity").textContent = formatRate(metrics.specificity);
-  document.querySelector("#metricFpr").textContent = formatRate(metrics.false_positive_rate);
+  document.querySelector("#metricFpr").textContent = formatRate(metrics.business_accuracy ?? metrics.false_positive_rate);
 }
 
 async function loadLatestTask() {
@@ -1428,11 +1831,11 @@ function updateTaskStrip(task) {
 async function handleRowAction(action, rowId) {
   const rowData = getVisibleRowData(rowId);
   if (action === "view") {
-    if (rowData) openRowDetail(rowData);
+    if (rowData) openRowDrawer(rowData);
     return;
   }
   if (action === "edit") {
-    if (rowData) openRowDetail(rowData, "edit");
+    if (rowData) openRowDrawer(rowData, "edit");
     return;
   }
   if (action === "export") {

@@ -40,6 +40,53 @@ def _preview(value: Any, limit: int = 120) -> Any:
     return text if len(text) <= limit else f"{text[:limit]}..."
 
 
+def _normalize_answer(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text.startswith("mock_"):
+        text = text[5:]
+    return "".join(text.split())
+
+
+def _answer_polarity(value: Any) -> Optional[bool]:
+    normalized = _normalize_answer(value)
+    positive_values = {"1", "true", "yes", "y", "positive", "pos", "是", "有", "正", "正例", "阳性", "命中"}
+    negative_values = {"0", "false", "no", "n", "negative", "neg", "否", "无", "负", "负例", "阴性", "未命中"}
+    if normalized in positive_values:
+        return True
+    if normalized in negative_values:
+        return False
+    return None
+
+
+def _infer_import_status(row_data: dict, field_mapping: Optional[dict]) -> str:
+    human_column = (field_mapping or {}).get("human_answer_column") or ""
+    model_column = (field_mapping or {}).get("model_answer_column") or ""
+    if not human_column or not model_column:
+        return "未标注"
+    if human_column not in row_data or model_column not in row_data:
+        return "未标注"
+
+    human_value = row_data.get(human_column)
+    model_value = row_data.get(model_column)
+    human_text = _normalize_answer(human_value)
+    model_text = _normalize_answer(model_value)
+    if not human_text or not model_text:
+        return "未标注"
+
+    human_positive = _answer_polarity(human_value)
+    model_positive = _answer_polarity(model_value)
+    if human_positive is not None and model_positive is not None:
+        if human_positive and model_positive:
+            return "TP"
+        if not human_positive and not model_positive:
+            return "TN"
+        if not human_positive and model_positive:
+            return "FP"
+        return "FN"
+
+    return "TP" if human_text == model_text else "FP"
+
+
 async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dict]:
     if not files:
         raise HTTPException(status_code=400, detail="请选择 Excel 文件")
@@ -49,6 +96,10 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
         scene = conn.execute("SELECT * FROM scenes WHERE id=?", (scene_id,)).fetchone()
         if not scene:
             raise HTTPException(status_code=404, detail="场景不存在")
+        field_mapping = conn.execute(
+            "SELECT human_answer_column, model_answer_column FROM field_mappings WHERE scene_id=?",
+            (scene_id,),
+        ).fetchone()
 
         for file in files:
             content = await file.read()
@@ -69,7 +120,7 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
 
             dataset_id = f"dataset_{uuid4().hex[:12]}"
             timestamp = now_iso()
-            data_rows: list[tuple[str, str, int, str, str]] = []
+            data_rows: list[tuple[str, str, int, str, str, str]] = []
             for row_index, row in enumerate(rows, start=2):
                 row_data = {
                     column: _cell_value(row[index] if index < len(row) else "")
@@ -83,6 +134,7 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
                         dataset_id,
                         row_index,
                         encode_json(row_data),
+                        _infer_import_status(row_data, field_mapping),
                         timestamp,
                     )
                 )
@@ -105,8 +157,8 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
             insert_many(
                 conn,
                 f"""
-                INSERT INTO {scene['data_table_name']}(id, dataset_id, row_index, raw_data, created_at)
-                VALUES(?, ?, ?, ?, ?)
+                INSERT INTO {scene['data_table_name']}(id, dataset_id, row_index, raw_data, annotation_status, created_at)
+                VALUES(?, ?, ?, ?, ?, ?)
                 """,
                 data_rows,
             )
@@ -148,6 +200,7 @@ def delete_dataset(dataset_id: str) -> dict:
             raise HTTPException(status_code=404, detail="场景不存在")
         table_name = scene["data_table_name"]
         conn.execute(f"DELETE FROM {table_name} WHERE dataset_id=?", (dataset_id,))
+        conn.execute("DELETE FROM row_analysis_history WHERE dataset_id=?", (dataset_id,))
         conn.execute("DELETE FROM datasets WHERE id=?", (dataset_id,))
     return {"ok": True, "id": dataset_id}
 
@@ -204,6 +257,7 @@ def delete_dataset_row(dataset_id: str, row_id: str) -> dict:
         table_name = scene["data_table_name"]
         conn.execute(f"DELETE FROM {table_name} WHERE id=? AND dataset_id=?", (row_id, dataset_id))
         conn.execute("DELETE FROM annotation_task_rows WHERE row_id=?", (row_id,))
+        conn.execute("DELETE FROM row_analysis_history WHERE dataset_id=? AND row_id=?", (dataset_id, row_id))
         total = conn.execute(
             f"SELECT COUNT(*) AS total FROM {table_name} WHERE dataset_id=?",
             (dataset_id,),
@@ -239,6 +293,10 @@ def delete_dataset_rows(dataset_id: str, row_ids: list[str]) -> dict:
             conn.execute(
                 f"DELETE FROM annotation_task_rows WHERE row_id IN ({existing_placeholders})",
                 existing_ids,
+            )
+            conn.execute(
+                f"DELETE FROM row_analysis_history WHERE dataset_id=? AND row_id IN ({existing_placeholders})",
+                [dataset_id, *existing_ids],
             )
         total = conn.execute(
             f"SELECT COUNT(*) AS total FROM {table_name} WHERE dataset_id=?",

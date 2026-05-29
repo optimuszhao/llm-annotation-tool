@@ -224,12 +224,40 @@ def analyze_dataset_row(dataset_id: str, row_id: str) -> dict:
                 (encode_json(analysis_result), timestamp, latest["id"]),
             )
             task_id = latest["task_id"]
+            task_row_id = latest["id"]
         else:
             task_id = ""
+            task_row_id = ""
+        conn.execute(
+            """
+            INSERT INTO row_analysis_history(id, dataset_id, row_id, task_row_id, analysis_data, created_at)
+            VALUES(?, ?, ?, ?, ?, ?)
+            """,
+            (f"analysis_{uuid4().hex[:12]}", dataset_id, row_id, task_row_id, encode_json(analysis_result), timestamp),
+        )
 
     if task_id:
         _broadcast(task_id, {"type": "row_analyzed", "row_id": row_id, "analysis_data": analysis_result})
     return {"row_id": row_id, "analysis_data": analysis_result}
+
+
+def list_row_analysis_history(dataset_id: str, row_id: str) -> list[dict]:
+    with get_db() as conn:
+        dataset = conn.execute("SELECT id FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+        rows = conn.execute(
+            """
+            SELECT id, dataset_id, row_id, task_row_id, analysis_data, created_at
+            FROM row_analysis_history
+            WHERE dataset_id=? AND row_id=?
+            ORDER BY created_at DESC
+            """,
+            (dataset_id, row_id),
+        ).fetchall()
+    for row in rows:
+        row["analysis_data"] = decode_json(row.get("analysis_data"), {})
+    return rows
 
 
 def get_dataset_metrics(dataset_id: str) -> dict:
@@ -258,12 +286,12 @@ def get_dataset_metrics(dataset_id: str) -> dict:
     fp = counts.get(ROW_STATUS_FP, 0)
     fn = counts.get("FN", 0)
     evaluated = tp + tn + fp + fn
-    precision_base = tp + fp
-    recall_base = tp + fn
-    specificity_base = tn + fp
-    precision = round(tp / precision_base, 4) if precision_base else None
-    recall = round(tp / recall_base, 4) if recall_base else None
-    f1 = round((2 * precision * recall) / (precision + recall), 4) if precision is not None and recall is not None and precision + recall else None
+    algorithm_accuracy = round((tp + tn) / evaluated, 4) if evaluated else None
+    correct_recall = round(tp / (tp + fn), 4) if tp + fn else None
+    correct_precision = round(tp / (tp + fp), 4) if tp + fp else None
+    error_precision = round(tn / (tn + fn), 4) if tn + fn else None
+    f1 = round((2 * tp) / ((2 * tp) + fp + fn), 4) if (2 * tp) + fp + fn else None
+    business_accuracy = round((tp + fp) / evaluated, 4) if evaluated else None
     return {
         "total": total,
         "unannotated": counts.get("未标注", 0),
@@ -275,12 +303,17 @@ def get_dataset_metrics(dataset_id: str) -> dict:
         "fn": fn,
         "failed": counts.get(ROW_STATUS_FAILED, 0),
         "cancelled": counts.get(ROW_STATUS_CANCELLED, 0),
-        "accuracy": round((tp + tn) / evaluated, 4) if evaluated else None,
-        "precision": precision,
-        "recall": recall,
+        "algorithm_accuracy": algorithm_accuracy,
+        "correct_recall": correct_recall,
+        "correct_precision": correct_precision,
+        "error_precision": error_precision,
         "f1": f1,
-        "specificity": round(tn / specificity_base, 4) if specificity_base else None,
-        "false_positive_rate": round(fp / specificity_base, 4) if specificity_base else None,
+        "business_accuracy": business_accuracy,
+        "accuracy": algorithm_accuracy,
+        "precision": correct_precision,
+        "recall": correct_recall,
+        "specificity": error_precision,
+        "false_positive_rate": business_accuracy,
     }
 
 

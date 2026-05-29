@@ -215,10 +215,21 @@ def init_db() -> None:
                 FOREIGN KEY(task_id) REFERENCES annotation_tasks(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS row_analysis_history (
+                id TEXT PRIMARY KEY,
+                dataset_id TEXT NOT NULL,
+                row_id TEXT NOT NULL,
+                task_row_id TEXT,
+                analysis_data TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_annotation_tasks_dataset ON annotation_tasks(dataset_id);
             CREATE INDEX IF NOT EXISTS idx_annotation_tasks_status ON annotation_tasks(status);
             CREATE INDEX IF NOT EXISTS idx_annotation_task_rows_task ON annotation_task_rows(task_id);
             CREATE INDEX IF NOT EXISTS idx_annotation_task_rows_row ON annotation_task_rows(row_id);
+            CREATE INDEX IF NOT EXISTS idx_row_analysis_history_row ON row_analysis_history(dataset_id, row_id);
             """
         )
         ensure_column(conn, "schemes", "prompt_init_type", "TEXT NOT NULL DEFAULT 'auto'")

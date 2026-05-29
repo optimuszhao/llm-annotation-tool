@@ -62,6 +62,13 @@ def delete_scene(scene_id: str) -> dict:
         conn.execute("DELETE FROM annotation_tasks WHERE scene_id=?", (scene_id,))
         conn.execute(
             """
+            DELETE FROM row_analysis_history
+            WHERE dataset_id IN (SELECT id FROM datasets WHERE scene_id=?)
+            """,
+            (scene_id,),
+        )
+        conn.execute(
+            """
             DELETE FROM scheme_resources
             WHERE scheme_id IN (SELECT id FROM schemes WHERE scene_id=?)
             """,

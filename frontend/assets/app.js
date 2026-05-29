@@ -1,6 +1,5 @@
-import { renderStartPage } from "/pages/start.js?v=20260529-start-dev-layout";
 import { renderManagePage } from "/pages/manage.js?v=20260529-prompt-placeholder-rules";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-ui-refresh";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
@@ -140,7 +139,6 @@ async function boot() {
   setupShell();
   setupThemeTools();
   initComponents();
-  renderStartPage();
   renderManagePage();
   renderWorkbenchPage();
   try {

@@ -177,7 +177,7 @@ function bindManageEvents() {
       toast("标注方案已删除");
     });
   });
-  document.querySelector("#closeModal")?.addEventListener("click", closeModal);
+  document.querySelector("#closeModal")?.addEventListener("click", closeModalAndRefresh);
 }
 
 async function deleteActiveScene() {
@@ -209,6 +209,13 @@ function openModal(title, meta, body, size = "") {
 
 function closeModal() {
   document.querySelector("#manageModal").classList.remove("open");
+}
+
+async function closeModalAndRefresh() {
+  closeModal();
+  if (!state.activeSceneId) return;
+  await loadSceneResources();
+  renderManagePage();
 }
 
 function openSceneModal() {
