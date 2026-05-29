@@ -69,9 +69,9 @@ function renderAnalysisMethodOptions() {
   const entries = Object.entries(state.analysisMethods || {});
   return entries.map(([key, item]) => {
     const value = item.method_name || key;
-    const text = `${item.name || key} · ${value}`;
+    const text = item.name || key;
     return `<option value="${escapeHtml(value)}">${escapeHtml(text)}</option>`;
-  }).join("") || `<option value="default_analysis">默认分析 · default_analysis</option>`;
+  }).join("") || `<option value="default_analysis">默认分析</option>`;
 }
 
 export function renderWorkbenchPage() {
@@ -1562,8 +1562,13 @@ async function analyzeDrawerRow() {
   const requestId = ++drawerAnalysisRequest;
   const rowId = drawerRow.row_id;
   const methodName = document.querySelector("#drawerAnalysisMethodSelect")?.value || defaultAnalysisMethodName();
-  document.querySelector("#drawerAnalysisStatus").textContent = "分析中...";
-  document.querySelector("#drawerAnalysisResults").innerHTML = `<div class="empty">后台分析中，关闭抽屉不会中断请求。</div>`;
+  const statusNode = document.querySelector("#drawerAnalysisStatus");
+  const resultsNode = document.querySelector("#drawerAnalysisResults");
+  const hasExistingResults = drawerAnalysisHistoryRows.length > 0 || Boolean(resultsNode.textContent.trim() && !resultsNode.querySelector(".empty"));
+  statusNode.textContent = hasExistingResults ? "分析中，已保留当前结果" : "分析中...";
+  if (!hasExistingResults) {
+    resultsNode.innerHTML = `<div class="empty">后台分析中，关闭抽屉不会中断请求。</div>`;
+  }
   try {
     const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/analysis${analysisQuery(methodName)}`, { method: "POST" });
     const analysisData = result.analysis_data || {};
@@ -1580,8 +1585,10 @@ async function analyzeDrawerRow() {
     toast("分析数据已写入");
   } catch (error) {
     if (requestId === drawerAnalysisRequest) {
-      document.querySelector("#drawerAnalysisStatus").textContent = "分析失败";
-      document.querySelector("#drawerAnalysisResults").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+      statusNode.textContent = `分析失败：${error.message}`;
+      if (!hasExistingResults) {
+        resultsNode.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+      }
     }
     toast(error.message);
   }

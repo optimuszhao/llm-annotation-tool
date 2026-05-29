@@ -238,32 +238,87 @@ def init_db() -> None:
         ensure_column(conn, "schemes", "prompt_init_method_name", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "row_analysis_history", "method_name", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "row_analysis_history", "method_label", "TEXT NOT NULL DEFAULT ''")
-        timestamp = now_iso()
         for scene in conn.execute("SELECT data_table_name FROM scenes").fetchall():
             create_scene_data_table(conn, scene["data_table_name"])
-            conn.execute(
-                f"""
-                UPDATE {scene['data_table_name']}
-                SET annotation_status='取消', updated_at=?
-                WHERE annotation_status IN ('排队中', '标注中')
+        recover_interrupted_annotation_state(conn)
+
+
+def recover_interrupted_annotation_state(conn: sqlite3.Connection) -> None:
+    timestamp = now_iso()
+    active_row_statuses = ("排队中", "标注中", "queued", "running")
+    affected_task_ids = {
+        row["task_id"]
+        for row in conn.execute(
+            f"""
+            SELECT DISTINCT task_id
+            FROM annotation_task_rows
+            WHERE status IN ({','.join(['?'] * len(active_row_statuses))})
+            """,
+            active_row_statuses,
+        ).fetchall()
+    }
+    affected_task_ids.update(
+        row["id"]
+        for row in conn.execute(
+            "SELECT id FROM annotation_tasks WHERE status IN ('queued', 'running')"
+        ).fetchall()
+    )
+
+    for scene in conn.execute("SELECT data_table_name FROM scenes").fetchall():
+        conn.execute(
+            f"""
+            UPDATE {scene['data_table_name']}
+            SET annotation_status='取消', updated_at=?
+            WHERE annotation_status IN ('排队中', '标注中')
+            """,
+            (timestamp,),
+        )
+
+    conn.execute(
+        f"""
+        UPDATE annotation_task_rows
+        SET status='取消', updated_at=?, finished_at=?, error='服务重启后未完成任务已中断'
+        WHERE status IN ({','.join(['?'] * len(active_row_statuses))})
+        """,
+        (timestamp, timestamp, *active_row_statuses),
+    )
+
+    for task_id in affected_task_ids:
+        counts = {
+            row["status"]: row["count"]
+            for row in conn.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM annotation_task_rows
+                WHERE task_id=?
+                GROUP BY status
                 """,
-                (timestamp,),
-            )
+                (task_id,),
+            ).fetchall()
+        }
+        done_count = counts.get("TP", 0) + counts.get("FP", 0) + counts.get("TN", 0) + counts.get("FN", 0)
         conn.execute(
             """
             UPDATE annotation_tasks
-            SET status='interrupted', updated_at=?, finished_at=?, error='服务重启后未完成任务已中断'
-            WHERE status IN ('queued', 'running')
+            SET status='interrupted',
+                queued_count=0,
+                running_count=0,
+                done_count=?,
+                failed_count=?,
+                cancelled_count=?,
+                updated_at=?,
+                finished_at=?,
+                error='服务重启后未完成任务已中断'
+            WHERE id=?
             """,
-            (timestamp, timestamp),
-        )
-        conn.execute(
-            """
-            UPDATE annotation_task_rows
-            SET status='取消', updated_at=?, finished_at=?, error='服务重启后未完成任务已中断'
-            WHERE status IN ('queued', 'running')
-            """,
-            (timestamp, timestamp),
+            (
+                done_count,
+                counts.get("失败", 0),
+                counts.get("取消", 0),
+                timestamp,
+                timestamp,
+                task_id,
+            ),
         )
 
 

@@ -1670,6 +1670,8 @@ button { cursor: pointer; }
 .drawer-kv-value.json-highlight {
   tab-size: 2;
   word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .json-view {
   height: clamp(360px, calc(100dvh - 260px), 620px);
@@ -1973,7 +1975,9 @@ body.is-resizing-drawer-split {
   display: grid;
   align-content: start;
   height: 100%;
+  width: 100%;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--primary) 12%, var(--soft-line));
   border-radius: 10px;
@@ -1982,7 +1986,8 @@ body.is-resizing-drawer-split {
 }
 .drawer-kv-row {
   display: grid;
-  grid-template-columns: minmax(92px, 136px) minmax(0, 1fr);
+  grid-template-columns: minmax(78px, 112px) minmax(0, 1fr);
+  min-width: 0;
   border-bottom: 1px solid var(--soft-line);
 }
 .drawer-kv-row:last-child {
@@ -2009,18 +2014,24 @@ body.is-resizing-drawer-split {
   white-space: nowrap;
 }
 .drawer-kv-value {
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   padding: 11px 12px;
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.7;
   overflow-wrap: anywhere;
+  word-break: break-word;
   white-space: pre-wrap;
 }
 .drawer-kv-value-wrap {
   position: relative;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 .drawer-kv-row.is-collapsed .drawer-kv-value {
   max-height: 132px;
@@ -2198,6 +2209,7 @@ body.is-resizing-drawer-split {
 .drawer-analysis-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
   min-width: 0;
   min-height: 0;
   padding: 12px;
@@ -2270,13 +2282,20 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   align-content: start;
   gap: 10px;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
 }
 .drawer-analysis-result-item {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
+  min-height: 0;
   padding: 10px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--soft-line));
   border-radius: 12px;
   background:
@@ -2286,8 +2305,10 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
 }
 .drawer-analysis-result-kv {
   height: auto;
-  max-height: 460px;
+  max-height: min(520px, 52dvh);
+  min-height: 120px;
   margin-top: 8px;
+  overflow: auto;
 }
 .drawer-analysis-result-popover {
   width: min(420px, 56vw);
