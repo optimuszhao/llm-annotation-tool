@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter
 
 from backend.schemas import PromptCreate
-from backend.services.resource_service import create_prompt, list_prompts, update_prompt
+from backend.services.resource_service import create_prompt, delete_prompt, list_prompts, update_prompt
 
 router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 
@@ -23,3 +23,8 @@ def post_prompt(payload: PromptCreate):
 @router.put("/{prompt_id}")
 def put_prompt(prompt_id: str, payload: PromptCreate):
     return update_prompt(prompt_id, payload.dict())
+
+
+@router.delete("/{prompt_id}")
+def remove_prompt(prompt_id: str):
+    return delete_prompt(prompt_id)

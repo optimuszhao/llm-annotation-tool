@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LLM 标注工具</title>
   <link rel="stylesheet" href="/vendor/tabulator.min.css">
-  <link rel="stylesheet" href="/assets/app.css?v=20260529-start-code-guide">
+  <link rel="stylesheet" href="/assets/app.css?v=20260529-theme-tools">
   <link rel="stylesheet" href="/assets/components.css">
 </head>
 <body>
@@ -50,8 +50,55 @@
     <button class="danger" data-row-action="delete">删除</button>
   </div>
 
+  <script>
+    (() => {
+      const root = document.documentElement;
+      if (root.dataset.themeToolsReady === "true") return;
+
+      const applyThemeChoice = (theme) => {
+        if (theme && theme !== "default") {
+          root.dataset.theme = theme;
+        } else {
+          root.removeAttribute("data-theme");
+        }
+      };
+      const applyModeChoice = (mode) => {
+        root.dataset.mode = mode === "dark" ? "dark" : "light";
+      };
+
+      const themeButton = document.querySelector("#themeButton");
+      const themePopover = document.querySelector("#themePopover");
+      const modeToggle = document.querySelector("#modeToggle");
+
+      applyThemeChoice(localStorage.getItem("themeChoice") || "default");
+      applyModeChoice(localStorage.getItem("modeChoice") || root.dataset.mode || "light");
+
+      if (!themeButton || !themePopover || !modeToggle) return;
+
+      themeButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        themePopover.classList.toggle("open");
+      });
+      themePopover.addEventListener("click", (event) => event.stopPropagation());
+      document.addEventListener("click", () => themePopover.classList.remove("open"));
+      document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const theme = button.dataset.themeChoice;
+          applyThemeChoice(theme);
+          localStorage.setItem("themeChoice", theme);
+          themePopover.classList.remove("open");
+        });
+      });
+      modeToggle.addEventListener("click", () => {
+        const next = root.dataset.mode === "dark" ? "light" : "dark";
+        applyModeChoice(next);
+        localStorage.setItem("modeChoice", next);
+      });
+      root.dataset.themeToolsReady = "true";
+    })();
+  </script>
   <script src="/vendor/gsap.min.js"></script>
   <script src="/vendor/tabulator.min.js"></script>
-  <script type="module" src="/assets/app.js?v=20260529-start-code-guide"></script>
+  <script type="module" src="/assets/app.js?v=20260529-theme-tools"></script>
 </body>
 </html>

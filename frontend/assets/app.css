@@ -956,6 +956,8 @@ button { cursor: pointer; }
 }
 .prompt-menu-card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 5px;
   min-height: 58px;
   padding: 11px 12px;
@@ -963,6 +965,7 @@ button { cursor: pointer; }
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 86%, transparent);
   color: var(--text);
+  cursor: pointer;
   text-align: left;
   transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
 }
@@ -986,6 +989,27 @@ button { cursor: pointer; }
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.resource-menu-text {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.resource-delete-button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 800;
+  transition: background .16s ease, color .16s ease, border-color .16s ease;
+}
+.resource-delete-button:hover {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
 }
 .prompt-editor-form {
   display: grid;
@@ -1702,57 +1726,24 @@ button { cursor: pointer; }
   color: var(--muted);
   line-height: 1.45;
 }
-.start-code-panel {
+.start-dev-section {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(210px, .52fr) minmax(0, 1fr);
-  gap: 10px;
-  margin-top: 10px;
-  padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
-  border-radius: 10px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--primary-soft) 54%, transparent), transparent 64%),
-    color-mix(in srgb, var(--surface) 78%, transparent);
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--primary) 26%, var(--line));
 }
-.start-code-copy span {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--primary-strong);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 900;
+.start-dev-section .start-section-head {
+  margin-bottom: 12px;
 }
-.start-code-copy h3 {
-  margin: 0 0 5px;
-  font-size: 16px;
+.start-dev-section .start-section-head h2 {
+  font-size: 18px;
 }
-.start-code-copy p,
-.start-code-grid p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.45;
+.start-dev-list {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
 }
-.start-code-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-.start-code-grid div {
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
-}
-.start-code-grid strong {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--text);
-  font-size: 13px;
-}
-.start-code-panel code,
+.start-dev-section code,
 .start-journey-list code {
   display: inline-block;
   max-width: 100%;
@@ -1766,10 +1757,11 @@ button { cursor: pointer; }
   font-size: 12px;
   font-weight: 900;
   text-overflow: ellipsis;
-  vertical-align: baseline;
+  line-height: 1.25;
+  vertical-align: middle;
   white-space: nowrap;
 }
-.start-code-panel code {
+.start-dev-section code {
   overflow-wrap: anywhere;
   white-space: normal;
 }
@@ -1792,7 +1784,7 @@ button { cursor: pointer; }
   position: relative;
   z-index: 1;
   display: grid;
-  gap: 0;
+  gap: 18px;
   padding: 0;
   margin: 0;
   list-style: none;
@@ -1802,7 +1794,7 @@ button { cursor: pointer; }
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr);
   gap: 14px;
-  padding: 0 0 8px;
+  padding: 0 0 18px;
 }
 .start-journey-list li:last-child {
   padding-bottom: 0;
@@ -1811,7 +1803,7 @@ button { cursor: pointer; }
   content: "";
   position: absolute;
   top: 38px;
-  bottom: 0;
+  bottom: -18px;
   left: 18px;
   width: 1px;
   background: var(--line);
@@ -2031,8 +2023,8 @@ button { cursor: pointer; }
   line-height: 1.65;
 }
 .ref-scene-tabs {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 14px;
   min-height: 58px;
@@ -2042,6 +2034,14 @@ button { cursor: pointer; }
   background: color-mix(in srgb, var(--surface) 88%, var(--surface-2));
   box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.72);
 }
+.ref-scene-tab-main {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-width: 0;
+}
 .ref-scene-tab-list {
   display: flex;
   gap: 8px;
@@ -2050,7 +2050,8 @@ button { cursor: pointer; }
   overflow-x: auto;
 }
 .ref-scene-tabs .scene-tab,
-.scene-create {
+.scene-create,
+.scene-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2082,6 +2083,25 @@ button { cursor: pointer; }
   background: color-mix(in srgb, var(--surface) 84%, var(--primary-soft));
   color: var(--primary-strong);
   font-weight: 800;
+}
+.scene-delete {
+  grid-column: 3;
+  justify-self: end;
+  height: 32px;
+  padding: 0 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  opacity: .72;
+}
+.scene-delete:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--danger) 22%, var(--line));
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+  color: var(--danger);
+  box-shadow: none;
+  opacity: 1;
 }
 .scene-create span {
   display: inline;
@@ -2273,6 +2293,23 @@ button { cursor: pointer; }
   margin: 5px 0 0;
   color: var(--muted);
   font-size: 12px;
+}
+.scheme-delete-button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 800;
+  transition: transform .16s ease, background .16s ease, color .16s ease, border-color .16s ease;
+}
+.scheme-delete-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
 }
 .scheme-resource-picker {
   padding: 14px;

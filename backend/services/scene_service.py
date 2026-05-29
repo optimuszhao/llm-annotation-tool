@@ -37,3 +37,42 @@ def get_scene(scene_id: str) -> dict:
     if not scene:
         raise HTTPException(status_code=404, detail="场景不存在")
     return scene
+
+
+def delete_scene(scene_id: str) -> dict:
+    with get_db() as conn:
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (scene_id,)).fetchone()
+        if not scene:
+            raise HTTPException(status_code=404, detail="场景不存在")
+
+        table_name = scene["data_table_name"]
+        if not table_name.startswith("scene_data_"):
+            raise HTTPException(status_code=400, detail="场景数据表名异常")
+
+        task_ids = [
+            row["id"]
+            for row in conn.execute(
+                "SELECT id FROM annotation_tasks WHERE scene_id=?",
+                (scene_id,),
+            ).fetchall()
+        ]
+        if task_ids:
+            placeholders = ", ".join(["?"] * len(task_ids))
+            conn.execute(f"DELETE FROM annotation_task_rows WHERE task_id IN ({placeholders})", task_ids)
+        conn.execute("DELETE FROM annotation_tasks WHERE scene_id=?", (scene_id,))
+        conn.execute(
+            """
+            DELETE FROM scheme_resources
+            WHERE scheme_id IN (SELECT id FROM schemes WHERE scene_id=?)
+            """,
+            (scene_id,),
+        )
+        conn.execute("DELETE FROM field_mappings WHERE scene_id=?", (scene_id,))
+        conn.execute("DELETE FROM prompts WHERE scene_id=?", (scene_id,))
+        conn.execute("DELETE FROM knowledge_items WHERE scene_id=?", (scene_id,))
+        conn.execute("DELETE FROM error_sets WHERE scene_id=?", (scene_id,))
+        conn.execute("DELETE FROM schemes WHERE scene_id=?", (scene_id,))
+        conn.execute("DELETE FROM datasets WHERE scene_id=?", (scene_id,))
+        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+        conn.execute("DELETE FROM scenes WHERE id=?", (scene_id,))
+    return {"ok": True, "id": scene_id}

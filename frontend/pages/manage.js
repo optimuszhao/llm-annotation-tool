@@ -22,10 +22,13 @@ export function renderManagePage() {
         </div>
       </section>
       <div class="ref-scene-tabs" role="tablist" aria-label="场景列表">
-        <div class="ref-scene-tab-list">
-          ${state.scenes.map((scene) => `<button class="scene-tab ${scene.id === state.activeSceneId ? "active" : ""}" type="button" data-scene-id="${scene.id}">${escapeHtml(scene.name)}</button>`).join("")}
+        <div class="ref-scene-tab-main">
+          <div class="ref-scene-tab-list">
+            ${state.scenes.map((scene) => `<button class="scene-tab ${scene.id === state.activeSceneId ? "active" : ""}" type="button" data-scene-id="${scene.id}">${escapeHtml(scene.name)}</button>`).join("")}
+          </div>
+          <button class="scene-create" id="addSceneButton" type="button" aria-label="新增场景"><span aria-hidden="true">+</span> 新增场景</button>
         </div>
-        <button class="scene-create" id="addSceneButton" type="button" aria-label="新增场景"><span aria-hidden="true">+</span> 新增场景</button>
+        ${activeScene ? `<button class="scene-delete" id="deleteSceneButton" type="button">删除选中的场景</button>` : ""}
       </div>
       ${activeScene ? renderSceneContent(activeScene) : renderEmptyScene()}
     </div>
@@ -88,7 +91,7 @@ function renderSceneContent(activeScene) {
                 <strong>${escapeHtml(item.name)}</strong>
                 <p>后台方法：${escapeHtml(item.method_name)} · 初始化：${item.prompt_init_type === "custom" ? "自定义" : "自动"} · 并发：${item.concurrency}</p>
               </div>
-              <span class="status-pill tp">可用</span>
+              <button class="scheme-delete-button" type="button" data-delete-scheme="${escapeHtml(item.id)}" data-scheme-name="${escapeHtml(item.name)}">删除</button>
             </article>
           `).join("") || `<div class="empty">当前场景暂无标注方案。</div>`}
         </div>
@@ -145,6 +148,7 @@ function bindManageEvents() {
     });
   });
   document.querySelector("#addSceneButton")?.addEventListener("click", openSceneModal);
+  document.querySelector("#deleteSceneButton")?.addEventListener("click", deleteActiveScene);
   document.querySelectorAll("[data-resource-card]").forEach((card) => {
     const open = () => {
       if (!state.activeSceneId) {
@@ -163,7 +167,36 @@ function bindManageEvents() {
     });
   });
   document.querySelector("#addSchemeButton")?.addEventListener("click", openSchemeModal);
+  document.querySelectorAll("[data-delete-scheme]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const ok = window.confirm(`确认删除标注方案“${button.dataset.schemeName}”？删除后该方案关联的资源选择会同步清理。`);
+      if (!ok) return;
+      await api(`/api/schemes/${encodeURIComponent(button.dataset.deleteScheme)}`, { method: "DELETE" });
+      await loadSceneResources();
+      renderManagePage();
+      toast("标注方案已删除");
+    });
+  });
   document.querySelector("#closeModal")?.addEventListener("click", closeModal);
+}
+
+async function deleteActiveScene() {
+  const scene = getActiveScene();
+  if (!scene) {
+    toast("请先选择场景");
+    return;
+  }
+  const ok = window.confirm(
+    `确认删除场景“${scene.name}”？\n\n该操作会关联删除该场景下的所有数据集、Prompt、知识库、错题集、字段映射配置和标注方案。确认后会执行全部删除。`
+  );
+  if (!ok) return;
+  await api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" });
+  state.activeSceneId = "";
+  state.activeDatasetId = "";
+  state.activeSchemeId = "";
+  await loadState();
+  renderManagePage();
+  toast("场景已删除");
 }
 
 function openModal(title, meta, body, size = "") {
@@ -466,10 +499,13 @@ function openPromptModal() {
         </div>
         <div class="prompt-menu-list">
           ${state.prompts.map((item) => `
-            <button class="prompt-menu-card" type="button" data-prompt-id="${escapeHtml(item.id)}">
-              <strong>${escapeHtml(item.name)}</strong>
-              <span>${escapeHtml(item.role_name || "未设置角色")} · 点击编辑</span>
-            </button>
+            <div class="prompt-menu-card resource-menu-card" role="button" tabindex="0" data-prompt-id="${escapeHtml(item.id)}">
+              <div class="resource-menu-text">
+                <strong>${escapeHtml(item.name)}</strong>
+                <span>${escapeHtml(item.role_name || "未设置角色")} · 点击编辑</span>
+              </div>
+              <button class="resource-delete-button" type="button" data-delete-prompt="${escapeHtml(item.id)}" data-resource-name="${escapeHtml(item.name)}">删除</button>
+            </div>
           `).join("") || `<div class="empty">当前场景暂无 Prompt。</div>`}
         </div>
       </aside>
@@ -510,10 +546,13 @@ function openKnowledgeModal() {
         </div>
         <div class="prompt-menu-list">
           ${state.knowledge.map((item) => `
-            <button class="prompt-menu-card" type="button" data-knowledge-id="${escapeHtml(item.id)}">
-              <strong>${escapeHtml(item.name)}</strong>
-              <span>${escapeHtml(item.created_at || "未记录时间")} · 点击编辑</span>
-            </button>
+            <div class="prompt-menu-card resource-menu-card" role="button" tabindex="0" data-knowledge-id="${escapeHtml(item.id)}">
+              <div class="resource-menu-text">
+                <strong>${escapeHtml(item.name)}</strong>
+                <span>${escapeHtml(item.created_at || "未记录时间")} · 点击编辑</span>
+              </div>
+              <button class="resource-delete-button" type="button" data-delete-knowledge="${escapeHtml(item.id)}" data-resource-name="${escapeHtml(item.name)}">删除</button>
+            </div>
           `).join("") || `<div class="empty">当前场景暂无知识。</div>`}
         </div>
       </aside>
@@ -552,10 +591,13 @@ function openErrorSetModal() {
         </div>
         <div class="prompt-menu-list">
           ${state.errorSets.map((item) => `
-            <button class="prompt-menu-card" type="button" data-error-set-id="${escapeHtml(item.id)}">
-              <strong>${escapeHtml(item.name)}</strong>
-              <span>${escapeHtml(item.description || "暂无描述")} · 点击编辑</span>
-            </button>
+            <div class="prompt-menu-card resource-menu-card" role="button" tabindex="0" data-error-set-id="${escapeHtml(item.id)}">
+              <div class="resource-menu-text">
+                <strong>${escapeHtml(item.name)}</strong>
+                <span>${escapeHtml(item.description || "暂无描述")} · 点击编辑</span>
+              </div>
+              <button class="resource-delete-button" type="button" data-delete-error-set="${escapeHtml(item.id)}" data-resource-name="${escapeHtml(item.name)}">删除</button>
+            </div>
           `).join("") || `<div class="empty">当前场景暂无错题集。</div>`}
         </div>
       </aside>
@@ -679,6 +721,24 @@ function bindPromptEditor() {
       const item = state.prompts.find((prompt) => prompt.id === card.dataset.promptId);
       if (item) setMode(item);
     });
+    card.addEventListener("keydown", (event) => {
+      if (event.target.closest(".resource-delete-button")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      const item = state.prompts.find((prompt) => prompt.id === card.dataset.promptId);
+      if (item) setMode(item);
+    });
+  });
+  document.querySelectorAll("[data-delete-prompt]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const ok = window.confirm(`确认删除 Prompt“${button.dataset.resourceName}”？关联方案中的该 Prompt 引用也会同步移除。`);
+      if (!ok) return;
+      await api(`/api/prompts/${encodeURIComponent(button.dataset.deletePrompt)}`, { method: "DELETE" });
+      await loadSceneResources();
+      openPromptModal();
+      toast("Prompt 已删除");
+    });
   });
 
   formNode.addEventListener("submit", async (event) => {
@@ -736,6 +796,24 @@ function bindKnowledgeEditor() {
       const item = state.knowledge.find((knowledge) => knowledge.id === card.dataset.knowledgeId);
       if (item) setMode(item);
     });
+    card.addEventListener("keydown", (event) => {
+      if (event.target.closest(".resource-delete-button")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      const item = state.knowledge.find((knowledge) => knowledge.id === card.dataset.knowledgeId);
+      if (item) setMode(item);
+    });
+  });
+  document.querySelectorAll("[data-delete-knowledge]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const ok = window.confirm(`确认删除知识“${button.dataset.resourceName}”？关联方案中的该知识引用也会同步移除。`);
+      if (!ok) return;
+      await api(`/api/knowledge/${encodeURIComponent(button.dataset.deleteKnowledge)}`, { method: "DELETE" });
+      await loadSceneResources();
+      openKnowledgeModal();
+      toast("知识已删除");
+    });
   });
 
   formNode.addEventListener("submit", async (event) => {
@@ -786,6 +864,24 @@ function bindErrorSetEditor() {
     card.addEventListener("click", () => {
       const item = state.errorSets.find((errorSet) => errorSet.id === card.dataset.errorSetId);
       if (item) setMode(item);
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.target.closest(".resource-delete-button")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      const item = state.errorSets.find((errorSet) => errorSet.id === card.dataset.errorSetId);
+      if (item) setMode(item);
+    });
+  });
+  document.querySelectorAll("[data-delete-error-set]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const ok = window.confirm(`确认删除错题集“${button.dataset.resourceName}”？关联方案中的该错题集引用也会同步移除。`);
+      if (!ok) return;
+      await api(`/api/error-sets/${encodeURIComponent(button.dataset.deleteErrorSet)}`, { method: "DELETE" });
+      await loadSceneResources();
+      openErrorSetModal();
+      toast("错题集已删除");
     });
   });
 

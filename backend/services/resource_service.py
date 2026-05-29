@@ -55,6 +55,19 @@ def _update_resource(table: str, resource_id: str, payload: dict, fields: list[s
         return conn.execute(f"SELECT * FROM {table} WHERE id=?", (resource_id,)).fetchone()
 
 
+def _delete_resource(table: str, resource_id: str, resource_type: str, detail: str) -> dict:
+    with get_db() as conn:
+        existing = conn.execute(f"SELECT * FROM {table} WHERE id=?", (resource_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"{detail}不存在")
+        conn.execute(
+            "DELETE FROM scheme_resources WHERE resource_type=? AND resource_id=?",
+            (resource_type, resource_id),
+        )
+        conn.execute(f"DELETE FROM {table} WHERE id=?", (resource_id,))
+    return {"ok": True, "id": resource_id}
+
+
 def list_prompts(scene_id: Optional[str]) -> list[dict]:
     return _list_resource("prompts", scene_id)
 
@@ -74,6 +87,10 @@ def update_prompt(prompt_id: str, payload: dict) -> dict:
         payload,
         ["scene_id", "name", "role_name", "content", "source_file"],
     )
+
+
+def delete_prompt(prompt_id: str) -> dict:
+    return _delete_resource("prompts", prompt_id, "prompt", "Prompt")
 
 
 def list_knowledge(scene_id: Optional[str]) -> list[dict]:
@@ -97,6 +114,10 @@ def update_knowledge(knowledge_id: str, payload: dict) -> dict:
     )
 
 
+def delete_knowledge(knowledge_id: str) -> dict:
+    return _delete_resource("knowledge_items", knowledge_id, "knowledge", "知识")
+
+
 def list_error_sets(scene_id: Optional[str]) -> list[dict]:
     return _list_resource("error_sets", scene_id)
 
@@ -112,6 +133,10 @@ def update_error_set(error_set_id: str, payload: dict) -> dict:
         payload,
         ["scene_id", "name", "description"],
     )
+
+
+def delete_error_set(error_set_id: str) -> dict:
+    return _delete_resource("error_sets", error_set_id, "error_set", "错题集")
 
 
 def list_schemes(scene_id: Optional[str]) -> list[dict]:
@@ -195,3 +220,32 @@ def create_scheme(payload: dict) -> dict:
             (scheme_id,),
         ).fetchall()
         return scheme
+
+
+def delete_scheme(scheme_id: str) -> dict:
+    with get_db() as conn:
+        scheme = conn.execute("SELECT * FROM schemes WHERE id=?", (scheme_id,)).fetchone()
+        if not scheme:
+            raise HTTPException(status_code=404, detail="标注方案不存在")
+        task_ids = [
+            row["id"]
+            for row in conn.execute(
+                "SELECT id FROM annotation_tasks WHERE scheme_id=?",
+                (scheme_id,),
+            ).fetchall()
+        ]
+        if task_ids:
+            placeholders = ", ".join(["?"] * len(task_ids))
+            scene = conn.execute("SELECT * FROM scenes WHERE id=?", (scheme["scene_id"],)).fetchone()
+            if scene and scene["data_table_name"].startswith("scene_data_"):
+                conn.execute(
+                    f"""
+                    UPDATE {scene['data_table_name']}
+                    SET annotation_task_id=NULL
+                    WHERE annotation_task_id IN ({placeholders})
+                    """,
+                    task_ids,
+                )
+        conn.execute("DELETE FROM scheme_resources WHERE scheme_id=?", (scheme_id,))
+        conn.execute("DELETE FROM schemes WHERE id=?", (scheme_id,))
+    return {"ok": True, "id": scheme_id}

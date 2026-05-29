@@ -1,4 +1,4 @@
-import { renderStartPage } from "/pages/start.js?v=20260529-start-code-guide";
+import { renderStartPage } from "/pages/start.js?v=20260529-start-dev-layout";
 import { renderManagePage } from "/pages/manage.js?v=20260529-prompt-placeholder-rules";
 import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js";
 import { initComponents } from "/assets/components.js";
@@ -87,32 +87,58 @@ function setupShell() {
     const button = event.target.closest("[data-page-button]");
     if (button) showPage(button.dataset.pageButton);
   });
+}
+
+function applyThemeChoice(theme) {
+  if (theme && theme !== "default") {
+    document.documentElement.dataset.theme = theme;
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+}
+
+function applyModeChoice(mode) {
+  document.documentElement.dataset.mode = mode === "dark" ? "dark" : "light";
+}
+
+function setupThemeTools() {
+  if (document.documentElement.dataset.themeToolsReady === "true") return;
 
   const themeButton = document.querySelector("#themeButton");
   const themePopover = document.querySelector("#themePopover");
+  const modeToggle = document.querySelector("#modeToggle");
+
+  applyThemeChoice(localStorage.getItem("themeChoice") || "default");
+  applyModeChoice(localStorage.getItem("modeChoice") || document.documentElement.dataset.mode || "light");
+
+  if (!themeButton || !themePopover || !modeToggle) return;
+
   themeButton.addEventListener("click", (event) => {
     event.stopPropagation();
     themePopover.classList.toggle("open");
   });
+  themePopover.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("click", () => themePopover.classList.remove("open"));
   document.querySelectorAll("[data-theme-choice]").forEach((button) => {
     button.addEventListener("click", () => {
       const theme = button.dataset.themeChoice;
-      if (theme === "default") {
-        document.documentElement.removeAttribute("data-theme");
-      } else {
-        document.documentElement.dataset.theme = theme;
-      }
+      applyThemeChoice(theme);
+      localStorage.setItem("themeChoice", theme);
+      themePopover.classList.remove("open");
     });
   });
-  document.querySelector("#modeToggle").addEventListener("click", () => {
+  modeToggle.addEventListener("click", () => {
     const current = document.documentElement.dataset.mode;
-    document.documentElement.dataset.mode = current === "dark" ? "light" : "dark";
+    const next = current === "dark" ? "light" : "dark";
+    applyModeChoice(next);
+    localStorage.setItem("modeChoice", next);
   });
+  document.documentElement.dataset.themeToolsReady = "true";
 }
 
 async function boot() {
   setupShell();
+  setupThemeTools();
   initComponents();
   renderStartPage();
   renderManagePage();
