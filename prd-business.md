@@ -193,9 +193,8 @@ Prompt 创建方式：
 
 Prompt 初始化规则：
 
-- 自动替换占位符使用方括号语法：`[[row.列名]]`、`[[knowledge]]`、`[[error_sets]]`
-- Prompt 中要求模型返回 JSON 时，JSON 示例直接写 `{ "字段": "值" }`，系统只解析 `[[...]]`，不会解析普通大括号
-- 旧版简单占位符 `{{row.列名}}`、`{{knowledge}}`、`{{error_sets}}` 临时兼容；新 Prompt 统一使用 `[[...]]`
+- 自动替换占位符使用全角大括号语法：`｛row.列名｝`、`｛knowledge｝`、`｛error_sets｝`
+- Prompt 中要求模型返回 JSON 时，JSON 示例直接写 `{ "字段": "值" }` 或 `{{字段}}`，系统只解析全角 `｛...｝`
 - 自定义处理会把 Prompt 列表、知识库、错题集、字段映射和当前行数据传给用户实现的方法
 - 自动处理和自定义处理都输出同一种结构：`{ 角色名: Prompt对象 }`
 - Prompt 对象结构：`prompt_id`、`name`、`role_name`、`content`
@@ -680,7 +679,7 @@ user_hooks/
 ├── annotation_methods.py    # list_annotation_methods + 多个标注方法
 ├── prompt_init_methods.py   # list_prompt_init_methods + 多个 Prompt 初始化方法
 ├── analysis_methods.py      # list_analysis_methods + 多个分析方法
-└── prompt_utils.py          # [[...]] 占位符工具
+└── prompt_utils.py          # ｛...｝ 占位符工具
 ```
 
 默认标注方法会对每个角色 Prompt 调用一次 `llm_chat_function(prompt)`，每个返回 dict 都必须包含“标注答案列”。所有角色都返回“是”时最终答案为“是”，任一角色返回“否”时最终答案为“否”。

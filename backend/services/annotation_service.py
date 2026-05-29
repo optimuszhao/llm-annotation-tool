@@ -1031,9 +1031,7 @@ def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: lis
             return str(row_data.get(key[4:].strip(), ""))
         return match.group(0)
 
-    rendered = re.sub(r"\[\[\s*([^\[\]]+?)\s*\]\]", replace, text)
-    rendered = re.sub(r"\{\{\s*([A-Za-z0-9_.\-\u4e00-\u9fff\uff00-\uffef ]+?)\s*\}\}", replace, rendered)
-    return rendered
+    return re.sub(r"｛\s*([^｛｝]+?)\s*｝", replace, text)
 
 
 def _named_resource_placeholder(key: str, prefixes: set[str]) -> str:

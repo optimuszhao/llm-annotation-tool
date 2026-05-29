@@ -508,7 +508,7 @@ function openPromptModal() {
     <div class="prompt-editor-layout">
       <section class="prompt-rule-box prompt-rule-strip">
         <strong>Prompt 规范</strong>
-        <p>占位符统一使用 <code>[[row.列名]]</code>、<code>[[knowledge.知识名称]]</code>、<code>[[error_sets.错题集名称]]</code>。需要引用全部资源时可用 <code>[[knowledge]]</code>、<code>[[error_sets]]</code>。JSON 返回格式直接写 <code>{ "字段": "值" }</code>，无需转义大括号。</p>
+        <p>占位符统一使用全角大括号 <code>｛row.列名｝</code>、<code>｛knowledge.知识名称｝</code>、<code>｛error_sets.错题集名称｝</code>。需要引用全部资源时可用 <code>｛knowledge｝</code>、<code>｛error_sets｝</code>。JSON 返回格式和 <code>{{字段}}</code> 示例会原样保留。</p>
       </section>
       <aside class="prompt-sidebar" aria-label="已添加 Prompt">
         <div class="prompt-sidebar-head">
@@ -662,16 +662,11 @@ function renderRichResourceList(items, metaField, contentField) {
 
 function extractPromptPlaceholders(content) {
   const matches = [];
-  const patterns = [
-    /\[\[\s*([^\[\]]+?)\s*\]\]/g,
-    /\{\{\s*([A-Za-z0-9_.\-\u4e00-\u9fff\uff00-\uffef ]+?)\s*\}\}/g,
-  ];
-  for (const pattern of patterns) {
-    let match;
-    while ((match = pattern.exec(content)) !== null) {
-      const value = match[1].trim();
-      if (value && !matches.includes(value)) matches.push(value);
-    }
+  const pattern = /｛\s*([^｛｝]+?)\s*｝/g;
+  let match;
+  while ((match = pattern.exec(content)) !== null) {
+    const value = match[1].trim();
+    if (value && !matches.includes(value)) matches.push(value);
   }
   return matches;
 }
@@ -710,6 +705,10 @@ function findUnmappedPromptPlaceholders(content) {
   return extractPromptPlaceholders(content).filter((name) => !candidates.has(name));
 }
 
+function renderPlaceholderName(name) {
+  return `｛${name}｝`;
+}
+
 function bindPromptEditor() {
   const formNode = document.querySelector("#promptForm");
   const idInput = formNode.querySelector("#promptId");
@@ -727,7 +726,7 @@ function bindPromptEditor() {
     const missing = findUnmappedPromptPlaceholders(contentInput.value);
     warningNode.hidden = missing.length === 0;
     warningNode.textContent = missing.length
-      ? `未找到映射值：${missing.map((item) => `[[${item}]]`).join("、")}`
+      ? `未找到映射值：${missing.map(renderPlaceholderName).join("、")}`
       : "";
     formNode.scrollTop = 0;
     return missing;
@@ -779,7 +778,7 @@ function bindPromptEditor() {
     const form = new FormData(event.currentTarget);
     const missing = updatePlaceholderWarning();
     if (missing.length) {
-      const ok = window.confirm(`以下占位符没有对应的映射值：${missing.map((item) => `[[${item}]]`).join("、")}。点击“确定”继续保存，点击“取消”返回编辑。`);
+      const ok = window.confirm(`以下占位符没有对应的映射值：${missing.map(renderPlaceholderName).join("、")}。点击“确定”继续保存，点击“取消”返回编辑。`);
       if (!ok) return;
     }
     const payload = {
@@ -988,7 +987,7 @@ async function openSchemeModal(schemeId = "") {
                 <input type="radio" name="prompt_init_type" value="auto" ${initType === "auto" ? "checked" : ""}>
                 <span>
                   <strong>自动替换占位符</strong>
-                  <em>系统替换 [[row.列名]]、[[knowledge.名称]]、[[error_sets.名称]]。</em>
+                  <em>系统替换 ｛row.列名｝、｛knowledge.名称｝、｛error_sets.名称｝。</em>
                 </span>
               </label>
               <label class="scheme-choice-card">
@@ -1315,9 +1314,6 @@ function analyzeAutoPromptLinks(promptIds) {
   prompts.forEach((prompt) => {
     extractSchemePromptPlaceholders(prompt.content || "").forEach((placeholder) => {
       const key = placeholder.key;
-      if (placeholder.legacy) {
-        warnings.push(`${prompt.name} 使用了旧版 {{${key}}} 占位符，建议改成 [[${key}]]。`);
-      }
       if (key.startsWith("row.")) {
         const column = key.slice(4).trim();
         if (!columns.includes(column)) errors.push(`${prompt.name} 引用了不存在的数据列：${column}`);
@@ -1345,17 +1341,17 @@ function analyzeAutoPromptLinks(promptIds) {
         else errors.push(`${prompt.name} 引用了不存在的错题集：${errorSetName}`);
         return;
       }
-      errors.push(`${prompt.name} 存在无法自动替换的占位符：${key}`);
+      errors.push(`${prompt.name} 存在无法自动替换的占位符：${renderPlaceholderName(key)}`);
     });
   });
 
   if (useAllKnowledge) {
     state.knowledge.forEach((item) => knowledgeIds.add(item.id));
-    warnings.push("检测到 [[knowledge]]，会自动关联当前场景全部知识库。");
+    warnings.push("检测到 ｛knowledge｝，会自动关联当前场景全部知识库。");
   }
   if (useAllErrorSets) {
     state.errorSets.forEach((item) => errorSetIds.add(item.id));
-    warnings.push("检测到 [[error_sets]]，会自动关联当前场景全部错题集。");
+    warnings.push("检测到 ｛error_sets｝，会自动关联当前场景全部错题集。");
   }
 
   return {
@@ -1368,11 +1364,9 @@ function analyzeAutoPromptLinks(promptIds) {
 
 function extractSchemePromptPlaceholders(content) {
   const placeholders = [];
-  const modern = /\[\[\s*([^\[\]]+?)\s*\]\]/g;
-  const legacy = /\{\{\s*([A-Za-z0-9_.\-\u4e00-\u9fff\uff00-\uffef ：:]+?)\s*\}\}/g;
+  const modern = /｛\s*([^｛｝]+?)\s*｝/g;
   let match;
   while ((match = modern.exec(content))) placeholders.push({ key: match[1].trim(), legacy: false });
-  while ((match = legacy.exec(content))) placeholders.push({ key: match[1].trim(), legacy: true });
   return placeholders;
 }
 

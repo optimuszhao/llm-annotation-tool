@@ -55,13 +55,13 @@ http://127.0.0.1:8000
 
 ### Prompt 占位符规则
 
-系统推荐使用 `[[...]]` 作为占位符：
+系统使用全角大括号 `｛...｝` 作为占位符：
 
 ```text
-工单名称：[[row.工单名称]]
-API 内容：[[row.API Part 1]]
-知识库：[[knowledge]]
-错题集：[[error_sets]]
+工单名称：｛row.工单名称｝
+API 内容：｛row.API Part 1｝
+知识库：｛knowledge｝
+错题集：｛error_sets｝
 
 请严格返回 JSON：
 {
@@ -70,13 +70,13 @@ API 内容：[[row.API Part 1]]
 }
 ```
 
-`[[row.列名]]` 会读取当前行数据，`[[knowledge]]` 会合并当前方案选择的知识库，`[[error_sets]]` 会合并当前方案选择的错题集。
+`｛row.列名｝` 会读取当前行数据，`｛knowledge｝` 会合并当前方案选择的知识库，`｛error_sets｝` 会合并当前方案选择的错题集。
 
-Prompt 里可以直接写 JSON 示例的大括号 `{}`。推荐复用 `render_prompt_template(...)` 处理占位符，整段 Prompt 使用 `str.format()` 容易和 JSON 大括号冲突。
+Prompt 里可以直接写 JSON 示例的大括号 `{}`，也可以写 `{{xxx}}` 作为返回格式提示。系统只解析全角 `｛...｝`，Python `str.format()` 会把全角大括号当作普通文本处理。
 
 ### 为什么需要自定义 Prompt 初始化
 
-自动替换适合简单场景：把 `[[row.列名]]`、`[[knowledge]]`、`[[error_sets]]` 替换成文本后直接调用模型。
+自动替换适合简单场景：把 `｛row.列名｝`、`｛knowledge｝`、`｛error_sets｝` 替换成文本后直接调用模型。
 
 自定义 Prompt 初始化适合这些情况：
 

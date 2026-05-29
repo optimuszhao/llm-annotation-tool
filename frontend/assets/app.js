@@ -1,4 +1,4 @@
-import { renderManagePage } from "/pages/manage.js?v=20260529-scheme-prototype";
+import { renderManagePage } from "/pages/manage.js?v=20260529-placeholder-fullwidth";
 import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-source-compact";
 import { initComponents } from "/assets/components.js";
 

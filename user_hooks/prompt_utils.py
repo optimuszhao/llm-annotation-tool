@@ -4,7 +4,7 @@ import json
 import re
 
 
-PROMPT_PLACEHOLDER_PATTERN = re.compile(r"\[\[\s*([^\[\]]+?)\s*\]\]")
+PROMPT_PLACEHOLDER_PATTERN = re.compile(r"｛\s*([^｛｝]+?)\s*｝")
 
 
 def render_prompt_template(
@@ -14,15 +14,15 @@ def render_prompt_template(
     error_sets: list | None = None,
     extra_context: dict | None = None,
 ) -> str:
-    """安全替换 Prompt 中的 `[[...]]` 占位符。
+    """安全替换 Prompt 中的 `｛...｝` 占位符。
 
     推荐写法：
-    - `[[row.工单名称]]`：读取当前行字段。
-    - `[[knowledge.知识名称]]`：读取指定知识库。
-    - `[[error_sets.错题集名称]]`：读取指定错题集。
-    - `[[knowledge]]` / `[[error_sets]]`：读取方案关联的全部资源。
+    - `｛row.工单名称｝`：读取当前行字段。
+    - `｛knowledge.知识名称｝`：读取指定知识库。
+    - `｛error_sets.错题集名称｝`：读取指定错题集。
+    - `｛knowledge｝` / `｛error_sets｝`：读取方案关联的全部资源。
 
-    Prompt 里的 JSON 示例可以直接写 `{ "字段": "值" }`。
+    Prompt 里的 JSON 示例和 `{{...}}` 返回格式提示会原样保留。
     """
     knowledge_text = join_knowledge(knowledge or [])
     error_text = join_error_sets(error_sets or [])
