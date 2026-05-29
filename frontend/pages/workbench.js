@@ -11,12 +11,15 @@ let metricsTimer = 0;
 let currentDetailRow = null;
 let currentDetailMode = "view";
 let currentDetailKind = "row";
+let currentCellRawValue = null;
+let currentCellContent = "";
 let detailEditDirty = false;
 let drawerRow = null;
 let drawerMode = "view";
 let drawerEditDirty = false;
 let drawerSelectedColumns = new Set();
 let drawerAnalysisRequest = 0;
+let drawerAnnotationHistoryRequest = 0;
 let drawerResizeCleanup = null;
 let statusFilters = new Set();
 let availableDatasetColumns = [];
@@ -160,40 +163,20 @@ export function renderWorkbenchPage() {
     </div>
 
     <div class="modal-backdrop" id="rowDetailModal">
-      <div class="modal row-detail-modal">
+      <div class="modal row-detail-modal cell-detail-modal">
         <div class="modal-head">
           <div>
-            <h2 id="rowDetailTitle">行数据详情</h2>
-            <p class="card-meta" id="rowDetailMeta">双击表格行打开，支持查看、分析、编辑和导出。</p>
+            <h2 id="rowDetailTitle">单元格内容</h2>
+            <p class="card-meta" id="rowDetailMeta">JSON 内容会自动格式化。</p>
           </div>
-          <button class="icon-btn" id="closeRowDetail">×</button>
+          <div class="cell-detail-head-actions">
+            <button class="btn" type="button" id="cellFormatButton">格式化 JSON</button>
+            <button class="btn primary" type="button" id="cellCopyButton">复制内容</button>
+            <button class="icon-btn" id="closeRowDetail">×</button>
+          </div>
         </div>
-        <div class="modal-body">
-          <div class="row-detail-actions">
-            <button class="btn" type="button" id="detailEditButton">编辑</button>
-            <button class="btn" type="button" id="detailAnalyzeButton">分析</button>
-            <button class="btn" type="button" id="detailExportButton">导出 JSON</button>
-            <button class="btn danger-soft" type="button" id="detailDeleteButton">删除</button>
-            <button class="btn primary detail-save-inline" type="button" id="detailSaveButton" hidden>保存</button>
-          </div>
-          <div class="row-detail-content" id="rowDetailContent">
-            <section class="detail-pane detail-pane-raw">
-              <div class="detail-pane-title">
-                <strong>原始数据</strong>
-                <span id="rowDetailStatus">查看模式</span>
-              </div>
-              <div class="kv-view" id="rowDetailKv"></div>
-              <pre class="json-view" id="rowDetailJson">{}</pre>
-              <textarea class="json-editor" id="rowDetailEditor" spellcheck="false" hidden></textarea>
-            </section>
-            <section class="detail-pane detail-pane-analysis" id="rowAnalysisPane" hidden>
-              <div class="detail-pane-title">
-                <strong>分析结果</strong>
-                <span id="rowAnalysisStatus">等待分析</span>
-              </div>
-              <pre class="json-view" id="rowAnalysisJson">{}</pre>
-            </section>
-          </div>
+        <div class="modal-body cell-detail-body">
+          <pre class="json-view cell-detail-view" id="rowDetailJson">{}</pre>
         </div>
       </div>
     </div>
@@ -217,9 +200,11 @@ export function renderWorkbenchPage() {
             <button type="button" data-drawer-mode="edit">编辑</button>
             <button type="button" data-drawer-mode="analysis">分析</button>
           </div>
-          <div class="drawer-actions">
+          <div class="drawer-actions" id="drawerEditActions" hidden>
             <button class="btn" type="button" id="drawerExitEdit" hidden>退出编辑</button>
             <button class="btn primary" type="button" id="drawerSave" hidden>保存</button>
+          </div>
+          <div class="drawer-actions" id="drawerAnalysisActions" hidden>
             <button class="btn primary" type="button" id="drawerReanalyze" hidden>重新分析</button>
           </div>
         </div>
@@ -253,6 +238,15 @@ export function renderWorkbenchPage() {
                   <span>本次标注使用的完整 Prompt</span>
                 </div>
                 <pre class="drawer-prompt-view" id="drawerPromptText">暂无 Prompt</pre>
+              </section>
+              <section class="drawer-result-card drawer-history-card">
+                <div class="drawer-section-title">
+                  <strong>历史标注</strong>
+                  <span id="drawerHistoryStatus">按时间倒序</span>
+                </div>
+                <div class="drawer-history-list" id="drawerHistoryList">
+                  <div class="empty">切换到标注结果后加载历史。</div>
+                </div>
               </section>
             </div>
           </section>
@@ -392,18 +386,20 @@ function bindWorkbenchEvents() {
     closeMenus();
   });
   document.querySelector("#closeRowDetail").addEventListener("click", closeRowDetail);
+  document.querySelector("#cellFormatButton").addEventListener("click", formatCellJsonContent);
+  document.querySelector("#cellCopyButton").addEventListener("click", copyCellDetailContent);
   document.querySelector("#rowDetailModal").addEventListener("click", (event) => {
     if (event.target.id === "rowDetailModal") closeRowDetail();
   });
-  document.querySelector("#detailEditButton").addEventListener("click", () => setDetailMode("edit"));
-  document.querySelector("#detailSaveButton").addEventListener("click", saveDetailEdit);
-  document.querySelector("#detailAnalyzeButton").addEventListener("click", analyzeCurrentDetailRow);
-  document.querySelector("#detailExportButton").addEventListener("click", exportCurrentDetailRow);
-  document.querySelector("#detailDeleteButton").addEventListener("click", () => {
+  document.querySelector("#detailEditButton")?.addEventListener("click", () => setDetailMode("edit"));
+  document.querySelector("#detailSaveButton")?.addEventListener("click", saveDetailEdit);
+  document.querySelector("#detailAnalyzeButton")?.addEventListener("click", analyzeCurrentDetailRow);
+  document.querySelector("#detailExportButton")?.addEventListener("click", exportCurrentDetailRow);
+  document.querySelector("#detailDeleteButton")?.addEventListener("click", () => {
     if (currentDetailRow?.row_id) deleteRow(currentDetailRow.row_id);
   });
-  document.querySelector("#rowDetailEditor").addEventListener("input", markDetailEditable);
-  document.querySelector("#rowDetailEditor").addEventListener("select", markDetailEditable);
+  document.querySelector("#rowDetailEditor")?.addEventListener("input", markDetailEditable);
+  document.querySelector("#rowDetailEditor")?.addEventListener("select", markDetailEditable);
   document.querySelector("#drawerClose").addEventListener("click", closeRowDrawer);
   document.querySelector("#rowDetailDrawerScrim").addEventListener("click", closeRowDrawer);
   document.querySelectorAll("[data-drawer-mode]").forEach((button) => {
@@ -415,6 +411,7 @@ function bindWorkbenchEvents() {
   document.querySelector("#drawerEditor").addEventListener("input", markDrawerDirty);
   document.querySelector("#drawerFieldFilterButton").addEventListener("click", toggleDrawerFieldPopover);
   document.querySelector("#drawerFieldPopover").addEventListener("click", handleDrawerFieldPopoverClick);
+  document.querySelector("#rowDetailDrawer").addEventListener("click", handleDrawerKvToggle);
   document.querySelector("#drawerResizer").addEventListener("pointerdown", startDrawerResize);
   document.querySelector("#closeColumnSettings").addEventListener("click", closeColumnSettings);
   document.querySelector("#cancelColumnSettings").addEventListener("click", closeColumnSettings);
@@ -837,7 +834,8 @@ async function openRowDetail(rowData, mode = "view") {
 function openCellDetail(cell) {
   const field = cell.getColumn?.().getField?.();
   if (!field || field === "row_id") return;
-  openCellValue(field, cell.getValue());
+  const rowId = cell.getData?.()?.row_id || "";
+  openCellValue(field, cell.getValue(), rowId);
 }
 
 function handleTableCellDoubleClick(event) {
@@ -848,28 +846,143 @@ function handleTableCellDoubleClick(event) {
   if (!cellElement || !rowElement || !field || field === "row_id") return;
   const row = table.getRows("visible").find((item) => item.getElement() === rowElement);
   if (!row) return;
-  openCellValue(field, row.getData()[field]);
+  const rowData = row.getData();
+  openCellValue(field, rowData[field], rowData.row_id);
 }
 
-function openCellValue(field, value) {
+async function openCellValue(field, value, rowId = "") {
   currentDetailKind = "cell";
   currentDetailRow = null;
-  setDetailActionsVisible(false);
   document.querySelector("#rowDetailTitle").textContent = `单元格内容 · ${field}`;
-  document.querySelector("#rowDetailMeta").textContent = "双击单元格查看完整内容，JSON 内容会自动格式化。";
-  document.querySelector("#rowDetailStatus").textContent = "单元格查看";
-  document.querySelector("#rowAnalysisPane").hidden = true;
-  document.querySelector("#rowDetailContent").classList.remove("split");
-  document.querySelector("#rowDetailKv").hidden = true;
   document.querySelector("#rowDetailJson").hidden = false;
-  document.querySelector("#rowDetailEditor").hidden = true;
-  document.querySelector("#rowDetailJson").textContent = formatDetailValue(value);
-  document.querySelector("#rowAnalysisJson").textContent = "{}";
+  document.querySelector("#cellFormatButton").disabled = false;
+  setCellDetailValue(value);
   document.querySelector("#rowDetailModal").classList.add("open");
+  if (rowId && state.activeDatasetId) {
+    document.querySelector("#rowDetailMeta").textContent = "正在读取完整单元格内容...";
+    try {
+      const fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}`);
+      setCellDetailValue(Object.prototype.hasOwnProperty.call(fullRow, field) ? fullRow[field] : value);
+    } catch {
+      setCellDetailValue(value);
+    }
+  }
+}
+
+function setCellDetailValue(value) {
+  currentCellRawValue = value;
+  const parsed = parseJsonLike(value);
+  currentCellContent = formatCellRawValue(value);
+  document.querySelector("#rowDetailMeta").textContent = parsed.ok ? "检测到 JSON，可点击格式化并高亮显示。" : "按纯文本展示，支持一键复制。";
+  renderCellDetailContent(false);
 }
 
 function closeRowDetail() {
   document.querySelector("#rowDetailModal")?.classList.remove("open");
+}
+
+async function copyCellDetailContent() {
+  const content = currentCellContent || document.querySelector("#rowDetailJson")?.textContent || "";
+  if (!content) {
+    toast("暂无可复制内容");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(content);
+    toast("已复制单元格内容");
+  } catch {
+    fallbackCopyText(content);
+  }
+}
+
+function formatCellJsonContent() {
+  let parsed = parseJsonLike(currentCellRawValue);
+  if (!parsed.ok) parsed = parseJsonLike(currentCellContent);
+  if (!parsed.ok) {
+    currentCellContent = formatCellRawValue(currentCellRawValue ?? currentCellContent);
+    renderCellDetailContent(false);
+    toast("当前内容按纯文本换行展示");
+    return;
+  }
+  currentCellContent = JSON.stringify(parsed.value, null, 2);
+  renderCellDetailContent(true);
+  document.querySelector("#rowDetailMeta").textContent = "JSON 已格式化并高亮显示。";
+  toast("JSON 已格式化");
+}
+
+function renderCellDetailContent(highlightJson = false) {
+  const viewer = document.querySelector("#rowDetailJson");
+  if (!viewer) return;
+  viewer.scrollTop = 0;
+  if (highlightJson) {
+    viewer.innerHTML = highlightJsonText(currentCellContent);
+  } else {
+    viewer.textContent = currentCellContent;
+  }
+}
+
+function parseJsonLike(value) {
+  if (value === null || value === undefined || value === "") return { ok: false, value: null };
+  if (typeof value === "object") return { ok: true, value };
+  const text = String(value).trim();
+  const candidates = [text, unquoteJsonString(text)].filter(Boolean);
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (!/^[{\[]/.test(trimmed)) continue;
+    try {
+      return { ok: true, value: JSON.parse(trimmed) };
+    } catch {
+      // 继续尝试下一个候选文本。
+    }
+  }
+  return { ok: false, value: text };
+}
+
+function unquoteJsonString(text) {
+  if (!/^".*"$/.test(text)) return "";
+  try {
+    const parsed = JSON.parse(text);
+    return typeof parsed === "string" ? parsed : "";
+  } catch {
+    return "";
+  }
+}
+
+function formatCellRawValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function highlightJsonText(text) {
+  const pattern = /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+  let result = "";
+  let lastIndex = 0;
+  text.replace(pattern, (match, _group, _colon, offset) => {
+    result += escapeHtml(text.slice(lastIndex, offset));
+    let className = "json-number";
+    if (match.startsWith('"')) className = /:\s*$/.test(match) ? "json-key" : "json-string";
+    else if (match === "true" || match === "false") className = "json-boolean";
+    else if (match === "null") className = "json-null";
+    result += `<span class="${className}">${escapeHtml(match)}</span>`;
+    lastIndex = offset + match.length;
+    return match;
+  });
+  result += escapeHtml(text.slice(lastIndex));
+  return result;
+}
+
+function fallbackCopyText(content) {
+  const textarea = document.createElement("textarea");
+  textarea.value = content;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+  toast("已复制单元格内容");
 }
 
 async function openRowDrawer(rowData, mode = "view") {
@@ -930,10 +1043,11 @@ function setDrawerMode(mode) {
   document.querySelector("#drawerEditPane").hidden = mode !== "edit";
   document.querySelector("#drawerResultPane").hidden = mode !== "result";
   document.querySelector("#drawerAnalysisPane").hidden = mode !== "analysis";
-  document.querySelector("#drawerSave").hidden = mode !== "edit";
-  document.querySelector("#drawerExitEdit").hidden = mode !== "edit";
-  document.querySelector("#drawerReanalyze").hidden = mode !== "analysis";
-  document.querySelector(".drawer-actions").hidden = mode !== "edit" && mode !== "analysis";
+  setDrawerElementVisible("#drawerEditActions", mode === "edit");
+  setDrawerElementVisible("#drawerAnalysisActions", mode === "analysis");
+  setDrawerElementVisible("#drawerSave", mode === "edit");
+  setDrawerElementVisible("#drawerExitEdit", mode === "edit");
+  setDrawerElementVisible("#drawerReanalyze", mode === "analysis");
   document.querySelector("#drawerSave").disabled = true;
   document.querySelector("#drawerFieldPopover")?.setAttribute("hidden", "");
   document.querySelectorAll("[data-drawer-mode]").forEach((button) => {
@@ -949,7 +1063,15 @@ function setDrawerMode(mode) {
   }
   if (mode === "result") {
     renderDrawerResult();
+    renderDrawerAnnotationHistory();
   }
+}
+
+function setDrawerElementVisible(selector, visible) {
+  const element = document.querySelector(selector);
+  if (!element) return;
+  element.hidden = !visible;
+  element.style.display = visible ? "" : "none";
 }
 
 function markDrawerDirty() {
@@ -1031,6 +1153,39 @@ function renderDrawerResult() {
   document.querySelector("#drawerPromptText").textContent = drawerRow?.rendered_prompt || "暂无 Prompt";
 }
 
+async function renderDrawerAnnotationHistory() {
+  if (!drawerRow?.row_id || !state.activeDatasetId) return;
+  const requestId = ++drawerAnnotationHistoryRequest;
+  const status = document.querySelector("#drawerHistoryStatus");
+  const list = document.querySelector("#drawerHistoryList");
+  status.textContent = "加载中";
+  list.innerHTML = `<div class="empty">正在读取历史标注...</div>`;
+  try {
+    const rows = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}/annotation-history`);
+    if (requestId !== drawerAnnotationHistoryRequest || drawerMode !== "result") return;
+    status.textContent = rows.length ? `${rows.length} 次记录` : "暂无历史";
+    list.innerHTML = rows.map((row) => {
+      const result = row.model_result && Object.keys(row.model_result).length
+        ? JSON.stringify(row.model_result, null, 2)
+        : row.error || "暂无返回";
+      return `
+        <article class="drawer-history-item">
+          <div class="drawer-history-head">
+            <span class="status-pill ${statusClass(row.status)}">${escapeHtml(row.status || "未知")}</span>
+            <strong>${escapeHtml(formatHistoryTime(row.finished_at || row.updated_at || row.created_at))}</strong>
+          </div>
+          <div class="drawer-history-meta">任务 ${escapeHtml(row.task_id || "-")} · 方案 ${escapeHtml(row.scheme_id || "-")}</div>
+          <pre>${escapeHtml(result)}</pre>
+        </article>
+      `;
+    }).join("") || `<div class="empty">暂无历史标注记录</div>`;
+  } catch (error) {
+    if (requestId !== drawerAnnotationHistoryRequest) return;
+    status.textContent = "读取失败";
+    list.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
 function renderDrawerAnalysisRaw() {
   const raw = drawerEditableData();
   const selected = Object.fromEntries(
@@ -1076,16 +1231,39 @@ function handleDrawerFieldPopoverClick(event) {
 function renderDrawerKeyValues(selector, payload, emptyText = "暂无数据") {
   const container = document.querySelector(selector);
   const entries = Object.entries(payload || {});
-  container.innerHTML = entries.map(([key, value]) => `
-    <article class="drawer-kv-row">
-      <div class="drawer-kv-key" title="${escapeHtml(key)}">${escapeHtml(key)}</div>
-      <div class="drawer-kv-value">${escapeHtml(formatDisplayValue(value))}</div>
+  container.innerHTML = entries.map(([key, value]) => {
+    const text = formatDisplayValue(value);
+    const collapsed = shouldCollapseDrawerValue(text);
+    return `
+    <article class="drawer-kv-row ${collapsed ? "is-collapsible is-collapsed" : ""}">
+      <div class="drawer-kv-key" title="${escapeHtml(key)}">
+        <span>${escapeHtml(key)}</span>
+        ${collapsed ? `<button class="drawer-kv-toggle" type="button" data-drawer-kv-toggle>展开</button>` : ""}
+      </div>
+      <div class="drawer-kv-value-wrap">
+        <div class="drawer-kv-value">${escapeHtml(text)}</div>
+      </div>
     </article>
-  `).join("") || `<div class="empty">${emptyText}</div>`;
+  `;
+  }).join("") || `<div class="empty">${emptyText}</div>`;
 }
 
 function drawerEditableData() {
   return editableDetailDataFrom(drawerRow || {});
+}
+
+function shouldCollapseDrawerValue(text) {
+  const value = String(text || "");
+  return value.length > 360 || value.split("\n").length > 8;
+}
+
+function handleDrawerKvToggle(event) {
+  const button = event.target.closest("[data-drawer-kv-toggle]");
+  if (!button) return;
+  const row = button.closest(".drawer-kv-row");
+  if (!row) return;
+  const collapsed = row.classList.toggle("is-collapsed");
+  button.textContent = collapsed ? "展开" : "收起";
 }
 
 function startDrawerResize(event) {
@@ -1725,7 +1903,7 @@ function markRowsQueuedForTask(rowIds) {
   table.getRows().forEach((row) => {
     const data = row.getData();
     if (idSet.has(data.row_id)) {
-      row.update({ 状态: "排队中" });
+      updateTableRow(row, { 状态: "排队中" });
     }
   });
 }
@@ -1738,7 +1916,7 @@ function markInitialRunningRowsForTask(rowIds, concurrency) {
     return idSet.has(data.row_id);
   });
   rows.slice(0, Math.max(Number(concurrency) || 1, 1)).forEach((row) => {
-    row.update({ 状态: "标注中" });
+    updateTableRow(row, { 状态: "标注中" });
   });
 }
 
@@ -1751,7 +1929,7 @@ function markRowsCancelled(rowIds) {
   if (!table || !idSet.size) return;
   table.getRows().forEach((row) => {
     const data = row.getData();
-    if (idSet.has(data.row_id)) row.update({ 状态: "取消" });
+    if (idSet.has(data.row_id)) updateTableRow(row, { 状态: "取消" });
   });
 }
 
@@ -1763,8 +1941,33 @@ async function applyTaskEventToTable(payload) {
   }
   if (payload.type === "row_updated") {
     const result = payload.model_result || {};
+    let status = payload.status || (payload.error ? "失败" : "");
+    let fullRow = null;
+    if (!status && state.activeDatasetId && payload.row_id) {
+      try {
+        fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${payload.row_id}`);
+        status = fullRow?.["状态"] || "";
+      } catch {
+        status = "";
+      }
+    }
     await ensureDynamicResultColumns(result);
-    updateVisibleRow(payload.row_id, { ...result, 状态: payload.status || "未标注" });
+    updateVisibleRow(payload.row_id, { ...(fullRow || {}), ...result, ...(status ? { 状态: status } : {}) });
+    if (drawerRow?.row_id === payload.row_id) {
+      const latestResult = Object.keys(result).length ? result : fullRow?.model_result || drawerRow.model_result || {};
+      drawerRow = {
+        ...drawerRow,
+        ...(fullRow || {}),
+        ...result,
+        ...(status ? { 状态: status } : {}),
+        model_result: latestResult,
+        rendered_prompt: payload.rendered_prompt || fullRow?.rendered_prompt || drawerRow.rendered_prompt || "",
+      };
+      if (drawerMode === "result") {
+        renderDrawerResult();
+        renderDrawerAnnotationHistory();
+      }
+    }
     return;
   }
   if (payload.type === "row_analyzed") {
@@ -1782,13 +1985,32 @@ function updateVisibleRow(rowId, patch) {
   try {
     const row = table.getRow(rowId);
     if (row) {
-      row.update(patch);
+      updateTableRow(row, patch);
       return;
     }
   } catch {
     // 行不在当前页时无需处理，切页时会从后端读取最新状态。
   }
   table.updateData?.([{ row_id: rowId, ...patch }]);
+}
+
+function updateTableRow(row, patch) {
+  const result = row.update(patch);
+  const refresh = () => refreshTableRow(row);
+  if (result && typeof result.then === "function") {
+    result.then(refresh).catch(refresh);
+  } else {
+    refresh();
+  }
+}
+
+function refreshTableRow(row) {
+  try {
+    row.reformat?.();
+    row.normalizeHeight?.();
+  } catch {
+    // Tabulator 在远程分页切换时可能已移除该行，忽略即可。
+  }
 }
 
 async function ensureDynamicResultColumns(result) {
@@ -1868,6 +2090,13 @@ function getVisibleRowData(rowId) {
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString();
+}
+
+function formatHistoryTime(value) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString("zh-CN", { hour12: false });
 }
 
 function formatRate(value) {

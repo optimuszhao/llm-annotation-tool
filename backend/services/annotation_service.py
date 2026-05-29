@@ -260,6 +260,42 @@ def list_row_analysis_history(dataset_id: str, row_id: str) -> list[dict]:
     return rows
 
 
+def list_row_annotation_history(dataset_id: str, row_id: str) -> list[dict]:
+    with get_db() as conn:
+        dataset = conn.execute("SELECT id FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+        rows = conn.execute(
+            """
+            SELECT
+                task_row.id,
+                task_row.task_id,
+                task_row.row_id,
+                task_row.row_index,
+                task_row.status,
+                task_row.model_result,
+                task_row.analysis_data,
+                task_row.rendered_prompt,
+                task_row.error,
+                task_row.created_at,
+                task_row.updated_at,
+                task_row.started_at,
+                task_row.finished_at,
+                task.scheme_id,
+                task.status AS task_status
+            FROM annotation_task_rows task_row
+            JOIN annotation_tasks task ON task.id = task_row.task_id
+            WHERE task.dataset_id=? AND task_row.row_id=?
+            ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
+            """,
+            (dataset_id, row_id),
+        ).fetchall()
+    for row in rows:
+        row["model_result"] = decode_json(row.get("model_result"), {})
+        row["analysis_data"] = decode_json(row.get("analysis_data"), {})
+    return rows
+
+
 def get_dataset_metrics(dataset_id: str) -> dict:
     with get_db() as conn:
         dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
