@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter
 
 from backend.schemas import SchemeCreate
-from backend.services.resource_service import create_scheme, delete_scheme, list_schemes
+from backend.services.resource_service import create_scheme, delete_scheme, list_schemes, update_scheme
 from user_hooks import hooks
 
 router = APIRouter(prefix="/api/schemes", tags=["schemes"])
@@ -29,6 +29,11 @@ def get_prompt_init_methods():
 @router.post("")
 def post_scheme(payload: SchemeCreate):
     return create_scheme(payload.dict())
+
+
+@router.put("/{scheme_id}")
+def put_scheme(scheme_id: str, payload: SchemeCreate):
+    return update_scheme(scheme_id, payload.dict())
 
 
 @router.delete("/{scheme_id}")

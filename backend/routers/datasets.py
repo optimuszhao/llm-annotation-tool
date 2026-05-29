@@ -46,9 +46,10 @@ def get_rows(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1),
     search: str = "",
+    search_column: str = "",
     statuses: list[str] = Query(default=[]),
 ):
-    return get_dataset_rows(dataset_id, page, page_size, search, statuses)
+    return get_dataset_rows(dataset_id, page, page_size, search, search_column, statuses)
 
 
 @router.get("/{dataset_id}/export")

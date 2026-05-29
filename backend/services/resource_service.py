@@ -143,15 +143,7 @@ def list_schemes(scene_id: Optional[str]) -> list[dict]:
     schemes = _list_resource("schemes", scene_id)
     with get_db() as conn:
         for scheme in schemes:
-            scheme["resources"] = conn.execute(
-                """
-                SELECT resource_type, resource_id, sort_order
-                FROM scheme_resources
-                WHERE scheme_id=?
-                ORDER BY sort_order ASC
-                """,
-                (scheme["id"],),
-            ).fetchall()
+            scheme["resources"] = _scheme_resources(conn, scheme["id"])
     return schemes
 
 
@@ -189,36 +181,48 @@ def create_scheme(payload: dict) -> dict:
                 timestamp,
             ),
         )
-        resources: list[tuple[str, str, str, str, int]] = []
-        order = 0
-        for resource_type, ids in (
-            ("prompt", payload.get("prompt_ids", [])),
-            ("knowledge", payload.get("knowledge_ids", [])),
-            ("error_set", payload.get("error_set_ids", [])),
-        ):
-            for resource_id in ids:
-                resources.append(
-                    (
-                        f"scheme_resource_{uuid4().hex[:12]}",
-                        scheme_id,
-                        resource_type,
-                        resource_id,
-                        order,
-                    )
-                )
-                order += 1
-        conn.executemany(
-            """
-            INSERT INTO scheme_resources(id, scheme_id, resource_type, resource_id, sort_order)
-            VALUES(?, ?, ?, ?, ?)
-            """,
-            resources,
-        )
+        _replace_scheme_resources(conn, scheme_id, payload)
         scheme = conn.execute("SELECT * FROM schemes WHERE id=?", (scheme_id,)).fetchone()
-        scheme["resources"] = conn.execute(
-            "SELECT resource_type, resource_id, sort_order FROM scheme_resources WHERE scheme_id=?",
-            (scheme_id,),
-        ).fetchall()
+        scheme["resources"] = _scheme_resources(conn, scheme_id)
+        return scheme
+
+
+def update_scheme(scheme_id: str, payload: dict) -> dict:
+    timestamp = now_iso()
+    with get_db() as conn:
+        existing = conn.execute("SELECT * FROM schemes WHERE id=?", (scheme_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="标注方案不存在")
+        scene_id = payload.get("scene_id") or existing["scene_id"]
+        _ensure_scene(conn, scene_id)
+        conn.execute(
+            """
+            UPDATE schemes
+            SET scene_id=?,
+                name=?,
+                model_key=?,
+                method_name=?,
+                prompt_init_type=?,
+                prompt_init_method_name=?,
+                concurrency=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                scene_id,
+                payload.get("name", existing["name"]),
+                payload.get("model_key", existing["model_key"]),
+                payload.get("method_name", existing["method_name"]),
+                payload.get("prompt_init_type", existing["prompt_init_type"]),
+                payload.get("prompt_init_method_name", existing["prompt_init_method_name"]),
+                payload.get("concurrency", existing["concurrency"]),
+                timestamp,
+                scheme_id,
+            ),
+        )
+        _replace_scheme_resources(conn, scheme_id, payload)
+        scheme = conn.execute("SELECT * FROM schemes WHERE id=?", (scheme_id,)).fetchone()
+        scheme["resources"] = _scheme_resources(conn, scheme_id)
         return scheme
 
 
@@ -249,3 +253,44 @@ def delete_scheme(scheme_id: str) -> dict:
         conn.execute("DELETE FROM scheme_resources WHERE scheme_id=?", (scheme_id,))
         conn.execute("DELETE FROM schemes WHERE id=?", (scheme_id,))
     return {"ok": True, "id": scheme_id}
+
+
+def _scheme_resources(conn, scheme_id: str) -> list[dict]:
+    return conn.execute(
+        """
+        SELECT resource_type, resource_id, sort_order
+        FROM scheme_resources
+        WHERE scheme_id=?
+        ORDER BY sort_order ASC
+        """,
+        (scheme_id,),
+    ).fetchall()
+
+
+def _replace_scheme_resources(conn, scheme_id: str, payload: dict) -> None:
+    conn.execute("DELETE FROM scheme_resources WHERE scheme_id=?", (scheme_id,))
+    resources: list[tuple[str, str, str, str, int]] = []
+    order = 0
+    for resource_type, ids in (
+        ("prompt", payload.get("prompt_ids", [])),
+        ("knowledge", payload.get("knowledge_ids", [])),
+        ("error_set", payload.get("error_set_ids", [])),
+    ):
+        for resource_id in ids:
+            resources.append(
+                (
+                    f"scheme_resource_{uuid4().hex[:12]}",
+                    scheme_id,
+                    resource_type,
+                    resource_id,
+                    order,
+                )
+            )
+            order += 1
+    conn.executemany(
+        """
+        INSERT INTO scheme_resources(id, scheme_id, resource_type, resource_id, sort_order)
+        VALUES(?, ?, ?, ?, ?)
+        """,
+        resources,
+    )

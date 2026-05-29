@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260529-bracket-placeholders";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-cell-json-viewer";
+import { renderManagePage } from "/pages/manage.js?v=20260529-scheme-edit";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-workbench-polish";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
@@ -13,6 +13,8 @@ export const state = {
   activeDatasetId: "",
   activeSchemeId: "",
 };
+
+const defaultPage = "workbench";
 
 export async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -141,10 +143,12 @@ async function boot() {
   initComponents();
   renderManagePage();
   renderWorkbenchPage();
+  showPage(defaultPage);
   try {
     await loadState();
     renderManagePage();
     renderWorkbenchPage();
+    showPage(defaultPage);
   } catch (error) {
     toast(error.message);
   }

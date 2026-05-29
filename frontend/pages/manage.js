@@ -91,7 +91,10 @@ function renderSceneContent(activeScene) {
                 <strong>${escapeHtml(item.name)}</strong>
                 <p>后台方法：${escapeHtml(item.method_name)} · 初始化：${item.prompt_init_type === "custom" ? "自定义" : "自动"} · 并发：${item.concurrency}</p>
               </div>
-              <button class="scheme-delete-button" type="button" data-delete-scheme="${escapeHtml(item.id)}" data-scheme-name="${escapeHtml(item.name)}">删除</button>
+              <div class="scheme-actions">
+                <button class="scheme-edit-button" type="button" data-edit-scheme="${escapeHtml(item.id)}">编辑</button>
+                <button class="scheme-delete-button" type="button" data-delete-scheme="${escapeHtml(item.id)}" data-scheme-name="${escapeHtml(item.name)}">删除</button>
+              </div>
             </article>
           `).join("") || `<div class="empty">当前场景暂无标注方案。</div>`}
         </div>
@@ -166,7 +169,10 @@ function bindManageEvents() {
       if (event.key === "Enter") open();
     });
   });
-  document.querySelector("#addSchemeButton")?.addEventListener("click", openSchemeModal);
+  document.querySelector("#addSchemeButton")?.addEventListener("click", () => openSchemeModal());
+  document.querySelectorAll("[data-edit-scheme]").forEach((button) => {
+    button.addEventListener("click", () => openSchemeModal(button.dataset.editScheme));
+  });
   document.querySelectorAll("[data-delete-scheme]").forEach((button) => {
     button.addEventListener("click", async () => {
       const ok = window.confirm(`确认删除标注方案“${button.dataset.schemeName}”？删除后该方案关联的资源选择会同步清理。`);
@@ -935,7 +941,9 @@ function bindResourceForm(key) {
   });
 }
 
-async function openSchemeModal() {
+async function openSchemeModal(schemeId = "") {
+  const editingScheme = schemeId ? state.schemes.find((item) => item.id === schemeId) : null;
+  const selectedResources = schemeResourceIds(editingScheme);
   let methods = {};
   let promptInitMethods = {};
   try {
@@ -948,49 +956,50 @@ async function openSchemeModal() {
   } catch {
     promptInitMethods = { custom_default: { name: "自定义 Prompt 初始化", method_name: "build_prompts_custom" } };
   }
-  openModal("添加方案", "方案会保存当前场景的资源、Prompt 初始化方式、后台方法和并发数。", `
+  openModal(editingScheme ? "编辑方案" : "添加方案", "方案会保存当前场景的资源、Prompt 初始化方式、后台方法和并发数。", `
     <form id="schemeForm" class="form-grid labeled-form">
       <label>
         <span>方案名称</span>
-        <input class="input" name="name" placeholder="例如：双角色情感分类" required>
+        <input class="input" name="name" placeholder="例如：双角色情感分类" value="${escapeHtml(editingScheme?.name || "")}" required>
       </label>
       <label>
         <span>后台方法名</span>
         <select class="select" name="method_name" required>
-          ${Object.entries(methods).map(([key, item]) => `<option value="${escapeHtml(item.method_name)}">${escapeHtml(item.name || key)} · ${escapeHtml(item.method_name)}</option>`).join("")}
+          ${Object.entries(methods).map(([key, item]) => `<option value="${escapeHtml(item.method_name)}" ${item.method_name === editingScheme?.method_name ? "selected" : ""}>${escapeHtml(item.name || key)} · ${escapeHtml(item.method_name)}</option>`).join("")}
         </select>
       </label>
       <label>
         <span>Prompt 初始化类型</span>
         <select class="select" name="prompt_init_type" id="promptInitType">
-          <option value="auto">自动替换占位符</option>
-          <option value="custom">自定义处理（后台方法）</option>
+          <option value="auto" ${(editingScheme?.prompt_init_type || "auto") === "auto" ? "selected" : ""}>自动替换占位符</option>
+          <option value="custom" ${editingScheme?.prompt_init_type === "custom" ? "selected" : ""}>自定义处理（后台方法）</option>
         </select>
       </label>
       <label>
         <span>Prompt 初始化后台方法</span>
         <select class="select" name="prompt_init_method_name" id="promptInitMethod">
-          ${Object.entries(promptInitMethods).map(([key, item]) => `<option value="${escapeHtml(item.method_name)}">${escapeHtml(item.name || key)} · ${escapeHtml(item.method_name)}</option>`).join("")}
+          ${Object.entries(promptInitMethods).map(([key, item]) => `<option value="${escapeHtml(item.method_name)}" ${item.method_name === editingScheme?.prompt_init_method_name ? "selected" : ""}>${escapeHtml(item.name || key)} · ${escapeHtml(item.method_name)}</option>`).join("")}
         </select>
       </label>
       <label>
         <span>并发数量</span>
-        <input class="input" type="number" min="1" max="20" name="concurrency" value="4" required>
+        <input class="input" type="number" min="1" max="20" name="concurrency" value="${escapeHtml(editingScheme?.concurrency || 4)}" required>
       </label>
-      ${renderSchemeResourcePicker("Prompt", "prompt_ids", state.prompts, "role_name")}
-      ${renderSchemeResourcePicker("知识库", "knowledge_ids", state.knowledge, "content")}
-      ${renderSchemeResourcePicker("错题集", "error_set_ids", state.errorSets, "description")}
+      ${renderSchemeResourcePicker("Prompt", "prompt_ids", state.prompts, "role_name", selectedResources.prompt)}
+      ${renderSchemeResourcePicker("知识库", "knowledge_ids", state.knowledge, "content", selectedResources.knowledge)}
+      ${renderSchemeResourcePicker("错题集", "error_set_ids", state.errorSets, "description", selectedResources.error_set)}
       <button class="btn primary full" type="submit">保存方案</button>
     </form>
   `, "modal-xl");
   document.querySelector("#schemeForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await api("/api/schemes", {
-      method: "POST",
+    await api(editingScheme ? `/api/schemes/${encodeURIComponent(editingScheme.id)}` : "/api/schemes", {
+      method: editingScheme ? "PUT" : "POST",
       body: JSON.stringify({
         scene_id: state.activeSceneId,
         name: form.get("name"),
+        model_key: editingScheme?.model_key || "configured",
         method_name: form.get("method_name"),
         prompt_init_type: form.get("prompt_init_type"),
         prompt_init_method_name: form.get("prompt_init_method_name"),
@@ -1003,11 +1012,19 @@ async function openSchemeModal() {
     await loadSceneResources();
     closeModal();
     renderManagePage();
-    toast("方案已创建");
+    toast(editingScheme ? "方案已更新" : "方案已创建");
   });
 }
 
-function renderSchemeResourcePicker(title, name, items, metaField) {
+function schemeResourceIds(scheme) {
+  const ids = { prompt: new Set(), knowledge: new Set(), error_set: new Set() };
+  (scheme?.resources || []).forEach((resource) => {
+    ids[resource.resource_type]?.add(resource.resource_id);
+  });
+  return ids;
+}
+
+function renderSchemeResourcePicker(title, name, items, metaField, selected = new Set()) {
   return `
     <section class="scheme-resource-picker full">
       <div class="mapping-title">
@@ -1019,7 +1036,7 @@ function renderSchemeResourcePicker(title, name, items, metaField) {
       <div class="scheme-resource-grid">
         ${items.map((item) => `
           <label class="column-chip">
-            <input type="checkbox" name="${name}" value="${escapeHtml(item.id)}">
+            <input type="checkbox" name="${name}" value="${escapeHtml(item.id)}" ${selected.has(item.id) ? "checked" : ""}>
             <span>${escapeHtml(item.name)}${metaField && item[metaField] ? ` · ${escapeHtml(String(item[metaField]).slice(0, 24))}` : ""}</span>
           </label>
         `).join("") || `<div class="empty">当前场景暂无${title}资源。</div>`}

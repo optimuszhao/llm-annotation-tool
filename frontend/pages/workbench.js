@@ -1,6 +1,7 @@
 import { api, loadSceneResources, state, toast } from "/assets/app.js";
 
 let table = null;
+let tableBuildKey = "";
 let searchTimer = 0;
 let pendingSource = { sceneId: "", datasetId: "", schemeId: "" };
 let pendingResources = { datasets: [], schemes: [] };
@@ -80,6 +81,17 @@ export function renderWorkbenchPage() {
         </section>
       </div>
 
+      <div class="task-strip" id="taskStrip" hidden>
+        <div class="task-title">
+          <span class="scheme-badge">TASK</span>
+          <strong id="taskTitle">任务状态</strong>
+          <span class="card-meta" id="taskMeta">暂无运行中的标注任务。</span>
+        </div>
+        <div class="task-progress-wrap">
+          <div class="progress" aria-label="任务进度"><span id="taskProgress" style="--value:0%"></span></div>
+        </div>
+      </div>
+
       <div class="toolbar workbench-toolbar">
         <div class="toolbar-left">
           <label class="checkline">
@@ -92,6 +104,10 @@ export function renderWorkbenchPage() {
         <div class="toolbar-right">
           <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新列表</button>
           <label class="column-search">
+            <select id="tableSearchColumn" aria-label="选择搜索字段">
+              <option value="">全部字段</option>
+            </select>
+            <span aria-hidden="true"></span>
             <input type="search" id="tableSearch" placeholder="搜索当前数据集内容" aria-label="搜索当前数据集内容">
           </label>
           <div class="dropdown-wrap">
@@ -119,16 +135,6 @@ export function renderWorkbenchPage() {
       </div>
 
       <div class="table-shell"><div id="workbenchTable"></div></div>
-      <div class="task-strip">
-        <div class="task-title">
-          <span class="scheme-badge">TASK</span>
-          <strong id="taskTitle">任务状态</strong>
-          <span class="card-meta" id="taskMeta">暂无运行中的标注任务。</span>
-        </div>
-        <div class="task-progress-wrap">
-          <div class="progress" aria-label="任务进度"><span id="taskProgress" style="--value:0%"></span></div>
-        </div>
-      </div>
     </div>
 
     <div class="modal-backdrop" id="sourceModalBackdrop">
@@ -340,6 +346,7 @@ function bindWorkbenchEvents() {
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => refreshWorkbench(), 260);
   });
+  document.querySelector("#tableSearchColumn").addEventListener("change", () => refreshWorkbench());
   document.querySelector("#refreshTableButton").addEventListener("click", refreshTableData);
   document.querySelector("#selectCurrentPage").addEventListener("change", (event) => {
     selectVisibleRows(event.target.checked);
@@ -457,6 +464,7 @@ export async function refreshWorkbench() {
     if (table) {
       table.destroy();
       table = null;
+      tableBuildKey = "";
     }
     container.innerHTML = `<div class="empty" style="height:100%">请先在数据集与方案管理页创建场景并导入 Excel</div>`;
     document.querySelector("#metricTotal").textContent = "0";
@@ -465,12 +473,32 @@ export async function refreshWorkbench() {
     return;
   }
   await loadLatestTask();
-  const response = await fetch(`/api/datasets/${state.activeDatasetId}/rows?${buildRowsQuery(1, 20)}`).then((res) => res.json());
+  const response = await api(`/api/datasets/${state.activeDatasetId}/rows?${buildRowsQuery(1, table?.getPageSize?.() || 20)}`);
   document.querySelector("#metricTotal").textContent = response.total.toLocaleString();
   availableDatasetColumns = response.columns.length ? response.columns : defaultColumns;
+  fillSearchColumnOptions(availableDatasetColumns);
   const visibleColumns = await resolveVisibleColumns(availableDatasetColumns);
   const columns = buildColumns(visibleColumns, response.data || []);
+  const nextBuildKey = [
+    state.activeDatasetId,
+    state.activeSceneId,
+    visibleColumns.join("\u001f"),
+    fixedMappingColumns(availableDatasetColumns).join("\u001f"),
+  ].join("\u001e");
+  if (table && tableBuildKey === nextBuildKey) {
+    try {
+      await table.setPage(1);
+      await table.replaceData?.();
+    } catch {
+      await table.setData?.();
+    }
+    await refreshMetrics();
+    syncStatusFilterMenu();
+    setBatchButtonState();
+    return;
+  }
   if (table) table.destroy();
+  tableBuildKey = nextBuildKey;
   table = new Tabulator("#workbenchTable", {
     height: "100%",
     layout: "fitColumns",
@@ -501,6 +529,9 @@ export async function refreshWorkbench() {
     },
     pagination: true,
     paginationMode: "remote",
+    paginationCounter(pageSize, currentRow, currentPage, totalRows) {
+      return `共 ${Number(totalRows || 0).toLocaleString()} 条`;
+    },
     paginationSize: 20,
     paginationSizeSelector: [20, 50, 100, 200],
     selectableRows: true,
@@ -517,6 +548,10 @@ export async function refreshWorkbench() {
     },
     ajaxResponse(url, params, payload) {
       document.querySelector("#metricTotal").textContent = payload.total.toLocaleString();
+      if (Array.isArray(payload.columns)) {
+        availableDatasetColumns = payload.columns.length ? payload.columns : availableDatasetColumns;
+        fillSearchColumnOptions(availableDatasetColumns);
+      }
       refreshMetrics();
       setBatchButtonState();
       return payload;
@@ -543,6 +578,7 @@ function buildColumns(columns, sampleRows = []) {
       hozAlign: "center",
       headerSort: false,
       width: 48,
+      frozen: true,
     },
     ...columns.map((column) => dataColumnDef(column, sampleRows)),
     {
@@ -559,9 +595,9 @@ function buildColumns(columns, sampleRows = []) {
     {
       title: "状态",
       field: "状态",
-      width: 82,
-      minWidth: 82,
-      maxWidth: 82,
+      width: 88,
+      minWidth: 88,
+      maxWidth: 88,
       resizable: false,
       widthGrow: 0,
       widthShrink: 0,
@@ -573,9 +609,9 @@ function buildColumns(columns, sampleRows = []) {
     {
       title: "操作",
       field: "row_id",
-      width: 160,
-      minWidth: 160,
-      maxWidth: 160,
+      width: 176,
+      minWidth: 176,
+      maxWidth: 176,
       resizable: false,
       widthGrow: 0,
       widthShrink: 0,
@@ -601,8 +637,21 @@ function buildRowsQuery(page, pageSize) {
   params.set("page", String(page));
   params.set("page_size", String(pageSize));
   params.set("search", document.querySelector("#tableSearch")?.value || "");
+  params.set("search_column", document.querySelector("#tableSearchColumn")?.value || "");
   statusFilters.forEach((status) => params.append("statuses", status));
   return params.toString();
+}
+
+function fillSearchColumnOptions(columns) {
+  const select = document.querySelector("#tableSearchColumn");
+  if (!select) return;
+  const current = select.value;
+  const allColumns = ["状态", ...columns.filter((column) => column !== "状态")];
+  select.innerHTML = [
+    `<option value="">全部字段</option>`,
+    ...allColumns.map((column) => `<option value="${escapeHtml(column)}">${escapeHtml(column)}</option>`),
+  ].join("");
+  select.value = allColumns.includes(current) ? current : "";
 }
 
 async function resolveVisibleColumns(columns) {
@@ -610,14 +659,27 @@ async function resolveVisibleColumns(columns) {
   try {
     latestFieldMapping = await api(`/api/field-mapping?scene_id=${encodeURIComponent(state.activeSceneId)}`);
     const visible = latestFieldMapping.visible_columns || [];
-    if (!visible.length) return columns;
+    if (!visible.length) return prioritizeMappingColumns(columns);
     const visibleSet = new Set(visible);
     const nextColumns = columns.filter((column) => visibleSet.has(column));
-    return nextColumns.length ? nextColumns : columns;
+    return prioritizeMappingColumns(nextColumns.length ? nextColumns : columns);
   } catch {
     latestFieldMapping = null;
     return columns;
   }
+}
+
+function prioritizeMappingColumns(columns) {
+  const fixed = fixedMappingColumns(columns);
+  return [...fixed, ...columns.filter((column) => !fixed.includes(column))];
+}
+
+function fixedMappingColumns(columns = availableDatasetColumns) {
+  const selected = [
+    latestFieldMapping?.human_answer_column,
+    latestFieldMapping?.model_answer_column,
+  ].filter(Boolean);
+  return [...new Set(selected)].filter((column) => columns.includes(column));
 }
 
 function updateWorkbenchTitle() {
@@ -1712,8 +1774,7 @@ async function confirmFullAnnotationTask() {
       toast("当前没有可创建任务的数据行，排队中和标注中的数据会被跳过");
       return false;
     }
-    if (!queued && !running) return true;
-    return window.confirm(`当前有 ${running} 条标注中、${queued} 条排队中，本次全量标注将跳过这些数据，并重新标注其余 ${available} 条。是否继续？`);
+    return window.confirm(`确认开始全量标注？\n\n当前有 ${running} 条标注中、${queued} 条排队中，本次会跳过这些数据，并重新标注其余 ${available} 条。`);
   } catch (error) {
     toast(error.message);
     return false;
@@ -1871,17 +1932,25 @@ function scheduleMetricsRefresh(delay = 220) {
 }
 
 function dataColumnDef(column, sampleRows = []) {
+  const mappedAnswer = fixedMappingColumns().includes(column);
   return {
-    title: column,
+    title: mappedAnswerTitle(column) || column,
     field: column,
-    minWidth: 72,
-    width: estimateColumnWidth(column, sampleRows),
-    maxWidth: previewColumn(column) ? 320 : 220,
+    minWidth: mappedAnswer ? 76 : 72,
+    width: mappedAnswer ? 86 : estimateColumnWidth(column, sampleRows),
+    maxWidth: mappedAnswer ? 96 : (previewColumn(column) ? 320 : 220),
     widthGrow: 0,
     widthShrink: 0,
+    frozen: mappedAnswer,
     formatter: previewColumn(column) ? textPreviewFormatter : undefined,
     cssClass: previewColumn(column) ? "cell-preview" : "",
   };
+}
+
+function mappedAnswerTitle(column) {
+  if (column && column === latestFieldMapping?.human_answer_column) return "人工答案";
+  if (column && column === latestFieldMapping?.model_answer_column) return "标注答案";
+  return "";
 }
 
 function estimateColumnWidth(column, sampleRows = []) {
@@ -2054,11 +2123,15 @@ async function ensureDynamicResultColumns(result) {
 }
 
 function updateTaskStrip(task) {
+  const strip = document.querySelector("#taskStrip");
   const title = document.querySelector("#taskTitle");
   const meta = document.querySelector("#taskMeta");
   const progress = document.querySelector("#taskProgress");
   if (!title || !meta || !progress) return;
-  if (!task) {
+  const active = task && ["queued", "running"].includes(task.status);
+  document.querySelector(".workbench-pro")?.classList.toggle("has-task", Boolean(active));
+  if (strip) strip.hidden = !active;
+  if (!task || !active) {
     title.textContent = "任务状态";
     meta.textContent = "暂无运行中的标注任务。";
     progress.style.setProperty("--value", "0%");

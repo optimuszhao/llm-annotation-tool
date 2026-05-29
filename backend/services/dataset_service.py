@@ -317,6 +317,7 @@ def get_dataset_rows(
     page: int = 1,
     page_size: int = 50,
     search: str = "",
+    search_column: str = "",
     statuses: Optional[list[str]] = None,
 ) -> dict:
     page = max(page, 1)
@@ -332,9 +333,17 @@ def get_dataset_rows(
         columns = decode_json(dataset["column_schema"], [])
         where = "dataset_id=?"
         params: list[Any] = [dataset_id]
-        if search.strip():
+        search_text = search.strip()
+        search_column = search_column.strip()
+        if search_text and search_column == "状态":
+            where += " AND annotation_status LIKE ?"
+            params.append(f"%{search_text}%")
+        elif search_text and search_column and search_column in columns:
+            where += " AND COALESCE(CAST(json_extract(raw_data, ?) AS TEXT), '') LIKE ?"
+            params.extend([_json_column_path(search_column), f"%{search_text}%"])
+        elif search_text:
             where += " AND raw_data LIKE ?"
-            params.append(f"%{search.strip()}%")
+            params.append(f"%{search_text}%")
         status_values = _normalize_status_filters(statuses)
         if status_values:
             concrete_statuses = [status for status in status_values if status != "未标注"]
@@ -372,6 +381,11 @@ def get_dataset_rows(
         "last_page": max(math.ceil(total / page_size), 1),
         "columns": columns,
     }
+
+
+def _json_column_path(column: str) -> str:
+    escaped = column.replace("\\", "\\\\").replace('"', '\\"')
+    return f'$."{escaped}"'
 
 
 def export_dataset_rows(dataset_id: str) -> dict:
