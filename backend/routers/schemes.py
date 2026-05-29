@@ -26,6 +26,11 @@ def get_prompt_init_methods():
     return hooks.list_prompt_init_methods()
 
 
+@router.get("/analysis-methods")
+def get_analysis_methods():
+    return hooks.list_analysis_methods()
+
+
 @router.post("")
 def post_scheme(payload: SchemeCreate):
     return create_scheme(payload.dict())

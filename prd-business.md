@@ -551,10 +551,13 @@ Prompt 表。
 
 ### 8.3 用户扩展
 
-- `user_hooks.py` 放在项目根目录
+- `user_hooks/` 放在项目根目录
 - 后台方案字典维护 `方案名 -> 方法名`
-- 用户在 `user_hooks.py` 中实现模型调用、Prompt 自定义初始化和分析逻辑
-- Mock 阶段默认模型调用延时 3 秒返回 dict
+- 用户在 `user_hooks/llm_chat.py` 中实现默认大模型调用 `llm_chat_function(prompt) -> dict`
+- 用户在 `user_hooks/annotation_methods.py` 中实现多个自定义标注方法
+- 用户在 `user_hooks/prompt_init_methods.py` 中实现多个自定义 Prompt 初始化方法
+- 用户在 `user_hooks/analysis_methods.py` 中实现多个自定义分析方法
+- Mock 阶段默认模型调用延时 2 秒返回 dict
 
 ---
 
@@ -608,7 +611,13 @@ UI/UX 设计规范沉淀在 `design-system/MASTER.md`。后续页面设计、组
 ```text
 新数据飞轮cc/
 ├── run.py
-├── user_hooks.py
+├── user_hooks/
+│   ├── __init__.py
+│   ├── llm_chat.py
+│   ├── annotation_methods.py
+│   ├── prompt_init_methods.py
+│   ├── analysis_methods.py
+│   └── prompt_utils.py
 ├── README.md
 ├── prd-business.md
 │
@@ -652,7 +661,7 @@ UI/UX 设计规范沉淀在 `design-system/MASTER.md`。后续页面设计、组
 目录职责：
 
 - `run.py`：工程启动入口，负责启动 FastAPI 和前端静态服务
-- `user_hooks.py`：用户自定义实现文件，放在项目根目录，便于业务开发人员修改
+- `user_hooks/`：用户自定义实现包，按模型调用、标注方法、Prompt 初始化、分析方法拆分
 - `frontend/`：前台页面、样式、页面脚本、本地 vendor 依赖
 - `backend/`：后台 API、数据库、任务队列、指标计算、数据解析
 - `design-system/`：UI/UX 设计规范
@@ -661,54 +670,22 @@ UI/UX 设计规范沉淀在 `design-system/MASTER.md`。后续页面设计、组
 
 ### 10.2 用户扩展点
 
-系统需要预留用户自行实现的方法，统一放在根目录 `user_hooks.py` 中。后端只调用接口，不关心用户内部如何连接模型或处理业务逻辑。
+系统需要预留用户自行实现的方法，统一放在根目录 `user_hooks/` 包中。后端只调用接口，不关心用户内部如何连接模型或处理业务逻辑。
 
-建议接口：
+建议结构：
 
-```python
-class UserHooks:
-    def list_models(self) -> dict:
-        """返回可用模型列表。"""
-        ...
-
-    def call_model(self, model_key: str, prompts: dict, context: dict) -> dict:
-        """调用用户自己的模型服务，返回模型标注结果。"""
-        ...
-
-    def mock_model_call(self, model_key: str, prompts: dict, context: dict) -> dict:
-        """Mock 大模型调用，延时 3 秒并返回 dict。"""
-        ...
-
-    def list_prompt_init_methods(self) -> dict:
-        """返回可选 Prompt 初始化方法。"""
-        ...
-
-    def build_prompts_custom(
-        self,
-        prompt_contents: list,
-        knowledge: list,
-        error_sets: list,
-        field_mapping: dict,
-        row_data: dict,
-        context: dict,
-    ) -> dict:
-        """自定义 Prompt 初始化，返回 {角色名: Prompt对象}。"""
-        ...
-
-    def build_prompt(
-        self,
-        template: str,
-        row_data: dict,
-        knowledge: list,
-        error_examples: list,
-    ) -> str:
-        """按 [[...]] 占位符规则构造最终 Prompt，避免和 JSON 大括号冲突。"""
-        ...
-
-    def analyze_row(self, row_data: dict, model_result: dict) -> dict:
-        """对单行数据和模型结果做扩展分析。"""
-        ...
+```text
+user_hooks/
+├── llm_chat.py              # llm_chat_function(prompt) -> dict
+├── annotation_methods.py    # list_annotation_methods + 多个标注方法
+├── prompt_init_methods.py   # list_prompt_init_methods + 多个 Prompt 初始化方法
+├── analysis_methods.py      # list_analysis_methods + 多个分析方法
+└── prompt_utils.py          # [[...]] 占位符工具
 ```
+
+默认标注方法会对每个角色 Prompt 调用一次 `llm_chat_function(prompt)`，每个返回 dict 都必须包含“标注答案列”。所有角色都返回“是”时最终答案为“是”，任一角色返回“否”时最终答案为“否”。
+
+分析方法通过行详情抽屉选择执行，多次分析结果写入历史记录，并支持按结果选择展示。
 
 ---
 

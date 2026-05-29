@@ -9,6 +9,7 @@ from backend.services.annotation_service import (
     get_dataset_metrics,
     list_row_analysis_history,
     list_row_annotation_history,
+    start_batch_analysis,
 )
 from backend.services.dataset_service import (
     delete_dataset,
@@ -79,8 +80,13 @@ def remove_rows(dataset_id: str, payload: dict = Body(...)):
 
 
 @router.post("/{dataset_id}/rows/{row_id}/analysis")
-def post_row_analysis(dataset_id: str, row_id: str, scheme_id: str = ""):
-    return analyze_dataset_row(dataset_id, row_id, scheme_id)
+def post_row_analysis(dataset_id: str, row_id: str, scheme_id: str = "", method_name: str = ""):
+    return analyze_dataset_row(dataset_id, row_id, scheme_id, method_name)
+
+
+@router.post("/{dataset_id}/analysis-batch")
+def post_batch_analysis(dataset_id: str, payload: dict = Body(...)):
+    return start_batch_analysis({**payload, "dataset_id": dataset_id})
 
 
 @router.get("/{dataset_id}/rows/{row_id}/analysis-history")

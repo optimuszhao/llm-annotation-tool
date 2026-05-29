@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260529-scheme-edit";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-workbench-polish";
+import { renderManagePage } from "/pages/manage.js?v=20260529-scheme-prototype";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-source-compact";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
@@ -9,6 +9,7 @@ export const state = {
   knowledge: [],
   errorSets: [],
   schemes: [],
+  analysisMethods: {},
   activeSceneId: "",
   activeDatasetId: "",
   activeSchemeId: "",
@@ -43,7 +44,12 @@ export function toast(message) {
 }
 
 export async function loadState() {
-  state.scenes = await api("/api/scenes");
+  const [scenes, analysisMethods] = await Promise.all([
+    api("/api/scenes"),
+    api("/api/schemes/analysis-methods").catch(() => ({})),
+  ]);
+  state.scenes = scenes;
+  state.analysisMethods = analysisMethods;
   state.activeSceneId ||= state.scenes[0]?.id || "";
   await loadSceneResources();
 }

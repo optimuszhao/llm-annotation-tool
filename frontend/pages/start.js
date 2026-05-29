@@ -51,25 +51,25 @@ export function renderStartPage() {
           <div class="start-dev-section" aria-label="开发接入说明">
             <div class="start-section-head">
               <span>DEVELOPMENT</span>
-              <h2>只需关注一个接入文件</h2>
+              <h2>只需关注接入包</h2>
               <p>后台负责资源管理、并发任务和结果展示。开发人员只需要补充大模型调用逻辑，就能把自定义标注方法接入平台工作流。</p>
             </div>
             <div class="start-principle-list start-dev-list">
               <div class="start-principle-row">
                 <strong>代码位置</strong>
-                <p>主要关注 <code>user_hooks.py</code>，标注任务会从这里读取自定义接入逻辑。</p>
+                <p>主要关注 <code>user_hooks/</code>，标注任务会从这里读取自定义接入逻辑。</p>
               </div>
               <div class="start-principle-row">
-                <strong>核心类</strong>
-                <p>在 <code>class UserHooks</code> 中集中管理需要暴露给平台的后台方法。</p>
+                <strong>入口结构</strong>
+                <p><code>llm_chat.py</code>、<code>annotation_methods.py</code>、<code>prompt_init_methods.py</code> 和 <code>analysis_methods.py</code> 分别维护不同扩展点。</p>
               </div>
               <div class="start-principle-row">
                 <strong>必改方法</strong>
-                <p>实现 <code>UserHooks.call_model</code>，接收 Prompt 和上下文，返回可 JSON 化的标注结果。</p>
+                <p>实现 <code>llm_chat_function</code>，接收单个 Prompt，返回可 JSON 化的标注结果。</p>
               </div>
               <div class="start-principle-row">
                 <strong>可选扩展</strong>
-                <p>需要自定义拼接 Prompt 时，可继续扩展 <code>build_prompt_custom(...)</code>。</p>
+                <p>需要自定义标注、Prompt 初始化或分析时，在对应文件里注册并实现方法。</p>
               </div>
             </div>
           </div>
@@ -100,7 +100,7 @@ export function renderStartPage() {
               <span>3</span>
               <div>
                 <strong>编写自定义标注方法</strong>
-                <p>在 <code>user_hooks.py</code> 的 <code>UserHooks.call_model</code> 中实现大模型调用。</p>
+                <p>在 <code>user_hooks/llm_chat.py</code> 的 <code>llm_chat_function</code> 中实现大模型调用。</p>
               </div>
             </li>
             <li>

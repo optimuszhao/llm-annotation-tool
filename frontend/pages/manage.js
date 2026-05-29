@@ -133,7 +133,8 @@ function renderModal() {
     <div class="modal-backdrop" id="manageModal">
       <div class="modal" id="manageModalDialog">
         <div class="modal-head">
-          <div><h2 id="modalTitle">资源管理</h2><p class="card-meta" id="modalMeta">当前场景资源</p></div>
+          <div class="modal-title-block"><h2 id="modalTitle">资源管理</h2><p class="card-meta" id="modalMeta">当前场景资源</p></div>
+          <div class="scheme-title-name" id="schemeTitleName" hidden></div>
           <button class="icon-btn" id="closeModal">×</button>
         </div>
         <div class="modal-body" id="modalBody"></div>
@@ -209,12 +210,19 @@ function openModal(title, meta, body, size = "") {
   document.querySelector("#modalTitle").textContent = title;
   document.querySelector("#modalMeta").textContent = meta;
   document.querySelector("#modalBody").innerHTML = body;
+  const titleName = document.querySelector("#schemeTitleName");
+  titleName.hidden = true;
+  titleName.textContent = "";
   document.querySelector("#manageModalDialog").className = `modal ${size}`.trim();
-  document.querySelector("#manageModal").classList.add("open");
+  const backdrop = document.querySelector("#manageModal");
+  backdrop.classList.toggle("scheme-modal-backdrop", size.includes("scheme-modal"));
+  backdrop.classList.add("open");
 }
 
 function closeModal() {
-  document.querySelector("#manageModal").classList.remove("open");
+  const backdrop = document.querySelector("#manageModal");
+  backdrop.classList.remove("open");
+  backdrop.classList.remove("scheme-modal-backdrop");
 }
 
 async function closeModalAndRefresh() {
@@ -500,7 +508,7 @@ function openPromptModal() {
     <div class="prompt-editor-layout">
       <section class="prompt-rule-box prompt-rule-strip">
         <strong>Prompt 规范</strong>
-        <p>占位符统一使用 <code>[[row.列名]]</code>、<code>[[knowledge]]</code>、<code>[[error_sets]]</code>。JSON 返回格式直接写 <code>{ "字段": "值" }</code>，无需转义大括号。旧版 <code>{{row.列名}}</code> 会临时兼容。</p>
+        <p>占位符统一使用 <code>[[row.列名]]</code>、<code>[[knowledge.知识名称]]</code>、<code>[[error_sets.错题集名称]]</code>。需要引用全部资源时可用 <code>[[knowledge]]</code>、<code>[[error_sets]]</code>。JSON 返回格式直接写 <code>{ "字段": "值" }</code>，无需转义大括号。</p>
       </section>
       <aside class="prompt-sidebar" aria-label="已添加 Prompt">
         <div class="prompt-sidebar-head">
@@ -682,10 +690,17 @@ function promptPlaceholderCandidates() {
     values.add(`dataset.${column}`);
   });
   state.knowledge.forEach((item) => {
-    if (item.name) values.add(item.name);
+    if (!item.name) return;
+    values.add(item.name);
+    values.add(`knowledge.${item.name}`);
+    values.add(`知识库.${item.name}`);
   });
   state.errorSets.forEach((item) => {
-    if (item.name) values.add(item.name);
+    if (!item.name) return;
+    values.add(item.name);
+    values.add(`error_sets.${item.name}`);
+    values.add(`error_set.${item.name}`);
+    values.add(`错题集.${item.name}`);
   });
   return values;
 }
@@ -956,57 +971,113 @@ async function openSchemeModal(schemeId = "") {
   } catch {
     promptInitMethods = { custom_default: { name: "自定义 Prompt 初始化", method_name: "build_prompts_custom" } };
   }
-  openModal(editingScheme ? "编辑方案" : "添加方案", "方案会保存当前场景的资源、Prompt 初始化方式、后台方法和并发数。", `
-    <form id="schemeForm" class="form-grid labeled-form">
-      <label>
-        <span>方案名称</span>
-        <input class="input" name="name" placeholder="例如：双角色情感分类" value="${escapeHtml(editingScheme?.name || "")}" required>
-      </label>
-      <label>
-        <span>后台方法名</span>
-        <select class="select" name="method_name" required>
-          ${Object.entries(methods).map(([key, item]) => `<option value="${escapeHtml(item.method_name)}" ${item.method_name === editingScheme?.method_name ? "selected" : ""}>${escapeHtml(item.name || key)} · ${escapeHtml(item.method_name)}</option>`).join("")}
-        </select>
-      </label>
-      <label>
-        <span>Prompt 初始化类型</span>
-        <select class="select" name="prompt_init_type" id="promptInitType">
-          <option value="auto" ${(editingScheme?.prompt_init_type || "auto") === "auto" ? "selected" : ""}>自动替换占位符</option>
-          <option value="custom" ${editingScheme?.prompt_init_type === "custom" ? "selected" : ""}>自定义处理（后台方法）</option>
-        </select>
-      </label>
-      <label>
-        <span>Prompt 初始化后台方法</span>
-        <select class="select" name="prompt_init_method_name" id="promptInitMethod">
-          ${Object.entries(promptInitMethods).map(([key, item]) => `<option value="${escapeHtml(item.method_name)}" ${item.method_name === editingScheme?.prompt_init_method_name ? "selected" : ""}>${escapeHtml(item.name || key)} · ${escapeHtml(item.method_name)}</option>`).join("")}
-        </select>
-      </label>
-      <label>
-        <span>并发数量</span>
-        <input class="input" type="number" min="1" max="20" name="concurrency" value="${escapeHtml(editingScheme?.concurrency || 4)}" required>
-      </label>
-      ${renderSchemeResourcePicker("Prompt", "prompt_ids", state.prompts, "role_name", selectedResources.prompt)}
-      ${renderSchemeResourcePicker("知识库", "knowledge_ids", state.knowledge, "content", selectedResources.knowledge)}
-      ${renderSchemeResourcePicker("错题集", "error_set_ids", state.errorSets, "description", selectedResources.error_set)}
-      <button class="btn primary full" type="submit">保存方案</button>
+  const initType = editingScheme?.prompt_init_type || "auto";
+  openModal(editingScheme ? "编辑方案" : "添加方案", "选择 Prompt、初始化方式和标注方法，系统自动生成方案名称。", `
+    <form id="schemeForm" class="scheme-form-v2 labeled-form">
+      <div class="scheme-two-column-layout">
+        <div class="scheme-column scheme-column-prompt">
+          ${renderSchemePromptPicker(state.prompts, selectedResources.prompt)}
+
+          <section class="scheme-config-card">
+            <div class="scheme-config-title">
+              <strong>Prompt 初始化</strong>
+              <span>决定 Prompt 中占位符的处理方式。</span>
+            </div>
+            <div class="scheme-choice-grid">
+              <label class="scheme-choice-card">
+                <input type="radio" name="prompt_init_type" value="auto" ${initType === "auto" ? "checked" : ""}>
+                <span>
+                  <strong>自动替换占位符</strong>
+                  <em>系统替换 [[row.列名]]、[[knowledge.名称]]、[[error_sets.名称]]。</em>
+                </span>
+              </label>
+              <label class="scheme-choice-card">
+                <input type="radio" name="prompt_init_type" value="custom" ${initType === "custom" ? "checked" : ""}>
+                <span>
+                  <strong>自定义 Prompt 处理</strong>
+                  <em>交给后台方法，由开发人员自行组装。</em>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section class="scheme-config-card" id="customPromptPanel" hidden>
+            <div class="scheme-config-title">
+              <strong>自定义初始化</strong>
+              <span>手动选择初始化方法、知识库和错题集。</span>
+            </div>
+            ${renderSchemeSelect("prompt_init_method_name", "promptInitMethod", promptInitMethods, editingScheme?.prompt_init_method_name, "选择 Prompt 初始化后台方法")}
+            <div class="scheme-method-help" id="promptInitMethodHelp"></div>
+            <div class="scheme-custom-resource-grid">
+              ${renderSchemeResourcePicker("知识库", "knowledge_ids", state.knowledge, "content", selectedResources.knowledge, { searchable: true, compact: true })}
+              ${renderSchemeResourcePicker("错题集", "error_set_ids", state.errorSets, "description", selectedResources.error_set, { searchable: true, compact: true })}
+            </div>
+          </section>
+        </div>
+
+        <div class="scheme-column scheme-column-execution">
+          <section class="scheme-config-card" id="autoPromptPanel">
+            <div class="scheme-config-title">
+              <strong>占位符检查</strong>
+              <span>保存前会检查字段和资源引用。</span>
+            </div>
+            <div id="autoPromptValidation"></div>
+            <div class="auto-linked-resources" id="autoLinkedResources"></div>
+          </section>
+
+          <section class="scheme-config-card">
+            <div class="scheme-config-title">
+              <strong>执行配置</strong>
+              <span>选择标注后台方法和并发数量。</span>
+            </div>
+            <div class="scheme-method-grid">
+              ${renderSchemeSelect("method_name", "schemeMethod", methods, editingScheme?.method_name || "call_model", "选择标注后台方法", true)}
+              <label class="scheme-concurrency-field">
+                <span>并发数量</span>
+                <input class="input" type="number" min="1" max="20" name="concurrency" value="${escapeHtml(editingScheme?.concurrency || 5)}" required>
+              </label>
+            </div>
+            <div class="scheme-method-help" id="schemeMethodHelp"></div>
+          </section>
+
+        </div>
+      </div>
+
+      <div class="scheme-form-actions">
+        <div class="scheme-footer-preview" id="schemeExecutionPreview">选择 Prompt 后显示执行配置。</div>
+        <button class="btn primary" type="submit" id="schemeSubmitButton">保存方案</button>
+      </div>
     </form>
-  `, "modal-xl");
+  `, "modal-xl scheme-modal");
+  bindSchemeModalControls(methods, promptInitMethods);
   document.querySelector("#schemeForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const promptIds = form.getAll("prompt_ids");
+    const promptInitType = form.get("prompt_init_type") || "auto";
+    const autoLinks = analyzeAutoPromptLinks(promptIds);
+    if (!promptIds.length) {
+      toast("请至少选择一个 Prompt");
+      return;
+    }
+    if (promptInitType === "auto" && autoLinks.errors.length) {
+      renderAutoPromptValidation(promptIds);
+      toast("自动占位符检查未通过，请先修改 Prompt");
+      return;
+    }
     await api(editingScheme ? `/api/schemes/${encodeURIComponent(editingScheme.id)}` : "/api/schemes", {
       method: editingScheme ? "PUT" : "POST",
       body: JSON.stringify({
         scene_id: state.activeSceneId,
-        name: form.get("name"),
+        name: buildSchemeAutoName(form),
         model_key: editingScheme?.model_key || "configured",
         method_name: form.get("method_name"),
-        prompt_init_type: form.get("prompt_init_type"),
-        prompt_init_method_name: form.get("prompt_init_method_name"),
+        prompt_init_type: promptInitType,
+        prompt_init_method_name: promptInitType === "custom" ? form.get("prompt_init_method_name") : "",
         concurrency: Number(form.get("concurrency") || 1),
-        prompt_ids: form.getAll("prompt_ids"),
-        knowledge_ids: form.getAll("knowledge_ids"),
-        error_set_ids: form.getAll("error_set_ids"),
+        prompt_ids: promptIds,
+        knowledge_ids: promptInitType === "auto" ? autoLinks.knowledge.map((item) => item.id) : form.getAll("knowledge_ids"),
+        error_set_ids: promptInitType === "auto" ? autoLinks.errorSets.map((item) => item.id) : form.getAll("error_set_ids"),
       }),
     });
     await loadSceneResources();
@@ -1024,23 +1095,293 @@ function schemeResourceIds(scheme) {
   return ids;
 }
 
-function renderSchemeResourcePicker(title, name, items, metaField, selected = new Set()) {
+function renderSchemeSelect(name, id, items, selectedValue = "", label = "", required = false) {
+  const entries = Object.entries(items);
+  const selected = selectedValue || entries[0]?.[1]?.method_name || "";
   return `
-    <section class="scheme-resource-picker full">
-      <div class="mapping-title">
+    <label class="scheme-select-field">
+      <span>${escapeHtml(label)}</span>
+      <select class="select" name="${name}" id="${id}" ${required ? "required" : ""}>
+        ${entries.map(([key, item]) => `<option value="${escapeHtml(item.method_name)}" ${item.method_name === selected ? "selected" : ""} data-method-key="${escapeHtml(key)}">${escapeHtml(item.name || key)} · ${escapeHtml(item.method_name)}</option>`).join("")}
+      </select>
+    </label>
+  `;
+}
+
+function renderSchemePromptPicker(items, selected = new Set()) {
+  const selectedItems = items.filter((item) => selected.has(item.id));
+  return `
+    <section class="scheme-prompt-picker scheme-config-card" data-scheme-resource-picker="prompt_ids">
+      <div class="scheme-config-title">
         <div>
-          <strong>${title}</strong>
-          <span>选择该方案要关联的${title}资源。</span>
+          <strong>Prompt 角色</strong>
+          <span>一个方案可选择多个角色 Prompt。</span>
         </div>
+        <span>按角色名快速选择。</span>
       </div>
-      <div class="scheme-resource-grid">
-        ${items.map((item) => `
-          <label class="column-chip">
-            <input type="checkbox" name="${name}" value="${escapeHtml(item.id)}" ${selected.has(item.id) ? "checked" : ""}>
-            <span>${escapeHtml(item.name)}${metaField && item[metaField] ? ` · ${escapeHtml(String(item[metaField]).slice(0, 24))}` : ""}</span>
+      <div class="scheme-prompt-toolbar">
+        <div class="scheme-prompt-selected" id="schemePromptSelected">
+          <strong>已选 ${selectedItems.length} 个</strong>
+          <div>
+            ${selectedItems.map((item) => `<span>${escapeHtml(item.role_name || item.name)}</span>`).join("") || `<em>选择后会在这里显示角色</em>`}
+          </div>
+        </div>
+        <input class="input scheme-prompt-search" type="search" placeholder="搜索 Prompt / 角色" data-resource-search="prompt_ids">
+      </div>
+      <div class="scheme-prompt-list">
+        ${items.map((item) => {
+          const roleLabel = item.role_name || item.name || "未设置角色";
+          const promptLabel = item.name && item.name !== roleLabel ? item.name : "";
+          return `
+          <label class="scheme-prompt-option" data-resource-option="prompt_ids" data-resource-text="${escapeHtml(`${item.name} ${item.role_name || ""}`.toLowerCase())}">
+            <input type="checkbox" name="prompt_ids" value="${escapeHtml(item.id)}" ${selected.has(item.id) ? "checked" : ""}>
+            <span class="scheme-prompt-check"></span>
+            <span class="scheme-prompt-copy">
+              <em>${escapeHtml(roleLabel)}</em>
+              ${promptLabel ? `<strong>${escapeHtml(promptLabel)}</strong>` : ""}
+            </span>
           </label>
-        `).join("") || `<div class="empty">当前场景暂无${title}资源。</div>`}
+        `;
+        }).join("") || `<div class="empty">当前场景暂无 Prompt，请先新增 Prompt。</div>`}
       </div>
     </section>
   `;
+}
+
+function renderSchemeResourcePicker(title, name, items, metaField, selected = new Set(), options = {}) {
+  const searchable = options.searchable;
+  const compact = options.compact ? "compact" : "";
+  const selectedItems = items.filter((item) => selected.has(item.id));
+  return `
+    <section class="scheme-resource-picker ${compact}" data-scheme-resource-picker="${name}">
+      <details class="scheme-resource-dropdown">
+        <summary>
+          <span>
+            <strong>${escapeHtml(title)}</strong>
+            <em>${selectedItems.length ? `已选 ${selectedItems.length} 项` : `选择${escapeHtml(title)}`}</em>
+          </span>
+          <b>⌄</b>
+        </summary>
+        ${searchable ? `<input class="input scheme-resource-search" type="search" placeholder="搜索${escapeHtml(title)}" data-resource-search="${name}">` : ""}
+        <div class="scheme-resource-grid">
+          ${items.map((item) => `
+            <label class="column-chip scheme-resource-option" data-resource-option="${name}" data-resource-text="${escapeHtml(`${item.name} ${item[metaField] || ""}`.toLowerCase())}">
+              <input type="checkbox" name="${name}" value="${escapeHtml(item.id)}" ${selected.has(item.id) ? "checked" : ""}>
+              <span>${escapeHtml(item.name)}${metaField && item[metaField] ? ` · ${escapeHtml(String(item[metaField]).slice(0, 24))}` : ""}</span>
+            </label>
+          `).join("") || `<div class="empty">当前场景暂无${title}资源。</div>`}
+        </div>
+      </details>
+    </section>
+  `;
+}
+
+function bindSchemeModalControls(methods, promptInitMethods) {
+  const form = document.querySelector("#schemeForm");
+  const refresh = () => {
+    const formData = new FormData(form);
+    const initType = formData.get("prompt_init_type") || "auto";
+    const isCustom = initType === "custom";
+    document.querySelector("#autoPromptPanel").hidden = isCustom;
+    document.querySelector("#customPromptPanel").hidden = !isCustom;
+    renderAutoPromptValidation(formData.getAll("prompt_ids"));
+    updateSchemePromptSummary();
+    updateSchemeAutoNamePreview(formData);
+    updateSchemeExecutionPreview(formData);
+    updateSchemeMethodHelp("#schemeMethod", "#schemeMethodHelp", methods);
+    updateSchemeMethodHelp("#promptInitMethod", "#promptInitMethodHelp", promptInitMethods);
+  };
+  form.querySelectorAll('input[name="prompt_init_type"], input[name="prompt_ids"]').forEach((input) => {
+    input.addEventListener("change", refresh);
+  });
+  form.querySelector('input[name="concurrency"]')?.addEventListener("input", refresh);
+  form.querySelector("#schemeMethod")?.addEventListener("change", refresh);
+  form.querySelector("#promptInitMethod")?.addEventListener("change", refresh);
+  form.querySelectorAll("[data-resource-search]").forEach((input) => {
+    input.addEventListener("input", () => filterSchemeResourceOptions(input));
+  });
+  refresh();
+}
+
+function buildSchemeAutoName(form) {
+  const roles = getSelectedPromptRoles(form);
+  const methodName = form.get("method_name") || "call_model";
+  const rolePart = roles.length ? roles.join("+") : "未选择Prompt";
+  return `${rolePart} · ${methodName}`.slice(0, 120);
+}
+
+function getSelectedPromptRoles(form) {
+  return form.getAll("prompt_ids").map((id) => {
+    const prompt = state.prompts.find((item) => item.id === id);
+    return prompt?.role_name || prompt?.name || id;
+  }).filter(Boolean);
+}
+
+function updateSchemeAutoNamePreview(form) {
+  const node = document.querySelector("#schemeTitleName");
+  if (!node) return;
+  node.textContent = buildSchemeAutoName(form);
+  node.hidden = false;
+}
+
+function updateSchemeExecutionPreview(form) {
+  const node = document.querySelector("#schemeExecutionPreview");
+  if (!node) return;
+  const roles = getSelectedPromptRoles(form);
+  const initType = form.get("prompt_init_type") === "custom" ? "自定义初始化" : "自动初始化";
+  const methodName = form.get("method_name") || "call_model";
+  const concurrency = form.get("concurrency") || "1";
+  node.textContent = `${roles.length || 0} 个 Prompt · ${initType} · ${methodName} · 并发 ${concurrency}`;
+}
+
+function updateSchemePromptSummary() {
+  const summary = document.querySelector("#schemePromptSelected");
+  if (!summary) return;
+  const checked = [...document.querySelectorAll('input[name="prompt_ids"]:checked')];
+  const names = checked.map((input) => {
+    const card = input.closest(".scheme-prompt-option");
+    return card?.querySelector(".scheme-prompt-copy em")?.textContent?.trim()
+      || card?.querySelector(".scheme-prompt-copy strong")?.textContent?.trim()
+      || input.value;
+  });
+  summary.innerHTML = `
+    <strong>已选 ${checked.length} 个</strong>
+    <div>
+      ${names.map((name) => `<span>${escapeHtml(name)}</span>`).join("") || `<em>选择后会在这里显示角色</em>`}
+    </div>
+  `;
+}
+
+function updateSchemeMethodHelp(selectSelector, helpSelector, items) {
+  const select = document.querySelector(selectSelector);
+  const help = document.querySelector(helpSelector);
+  if (!select || !help) return;
+  const item = Object.values(items).find((method) => method.method_name === select.value);
+  help.innerHTML = item
+    ? `<strong>${escapeHtml(item.name || select.value)}</strong><span>${escapeHtml(item.description || "暂无说明")}</span>`
+    : `<span>暂无方法说明。</span>`;
+}
+
+function filterSchemeResourceOptions(input) {
+  const keyword = input.value.trim().toLowerCase();
+  document.querySelectorAll(`[data-resource-option="${input.dataset.resourceSearch}"]`).forEach((option) => {
+    option.hidden = keyword && !option.dataset.resourceText.includes(keyword);
+  });
+}
+
+function renderAutoPromptValidation(promptIds) {
+  const result = analyzeAutoPromptLinks(promptIds);
+  const validation = document.querySelector("#autoPromptValidation");
+  const linked = document.querySelector("#autoLinkedResources");
+  if (!validation || !linked) return;
+  const messages = [
+    ...result.errors.map((message) => ({ type: "error", message })),
+    ...result.warnings.map((message) => ({ type: "warning", message })),
+  ];
+  validation.innerHTML = messages.length
+    ? `<div class="scheme-validation-list">${messages.map((item) => `<div class="${item.type}">${escapeHtml(item.message)}</div>`).join("")}</div>`
+    : `<div class="scheme-validation-ok">占位符检查通过。自动模式会按引用关联知识库和错题集。</div>`;
+  linked.innerHTML = `
+    ${renderAutoLinkedCard("关联知识库", result.knowledge)}
+    ${renderAutoLinkedCard("关联错题集", result.errorSets)}
+  `;
+}
+
+function renderAutoLinkedCard(title, items) {
+  return `
+    <section class="auto-linked-card">
+      <div><strong>${title}</strong><span>${items.length} 项</span></div>
+      <div class="auto-linked-list">
+        ${items.map((item) => `<span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>`).join("") || `<em>当前 Prompt 未引用</em>`}
+      </div>
+    </section>
+  `;
+}
+
+function analyzeAutoPromptLinks(promptIds) {
+  const prompts = state.prompts.filter((prompt) => promptIds.includes(prompt.id));
+  const columns = columnOptions();
+  const knowledgeIds = new Set();
+  const errorSetIds = new Set();
+  const errors = [];
+  const warnings = [];
+  let useAllKnowledge = false;
+  let useAllErrorSets = false;
+
+  if (!prompts.length) {
+    errors.push("请先选择至少一个 Prompt。");
+  }
+
+  prompts.forEach((prompt) => {
+    extractSchemePromptPlaceholders(prompt.content || "").forEach((placeholder) => {
+      const key = placeholder.key;
+      if (placeholder.legacy) {
+        warnings.push(`${prompt.name} 使用了旧版 {{${key}}} 占位符，建议改成 [[${key}]]。`);
+      }
+      if (key.startsWith("row.")) {
+        const column = key.slice(4).trim();
+        if (!columns.includes(column)) errors.push(`${prompt.name} 引用了不存在的数据列：${column}`);
+        return;
+      }
+      if (["knowledge", "知识库"].includes(key)) {
+        useAllKnowledge = true;
+        return;
+      }
+      if (["error_sets", "error_set", "错题集"].includes(key)) {
+        useAllErrorSets = true;
+        return;
+      }
+      const knowledgeName = parseNamedResourceRef(key, ["knowledge", "知识库"]);
+      if (knowledgeName) {
+        const item = state.knowledge.find((resource) => resource.name === knowledgeName || resource.id === knowledgeName);
+        if (item) knowledgeIds.add(item.id);
+        else errors.push(`${prompt.name} 引用了不存在的知识库：${knowledgeName}`);
+        return;
+      }
+      const errorSetName = parseNamedResourceRef(key, ["error_sets", "error_set", "错题集"]);
+      if (errorSetName) {
+        const item = state.errorSets.find((resource) => resource.name === errorSetName || resource.id === errorSetName);
+        if (item) errorSetIds.add(item.id);
+        else errors.push(`${prompt.name} 引用了不存在的错题集：${errorSetName}`);
+        return;
+      }
+      errors.push(`${prompt.name} 存在无法自动替换的占位符：${key}`);
+    });
+  });
+
+  if (useAllKnowledge) {
+    state.knowledge.forEach((item) => knowledgeIds.add(item.id));
+    warnings.push("检测到 [[knowledge]]，会自动关联当前场景全部知识库。");
+  }
+  if (useAllErrorSets) {
+    state.errorSets.forEach((item) => errorSetIds.add(item.id));
+    warnings.push("检测到 [[error_sets]]，会自动关联当前场景全部错题集。");
+  }
+
+  return {
+    knowledge: state.knowledge.filter((item) => knowledgeIds.has(item.id)),
+    errorSets: state.errorSets.filter((item) => errorSetIds.has(item.id)),
+    errors: [...new Set(errors)],
+    warnings: [...new Set(warnings)],
+  };
+}
+
+function extractSchemePromptPlaceholders(content) {
+  const placeholders = [];
+  const modern = /\[\[\s*([^\[\]]+?)\s*\]\]/g;
+  const legacy = /\{\{\s*([A-Za-z0-9_.\-\u4e00-\u9fff\uff00-\uffef ：:]+?)\s*\}\}/g;
+  let match;
+  while ((match = modern.exec(content))) placeholders.push({ key: match[1].trim(), legacy: false });
+  while ((match = legacy.exec(content))) placeholders.push({ key: match[1].trim(), legacy: true });
+  return placeholders;
+}
+
+function parseNamedResourceRef(key, prefixes) {
+  for (const prefix of prefixes) {
+    for (const separator of [".", ":", "："]) {
+      const token = `${prefix}${separator}`;
+      if (key.startsWith(token)) return key.slice(token.length).trim();
+    }
+  }
+  return "";
 }

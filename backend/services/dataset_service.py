@@ -334,7 +334,7 @@ def get_dataset_rows(
         columns = decode_json(dataset["column_schema"], [])
         scheme_view = bool(scheme_id)
         base_alias = "d" if scheme_view else ""
-        status_expr = "COALESCE(latest.scheme_status, '未标注')" if scheme_view else "annotation_status"
+        status_expr = "COALESCE(latest.scheme_status, d.annotation_status, '未标注')" if scheme_view else "annotation_status"
         raw_field = "d.raw_data" if scheme_view else "raw_data"
         where = f"{base_alias + '.' if base_alias else ''}dataset_id=?"
         params: list[Any] = [dataset_id]
@@ -533,7 +533,7 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
     if scheme_view:
         model_result = decode_json(row.get("scheme_model_result"), {})
         raw_data = {**raw_data, **model_result}
-        status = row.get("scheme_status") or "未标注"
+        status = row.get("scheme_status") or row.get("annotation_status") or raw_data.get("状态") or raw_data.get("status") or "未标注"
     else:
         model_result = decode_json(row.get("model_result"), {})
         status = row.get("annotation_status") or raw_data.get("状态") or raw_data.get("status") or "未标注"

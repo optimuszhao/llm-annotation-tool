@@ -220,6 +220,8 @@ def init_db() -> None:
                 dataset_id TEXT NOT NULL,
                 row_id TEXT NOT NULL,
                 task_row_id TEXT,
+                method_name TEXT NOT NULL DEFAULT '',
+                method_label TEXT NOT NULL DEFAULT '',
                 analysis_data TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
@@ -234,6 +236,8 @@ def init_db() -> None:
         )
         ensure_column(conn, "schemes", "prompt_init_type", "TEXT NOT NULL DEFAULT 'auto'")
         ensure_column(conn, "schemes", "prompt_init_method_name", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "row_analysis_history", "method_name", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "row_analysis_history", "method_label", "TEXT NOT NULL DEFAULT ''")
         timestamp = now_iso()
         for scene in conn.execute("SELECT data_table_name FROM scenes").fetchall():
             create_scene_data_table(conn, scene["data_table_name"])

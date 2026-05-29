@@ -19,7 +19,12 @@ http://127.0.0.1:8000
 ```text
 .
 ├── run.py
-├── user_hooks.py
+├── user_hooks/
+│   ├── llm_chat.py
+│   ├── annotation_methods.py
+│   ├── prompt_init_methods.py
+│   ├── analysis_methods.py
+│   └── prompt_utils.py
 ├── backend/
 ├── frontend/
 ├── design-system/
@@ -37,15 +42,16 @@ http://127.0.0.1:8000
 
 ## 开发人员扩展入口
 
-业务开发人员只需要改根目录的 `user_hooks.py`。前端创建标注方案时会读取这里暴露的方法，标注任务运行时也会调用这里的代码。
+业务开发人员主要改 `user_hooks/` 包。前端创建标注方案和执行分析时会读取这里暴露的方法，标注任务运行时也会调用这里的代码。
 
-常用扩展点：
+四类扩展点：
 
-- `list_scheme_methods()`：把可选的标注方案方法暴露给前端下拉框。
-- `list_prompt_init_methods()`：把可选的自定义 Prompt 初始化方法暴露给前端下拉框。
-- `build_prompts_custom(...)`：自定义处理多个 Prompt、知识库、错题集和行数据，返回初始化后的 Prompt 字典。
-- `call_model(...)` 或你自己注册的方法：接收初始化后的 Prompt 字典，调用公司内部模型服务，返回标注结果 `dict`。
-- `analyze_row(...)`：实现 FP/FN 等数据行的分析逻辑。
+- `user_hooks/llm_chat.py`：默认标注方法使用的单 Prompt 大模型调用函数，约定名为 `llm_chat_function(prompt) -> dict`。
+- `user_hooks/annotation_methods.py`：自定义标注方法，可以注册多个。
+- `user_hooks/prompt_init_methods.py`：自定义 Prompt 初始化方法，可以注册多个。
+- `user_hooks/analysis_methods.py`：自定义分析方法，可以注册多个，并在行详情分析页下拉选择。
+
+系统入口仍然是 `from user_hooks import hooks`，后端调用入口保持稳定。
 
 ### Prompt 占位符规则
 
@@ -92,10 +98,10 @@ Prompt 里可以直接写 JSON 示例的大括号 `{}`。推荐复用 `render_pr
 
 ### 自定义 Prompt 初始化方法
 
-在 `list_prompt_init_methods()` 中注册方法名：
+在 `user_hooks/prompt_init_methods.py` 的 `list_prompt_init_methods()` 中注册方法名：
 
 ```python
-def list_prompt_init_methods(self) -> dict:
+def list_prompt_init_methods() -> dict:
     return {
         "custom_default": {
             "name": "自定义 Prompt 初始化",
@@ -110,8 +116,10 @@ def list_prompt_init_methods(self) -> dict:
 返回结构必须是 `{角色名: Prompt对象}`：
 
 ```python
+from user_hooks.prompt_utils import render_prompt_template
+
+
 def build_prompts_custom(
-    self,
     prompt_contents: list,
     knowledge: list,
     error_sets: list,
@@ -123,7 +131,7 @@ def build_prompts_custom(
 
     for prompt in prompt_contents:
         role_name = prompt.get("role_name") or prompt.get("name") or "default"
-        content = self.render_prompt_template(
+        content = render_prompt_template(
             prompt.get("content", ""),
             row_data=row_data,
             knowledge=knowledge,
@@ -162,12 +170,41 @@ def build_prompts_custom(
 }
 ```
 
-### 自定义标注方案方法
+### 默认大模型调用方法
 
-在 `list_scheme_methods()` 中注册方法名。前端创建方案时会在“后台方法名”下拉框里选择这里的 `method_name`。
+默认标注方案会逐个调用选中的 Prompt。每个 Prompt 会传给 `llm_chat_function(prompt)`，返回一个 `dict`。
 
 ```python
-def list_scheme_methods(self) -> dict:
+# user_hooks/llm_chat.py
+def llm_chat_function(prompt: dict) -> dict:
+    context = prompt.get("context", {})
+    field_mapping = context.get("field_mapping", {})
+    model_answer_column = field_mapping.get("model_answer_column") or "GPT4_标注"
+
+    # TODO: 替换为公司内部模型服务调用。
+    # response_text = your_llm_client.chat(prompt["content"])
+    # model_result = json.loads(response_text)
+
+    model_result = {
+        model_answer_column: "是",
+        "原因": "示例返回。",
+    }
+    return model_result
+```
+
+默认聚合规则：
+
+- 每个角色 Prompt 都会调用一次 `llm_chat_function`。
+- 每个返回 dict 都必须包含“标注答案列”。
+- 所有角色都返回“是”，最终标注答案为“是”。
+- 任一角色返回“否”，最终标注答案为“否”。
+
+### 自定义标注方案方法
+
+在 `user_hooks/annotation_methods.py` 的 `list_annotation_methods()` 中注册方法名。前端创建方案时会在“标注方法”下拉框里选择这里的 `method_name`。
+
+```python
+def list_annotation_methods() -> dict:
     return {
         "company_main": {
             "name": "公司主标注方案",
@@ -177,10 +214,10 @@ def list_scheme_methods(self) -> dict:
     }
 ```
 
-实现对应的标注方法。方法签名固定为：
+在同一个文件里实现对应方法。方法签名固定为：
 
 ```python
-def company_annotation(self, model_key: str, prompts: dict, context: dict) -> dict:
+def company_annotation(model_key: str, prompts: dict, context: dict) -> dict:
     field_mapping = context.get("field_mapping", {})
     model_answer_column = field_mapping.get("model_answer_column") or "GPT4_标注"
 
@@ -222,3 +259,34 @@ def company_annotation(self, model_key: str, prompts: dict, context: dict) -> di
 ### 自动替换和自定义处理的选择建议
 
 简单字段替换选“自动替换占位符”。多 Prompt、多角色、复杂字段处理、知识库裁剪、公司内部 messages 格式组装，选“自定义处理”。
+
+### 自定义分析方法
+
+在 `user_hooks/analysis_methods.py` 的 `list_analysis_methods()` 中注册方法。行详情抽屉的“分析”页会展示这些方法，用户可选择任意方法重新分析。
+
+```python
+def list_analysis_methods() -> dict:
+    return {
+        "company_reason": {
+            "name": "公司原因分析",
+            "method_name": "company_reason_analysis",
+            "description": "分析人工答案和模型答案不一致的原因。",
+        }
+    }
+
+
+def company_reason_analysis(row_data: dict, model_result: dict, context: dict) -> dict:
+    return {
+        "原因类型": "Prompt缺少上下文",
+        "建议": "补充工单处理过程字段。",
+        "相关字段": ["工单名称", "API Part 1"],
+    }
+```
+
+返回要求：
+
+- 必须返回 `dict`。
+- `row_data` 是当前行完整数据，包含原始导入列、`row_id`、`row_index`、状态、最新模型结果和渲染 Prompt。
+- 只想读取原始导入数据时，使用 `context["raw_data"]`。
+- 多次分析都会写入历史记录。
+- 行详情抽屉会按时间倒序展示多个分析结果，可在右侧“显示结果”里选择显示哪些结果。

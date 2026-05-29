@@ -174,7 +174,7 @@ def stop_unfinished(task_id: str) -> dict:
     return event
 
 
-def analyze_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "") -> dict:
+def analyze_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "", method_name: str = "") -> dict:
     timestamp = now_iso()
     with get_db() as conn:
         dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
@@ -192,10 +192,41 @@ def analyze_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "") -> di
         if scheme_id:
             latest = _latest_task_row_for_scheme(conn, dataset_id, row_id, scheme_id)
             model_result = decode_json(latest.get("model_result") if latest else "{}", {})
+            rendered_prompt = decode_json((latest.get("rendered_prompt") if latest else "") or "{}", {})
         else:
             model_result = decode_json(row["model_result"], {})
+            rendered_prompt = decode_json(row.get("rendered_prompt") or "{}", {})
+        field_mapping = _get_field_mapping(conn, dataset["scene_id"])
+        analysis_row_data = {
+            **raw_data,
+            "row_id": row_id,
+            "row_index": row.get("row_index"),
+            "状态": row.get("annotation_status"),
+            "model_result": model_result,
+            "rendered_prompt": rendered_prompt,
+        }
 
-    analysis_result = hooks.analyze_row(raw_data, model_result)
+    method_config = _resolve_analysis_method(method_name)
+    selected_method_name = method_config["method_name"]
+    context = {
+        "dataset_id": dataset_id,
+        "scene_id": dataset["scene_id"],
+        "scheme_id": scheme_id,
+        "row_id": row_id,
+        "row_data": analysis_row_data,
+        "raw_data": raw_data,
+        "model_result": model_result,
+        "rendered_prompt": rendered_prompt,
+        "field_mapping": field_mapping,
+        "analysis_method": method_config,
+    }
+    try:
+        if hasattr(hooks, "run_analysis_method"):
+            analysis_result = hooks.run_analysis_method(selected_method_name, analysis_row_data, model_result, context)
+        else:
+            analysis_result = hooks.analyze_row(analysis_row_data, model_result)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not isinstance(analysis_result, dict):
         raise HTTPException(status_code=500, detail="分析方法必须返回 dict")
 
@@ -243,15 +274,189 @@ def analyze_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "") -> di
             task_row_id = ""
         conn.execute(
             """
-            INSERT INTO row_analysis_history(id, dataset_id, row_id, task_row_id, analysis_data, created_at)
-            VALUES(?, ?, ?, ?, ?, ?)
+            INSERT INTO row_analysis_history(id, dataset_id, row_id, task_row_id, method_name, method_label, analysis_data, created_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (f"analysis_{uuid4().hex[:12]}", dataset_id, row_id, task_row_id, encode_json(analysis_result), timestamp),
+            (
+                f"analysis_{uuid4().hex[:12]}",
+                dataset_id,
+                row_id,
+                task_row_id,
+                selected_method_name,
+                method_config.get("name", selected_method_name),
+                encode_json(analysis_result),
+                timestamp,
+            ),
         )
 
     if task_id:
-        _broadcast(task_id, {"type": "row_analyzed", "row_id": row_id, "analysis_data": analysis_result})
-    return {"row_id": row_id, "analysis_data": analysis_result}
+        _broadcast(
+            task_id,
+            {
+                "type": "row_analyzed",
+                "row_id": row_id,
+                "analysis_data": analysis_result,
+                "method_name": selected_method_name,
+                "method_label": method_config.get("name", selected_method_name),
+            },
+        )
+    return {
+        "row_id": row_id,
+        "analysis_data": analysis_result,
+        "method_name": selected_method_name,
+        "method_label": method_config.get("name", selected_method_name),
+    }
+
+
+def start_batch_analysis(payload: dict) -> dict:
+    dataset_id = payload.get("dataset_id") or ""
+    scheme_id = payload.get("scheme_id") or ""
+    method_name = payload.get("method_name") or ""
+    scope = payload.get("scope") or "all"
+    statuses = _normalize_status_values(payload.get("statuses") or [])
+    if not dataset_id:
+        raise HTTPException(status_code=400, detail="请选择数据集")
+    if scope == "statuses" and not statuses:
+        raise HTTPException(status_code=400, detail="请选择要分析的状态")
+
+    method_config = _resolve_analysis_method(method_name)
+    with get_db() as conn:
+        row_ids = _select_batch_analysis_row_ids(conn, dataset_id, scheme_id, scope, statuses)
+    if not row_ids:
+        raise HTTPException(status_code=400, detail="没有符合条件的数据行")
+
+    batch_id = f"analysis_batch_{uuid4().hex[:12]}"
+    worker = threading.Thread(
+        target=_run_batch_analysis,
+        args=(batch_id, dataset_id, scheme_id, method_config["method_name"], row_ids),
+        daemon=True,
+    )
+    worker.start()
+    return {
+        "batch_id": batch_id,
+        "dataset_id": dataset_id,
+        "scheme_id": scheme_id,
+        "method_name": method_config["method_name"],
+        "method_label": method_config.get("name", method_config["method_name"]),
+        "scope": scope,
+        "statuses": statuses,
+        "total_count": len(row_ids),
+        "message": "批量分析已在后台按单线程顺序执行",
+    }
+
+
+def _run_batch_analysis(batch_id: str, dataset_id: str, scheme_id: str, method_name: str, row_ids: list[str]) -> None:
+    for row_id in row_ids:
+        try:
+            analyze_dataset_row(dataset_id, row_id, scheme_id, method_name)
+        except Exception as exc:
+            print(f"[{batch_id}] row {row_id} analysis failed: {exc}")
+
+
+def _select_batch_analysis_row_ids(
+    conn,
+    dataset_id: str,
+    scheme_id: str,
+    scope: str,
+    statuses: list[str],
+) -> list[str]:
+    dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+    if not scene:
+        raise HTTPException(status_code=404, detail="场景不存在")
+    table_name = scene["data_table_name"]
+    where = "d.dataset_id=?"
+    params: list = [dataset_id]
+    if scope == "statuses":
+        status_expr = "COALESCE(latest.scheme_status, d.annotation_status, '未标注')" if scheme_id else "COALESCE(d.annotation_status, '未标注')"
+        where += _status_filter_sql(status_expr, statuses, params)
+
+    if scheme_id:
+        rows = conn.execute(
+            f"""
+            {_latest_scheme_rows_cte()}
+            SELECT d.id
+            FROM {table_name} d
+            LEFT JOIN latest_scheme_rows latest ON latest.row_id=d.id
+            WHERE {where}
+            ORDER BY d.row_index ASC
+            """,
+            [dataset_id, scheme_id, *params],
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"""
+            SELECT d.id
+            FROM {table_name} d
+            WHERE {where}
+            ORDER BY d.row_index ASC
+            """,
+            params,
+        ).fetchall()
+    return [row["id"] for row in rows]
+
+
+def _status_filter_sql(status_expr: str, statuses: list[str], params: list) -> str:
+    if not statuses:
+        return ""
+    concrete_statuses = [status for status in statuses if status != "未标注"]
+    clauses: list[str] = []
+    if "未标注" in statuses:
+        clauses.append(f"({status_expr} IS NULL OR {status_expr}='' OR {status_expr}='未标注')")
+    if concrete_statuses:
+        placeholders = ", ".join(["?"] * len(concrete_statuses))
+        clauses.append(f"{status_expr} IN ({placeholders})")
+        params.extend(concrete_statuses)
+    return f" AND ({' OR '.join(clauses)})" if clauses else ""
+
+
+def _normalize_status_values(statuses: list) -> list[str]:
+    values: list[str] = []
+    for status in statuses or []:
+        values.extend(part.strip() for part in str(status).split(",") if part.strip())
+    return list(dict.fromkeys(values))
+
+
+def _latest_scheme_rows_cte() -> str:
+    return """
+    WITH latest_scheme_rows AS (
+      SELECT row_id, scheme_status
+      FROM (
+        SELECT
+          task_row.row_id,
+          task_row.status AS scheme_status,
+          ROW_NUMBER() OVER (
+            PARTITION BY task_row.row_id
+            ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
+          ) AS rn
+        FROM annotation_task_rows task_row
+        JOIN annotation_tasks task ON task.id=task_row.task_id
+        WHERE task.dataset_id=? AND task.scheme_id=?
+      )
+      WHERE rn=1
+    )
+    """
+
+
+def _resolve_analysis_method(method_name: str = "") -> dict:
+    methods = hooks.list_analysis_methods() if hasattr(hooks, "list_analysis_methods") else {}
+    flat = []
+    for key, item in methods.items():
+        method = dict(item)
+        method.setdefault("key", key)
+        method.setdefault("method_name", key)
+        method.setdefault("name", key)
+        flat.append(method)
+    if not flat:
+        return {"key": "default", "name": "默认分析", "method_name": "default_analysis", "description": ""}
+    if method_name:
+        for item in flat:
+            if method_name in {item.get("method_name"), item.get("key")}:
+                return item
+        return {"key": method_name, "name": method_name, "method_name": method_name, "description": ""}
+    return flat[0]
 
 
 def list_row_analysis_history(dataset_id: str, row_id: str) -> list[dict]:
@@ -261,10 +466,10 @@ def list_row_analysis_history(dataset_id: str, row_id: str) -> list[dict]:
             raise HTTPException(status_code=404, detail="数据集不存在")
         rows = conn.execute(
             """
-            SELECT id, dataset_id, row_id, task_row_id, analysis_data, created_at
+            SELECT id, dataset_id, row_id, task_row_id, method_name, method_label, analysis_data, created_at
             FROM row_analysis_history
             WHERE dataset_id=? AND row_id=?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, rowid DESC
             """,
             (dataset_id, row_id),
         ).fetchall()
@@ -344,11 +549,11 @@ def get_dataset_metrics(dataset_id: str, scheme_id: str = "") -> dict:
                   )
                   WHERE rn=1
                 )
-                SELECT COALESCE(latest.annotation_status, '未标注') AS annotation_status, COUNT(*) AS count
+                SELECT COALESCE(latest.annotation_status, data_row.annotation_status, '未标注') AS annotation_status, COUNT(*) AS count
                 FROM {table_name} data_row
                 LEFT JOIN latest_scheme_rows latest ON latest.row_id=data_row.id
                 WHERE data_row.dataset_id=?
-                GROUP BY COALESCE(latest.annotation_status, '未标注')
+                GROUP BY COALESCE(latest.annotation_status, data_row.annotation_status, '未标注')
                 """,
                 (dataset_id, scheme_id, dataset_id),
             ).fetchall()
@@ -816,6 +1021,12 @@ def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: lis
             return knowledge_text
         if key in {"error_sets", "error_set", "错题集"}:
             return error_text
+        knowledge_match = _named_resource_placeholder(key, {"knowledge", "知识库"})
+        if knowledge_match:
+            return _lookup_named_resource_text(knowledge, knowledge_match, "content")
+        error_match = _named_resource_placeholder(key, {"error_sets", "error_set", "错题集"})
+        if error_match:
+            return _lookup_named_resource_text(error_sets, error_match, "description")
         if key.startswith("row."):
             return str(row_data.get(key[4:].strip(), ""))
         return match.group(0)
@@ -823,6 +1034,24 @@ def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: lis
     rendered = re.sub(r"\[\[\s*([^\[\]]+?)\s*\]\]", replace, text)
     rendered = re.sub(r"\{\{\s*([A-Za-z0-9_.\-\u4e00-\u9fff\uff00-\uffef ]+?)\s*\}\}", replace, rendered)
     return rendered
+
+
+def _named_resource_placeholder(key: str, prefixes: set[str]) -> str:
+    for prefix in prefixes:
+        for separator in (".", ":", "："):
+            token = f"{prefix}{separator}"
+            if key.startswith(token):
+                return key[len(token):].strip()
+    return ""
+
+
+def _lookup_named_resource_text(items: list[dict], name: str, field: str) -> str:
+    for item in items:
+        if name in {str(item.get("name", "")), str(item.get("id", ""))}:
+            if field == "description":
+                return f"{item.get('name', '')}\n{item.get('description', '')}".strip()
+            return str(item.get(field, ""))
+    return ""
 
 
 def _normalize_rendered_prompts(value, source_prompts: list[dict]) -> dict:

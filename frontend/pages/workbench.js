@@ -22,12 +22,25 @@ let drawerRow = null;
 let drawerMode = "view";
 let drawerEditDirty = false;
 let drawerSelectedColumns = new Set();
+let drawerAnalysisHistoryRows = [];
+let drawerSelectedAnalysisIds = new Set();
 let drawerAnalysisRequest = 0;
+let drawerAnalysisHistoryRequest = 0;
 let drawerAnnotationHistoryRequest = 0;
 let drawerResizeCleanup = null;
+let drawerAnalysisSplitCleanup = null;
 let statusFilters = new Set();
 let availableDatasetColumns = [];
 let latestFieldMapping = null;
+let tableFontSize = normalizeTableFontSize(localStorage.getItem("llm-table-font-size") || "medium");
+let columnSettingsOriginalFontSize = tableFontSize;
+let tableFocusMode = false;
+
+const tableFontSizeLabels = {
+  small: "小",
+  medium: "中",
+  large: "大",
+};
 
 const defaultColumns = [
   "ID",
@@ -50,12 +63,25 @@ const defaultColumns = [
   "Claude_结果",
 ];
 
+const statusOptions = ["未标注", "排队中", "标注中", "TP", "TN", "FP", "FN", "失败", "取消"];
+
+function renderAnalysisMethodOptions() {
+  const entries = Object.entries(state.analysisMethods || {});
+  return entries.map(([key, item]) => {
+    const value = item.method_name || key;
+    const text = `${item.name || key} · ${value}`;
+    return `<option value="${escapeHtml(value)}">${escapeHtml(text)}</option>`;
+  }).join("") || `<option value="default_analysis">默认分析 · default_analysis</option>`;
+}
+
 export function renderWorkbenchPage() {
   document.querySelector("#page-workbench").innerHTML = `
     <div class="workbench-layout workbench-pro">
       <div class="workbench-head">
         <div class="workbench-titleline">
-          <h2 id="workbenchTitle">标注工作台</h2>
+          <button class="workbench-source-title" id="workbenchSourceButton" type="button" title="切换数据集与方案">
+            <span class="source-title-main" id="workbenchTitle">标注工作台</span>
+          </button>
         </div>
       </div>
 
@@ -105,6 +131,7 @@ export function renderWorkbenchPage() {
         </div>
         <div class="toolbar-right">
           <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新列表</button>
+          <button class="btn table-focus-button" type="button" id="tableFocusButton">全屏表格</button>
           <label class="column-search">
             <select id="tableSearchColumn" aria-label="选择搜索字段">
               <option value="">全部字段</option>
@@ -115,7 +142,7 @@ export function renderWorkbenchPage() {
           <div class="dropdown-wrap">
             <button class="btn" type="button" id="filterButton" aria-expanded="false">筛选</button>
             <div class="dropdown-menu status-filter-menu" id="statusFilterMenu" hidden>
-              ${["未标注", "排队中", "标注中", "TP", "TN", "FP", "FN", "失败", "取消"].map((status) => `
+              ${statusOptions.map((status) => `
                 <label><input type="checkbox" value="${status}"><span>${status}</span></label>
               `).join("")}
               <div class="filter-actions">
@@ -127,6 +154,7 @@ export function renderWorkbenchPage() {
           <div class="dropdown-wrap">
             <button class="btn" type="button" id="globalMoreButton" aria-expanded="false">更多</button>
             <div class="dropdown-menu" id="globalMoreMenu" hidden>
+              <button type="button" data-global-action="batch-analysis">批量分析</button>
               <button type="button" data-global-action="export">导出</button>
               <button type="button" data-global-action="columns">列设置</button>
               <button type="button" data-global-action="delete">删除数据</button>
@@ -140,33 +168,114 @@ export function renderWorkbenchPage() {
     </div>
 
     <div class="modal-backdrop" id="sourceModalBackdrop">
-      <section class="modal source-modal" role="dialog" aria-modal="true" aria-labelledby="sourceModalTitle">
+      <section class="modal source-modal source-modal-v2" role="dialog" aria-modal="true" aria-labelledby="sourceModalTitle">
         <header class="modal-head">
           <div>
-            <p class="eyebrow">数据上下文</p>
-            <h2 id="sourceModalTitle">切换数据源与方案</h2>
+            <p class="eyebrow">切换数据源与方案</p>
+            <h2 id="sourceModalTitle">当前数据上下文</h2>
+            <p class="card-meta" id="sourceCurrentTitle">按场景、数据源、方案的顺序选择，应用后刷新工作台。</p>
           </div>
           <button class="icon-btn" type="button" id="sourceModalClose" aria-label="关闭切换弹窗">×</button>
         </header>
-        <div class="source-form">
-          <label>
-            <span>先选择场景</span>
-            <select class="select" id="sourceSceneSelect" aria-label="切换场景"></select>
-          </label>
-          <label>
-            <span>再选择数据源</span>
-            <select class="select" id="sourceDatasetSelect" aria-label="切换数据源"></select>
-          </label>
-          <label>
-            <span>选择标注方案</span>
-            <select class="select" id="sourceSchemeSelect" aria-label="切换标注方案"></select>
-          </label>
+        <div class="source-modal-body">
+          <div class="source-step-grid">
+            <section class="source-step-card">
+              <div class="source-step-title">
+                <span>1</span>
+                <div>
+                  <strong>选择场景</strong>
+                  <em>场景决定资源隔离范围</em>
+                </div>
+              </div>
+              <div class="source-option-list" id="sourceSceneList"></div>
+            </section>
+            <section class="source-step-card">
+              <div class="source-step-title">
+                <span>2</span>
+                <div>
+                  <strong>选择数据源</strong>
+                  <em>选择要展示和标注的数据集</em>
+                </div>
+              </div>
+              <div class="source-option-list" id="sourceDatasetList"></div>
+            </section>
+            <section class="source-step-card">
+              <div class="source-step-title">
+                <span>3</span>
+                <div>
+                  <strong>选择方案</strong>
+                  <em>方案决定 Prompt、方法和并发</em>
+                </div>
+              </div>
+              <div class="source-option-list" id="sourceSchemeList"></div>
+            </section>
+          </div>
         </div>
-        <div class="source-preview" id="sourcePreview"></div>
         <footer class="modal-actions">
           <button class="btn" type="button" id="sourceModalCancel">取消</button>
           <button class="btn primary" type="button" id="sourceApplyButton">应用并刷新表格</button>
         </footer>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="batchAnalysisModal">
+      <section class="modal batch-analysis-modal" role="dialog" aria-modal="true" aria-labelledby="batchAnalysisTitle">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">批量分析</p>
+            <h2 id="batchAnalysisTitle">批量执行分析方法</h2>
+            <p class="card-meta">后台会按单线程顺序处理，不显示任务进度。</p>
+          </div>
+          <button class="icon-btn" type="button" id="batchAnalysisClose" aria-label="关闭批量分析弹窗">×</button>
+        </header>
+        <div class="batch-analysis-body">
+          <label class="batch-analysis-method">
+            <span>分析方法</span>
+            <select class="select" id="batchAnalysisMethodSelect" aria-label="选择批量分析方法">
+              ${renderAnalysisMethodOptions()}
+            </select>
+          </label>
+          <section class="batch-analysis-scope">
+            <label>
+              <input type="radio" name="batchAnalysisScope" value="all" checked>
+              <span>
+                <strong>全部分析</strong>
+                <em>分析当前数据集下的全部行。</em>
+              </span>
+            </label>
+            <label>
+              <input type="radio" name="batchAnalysisScope" value="statuses">
+              <span>
+                <strong>按状态筛选分析</strong>
+                <em>只分析勾选状态的数据行。</em>
+              </span>
+            </label>
+          </section>
+          <section class="batch-analysis-status-box" id="batchAnalysisStatusBox" hidden>
+            <div class="drawer-field-actions">
+              <button type="button" data-batch-status-action="current">使用当前筛选</button>
+              <button type="button" data-batch-status-action="all">全选</button>
+              <button type="button" data-batch-status-action="clear">清空</button>
+            </div>
+            <div class="batch-analysis-status-grid" id="batchAnalysisStatusGrid">
+              ${statusOptions.map((status) => `
+                <label class="drawer-field-chip">
+                  <input type="checkbox" value="${status}">
+                  <span>${status}</span>
+                </label>
+              `).join("")}
+            </div>
+          </section>
+          <section class="batch-analysis-warning">
+            <strong>执行说明</strong>
+            <p>批量分析默认单线程顺序执行；当前没有任务进度条。需要查看某一行是否已有分析结果，请打开该行的“查看”抽屉并切换到“分析”。</p>
+            <p>如果当前正在运行多线程标注任务，建议等待标注结束后再启动批量分析，避免同时读写同一批数据。</p>
+          </section>
+          <footer class="modal-actions">
+            <button class="btn" type="button" id="batchAnalysisCancel">取消</button>
+            <button class="btn primary" type="button" id="batchAnalysisStart">开始批量分析</button>
+          </footer>
+        </div>
       </section>
     </div>
 
@@ -213,6 +322,12 @@ export function renderWorkbenchPage() {
             <button class="btn primary" type="button" id="drawerSave" hidden>保存</button>
           </div>
           <div class="drawer-actions" id="drawerAnalysisActions" hidden>
+            <label class="drawer-analysis-method-select">
+              <span>分析方法</span>
+              <select class="select" id="drawerAnalysisMethodSelect" aria-label="选择分析方法">
+                ${renderAnalysisMethodOptions()}
+              </select>
+            </label>
             <button class="btn primary" type="button" id="drawerReanalyze" hidden>重新分析</button>
           </div>
         </div>
@@ -286,12 +401,24 @@ export function renderWorkbenchPage() {
                 </div>
                 <div class="drawer-kv" id="drawerAnalysisRaw"></div>
               </section>
+              <div class="drawer-split-resizer" id="drawerAnalysisSplitResizer" role="separator" aria-label="拖动调整原始数据和分析结果宽度"></div>
               <section class="drawer-analysis-card">
                 <div class="drawer-section-title">
-                  <strong>最新分析结果</strong>
-                  <span id="drawerAnalysisStatus">未分析</span>
+                  <strong>分析结果</strong>
+                  <div class="drawer-field-filter">
+                    <button class="btn" type="button" id="drawerAnalysisResultFilterButton">显示结果</button>
+                    <div class="drawer-field-popover drawer-analysis-result-popover" id="drawerAnalysisResultPopover" hidden>
+                      <div class="drawer-field-actions">
+                        <button type="button" data-analysis-result-action="all">全选</button>
+                        <button type="button" data-analysis-result-action="latest">最新</button>
+                        <button type="button" data-analysis-result-action="clear">清空</button>
+                      </div>
+                      <div class="drawer-field-grid" id="drawerAnalysisResultGrid"></div>
+                    </div>
+                  </div>
                 </div>
-                <pre class="drawer-json-view" id="drawerAnalysisJson">{}</pre>
+                <div class="drawer-analysis-status" id="drawerAnalysisStatus">未分析</div>
+                <div class="drawer-analysis-results" id="drawerAnalysisResults"></div>
               </section>
             </div>
           </section>
@@ -319,6 +446,26 @@ export function renderWorkbenchPage() {
               <button type="button" id="clearAllColumns">全不选</button>
             </div>
           </div>
+          <div class="table-font-setting" aria-label="列表字体大小">
+            <div>
+              <strong>列表字体大小</strong>
+              <span>调整工作台表格的阅读密度。</span>
+            </div>
+            <div class="table-font-segment" id="tableFontSizeSegment">
+              <label>
+                <input type="radio" name="tableFontSize" value="small">
+                <span>小</span>
+              </label>
+              <label>
+                <input type="radio" name="tableFontSize" value="medium">
+                <span>中</span>
+              </label>
+              <label>
+                <input type="radio" name="tableFontSize" value="large">
+                <span>大</span>
+              </label>
+            </div>
+          </div>
           <div class="column-chip-grid compact" id="columnSettingsGrid"></div>
           <div class="modal-actions">
             <button class="btn" type="button" id="cancelColumnSettings">取消</button>
@@ -333,32 +480,28 @@ export function renderWorkbenchPage() {
 }
 
 function bindWorkbenchEvents() {
-  const shellSourceSwitchButton = document.querySelector("#shellSourceSwitchButton");
-  if (shellSourceSwitchButton) shellSourceSwitchButton.onclick = openSourceModal;
+  document.querySelector("#workbenchSourceButton").addEventListener("click", openSourceModal);
   document.querySelector("#sourceModalClose").addEventListener("click", closeSourceModal);
   document.querySelector("#sourceModalCancel").addEventListener("click", closeSourceModal);
   document.querySelector("#sourceApplyButton").addEventListener("click", applySourceModal);
-  document.querySelector("#sourceSceneSelect").addEventListener("change", async (event) => {
-    pendingSource.sceneId = event.target.value;
-    await loadPendingResources(pendingSource.sceneId);
-    pendingSource.datasetId = pendingResources.datasets[0]?.id || "";
-    pendingSource.schemeId = pendingResources.schemes[0]?.id || "";
-    fillSourceModalOptions();
+  document.querySelector("#batchAnalysisClose").addEventListener("click", closeBatchAnalysisModal);
+  document.querySelector("#batchAnalysisCancel").addEventListener("click", closeBatchAnalysisModal);
+  document.querySelector("#batchAnalysisModal").addEventListener("click", (event) => {
+    if (event.target.id === "batchAnalysisModal") closeBatchAnalysisModal();
   });
-  document.querySelector("#sourceDatasetSelect").addEventListener("change", (event) => {
-    pendingSource.datasetId = event.target.value;
-    updateSourcePreview();
+  document.querySelectorAll('input[name="batchAnalysisScope"]').forEach((input) => {
+    input.addEventListener("change", syncBatchAnalysisScope);
   });
-  document.querySelector("#sourceSchemeSelect").addEventListener("change", (event) => {
-    pendingSource.schemeId = event.target.value;
-    updateSourcePreview();
-  });
+  document.querySelector("#batchAnalysisStatusBox").addEventListener("click", handleBatchAnalysisStatusActions);
+  document.querySelector("#batchAnalysisStart").addEventListener("click", startBatchAnalysis);
+  document.querySelector("#sourceModalBackdrop").addEventListener("click", handleSourceModalClick);
   document.querySelector("#tableSearch").addEventListener("input", () => {
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => refreshWorkbench(), 260);
   });
   document.querySelector("#tableSearchColumn").addEventListener("change", () => refreshWorkbench());
   document.querySelector("#refreshTableButton").addEventListener("click", refreshTableData);
+  document.querySelector("#tableFocusButton").addEventListener("click", toggleTableFocusMode);
   document.querySelector("#selectCurrentPage").addEventListener("change", (event) => {
     selectVisibleRows(event.target.checked);
   });
@@ -392,6 +535,8 @@ function bindWorkbenchEvents() {
     if (!action) return;
     if (action === "stop") {
       stopCurrentTask();
+    } else if (action === "batch-analysis") {
+      openBatchAnalysisModal();
     } else if (action === "delete") {
       deleteSelectedRows();
     } else if (action === "export") {
@@ -429,8 +574,11 @@ function bindWorkbenchEvents() {
   document.querySelector("#drawerEditor").addEventListener("input", markDrawerDirty);
   document.querySelector("#drawerFieldFilterButton").addEventListener("click", toggleDrawerFieldPopover);
   document.querySelector("#drawerFieldPopover").addEventListener("click", handleDrawerFieldPopoverClick);
+  document.querySelector("#drawerAnalysisResultFilterButton").addEventListener("click", toggleDrawerAnalysisResultPopover);
+  document.querySelector("#drawerAnalysisResultPopover").addEventListener("click", handleDrawerAnalysisResultPopoverClick);
   document.querySelector("#rowDetailDrawer").addEventListener("click", handleDrawerKvToggle);
   document.querySelector("#drawerResizer").addEventListener("pointerdown", startDrawerResize);
+  document.querySelector("#drawerAnalysisSplitResizer").addEventListener("pointerdown", startDrawerAnalysisSplitResize);
   document.querySelector("#closeColumnSettings").addEventListener("click", closeColumnSettings);
   document.querySelector("#cancelColumnSettings").addEventListener("click", closeColumnSettings);
   document.querySelector("#columnSettingsModal").addEventListener("click", (event) => {
@@ -439,6 +587,9 @@ function bindWorkbenchEvents() {
   document.querySelector("#selectAllColumns").addEventListener("click", () => setColumnSettingsChecked(true));
   document.querySelector("#clearAllColumns").addEventListener("click", () => setColumnSettingsChecked(false));
   document.querySelector("#saveColumnSettings").addEventListener("click", saveColumnSettings);
+  document.querySelector("#tableFontSizeSegment").addEventListener("change", handleTableFontSizeChange);
+  applyTableFontSize();
+  applyTableFocusMode();
   if (!documentMenusBound) {
     document.addEventListener("pointerdown", stopRowActionPropagation, true);
     document.addEventListener("click", handleRowActionClick, true);
@@ -750,15 +901,12 @@ function updateWorkbenchTitle() {
   const dataset = state.datasets.find((item) => item.id === state.activeDatasetId);
   const scheme = state.schemes.find((item) => item.id === state.activeSchemeId);
   const title = [
-    scene?.name || "未选择场景",
     dataset?.name || "未选择数据集",
     scheme?.name || "未选择方案",
   ].join(" · ");
   document.querySelector("#workbenchTitle").textContent = title;
-  const shellSchemeName = document.querySelector("#shellSourceSchemeName");
-  const shellSwitch = document.querySelector("#shellSourceSwitchButton");
-  if (shellSchemeName) shellSchemeName.textContent = scheme?.name || "未选择方案";
-  if (shellSwitch) shellSwitch.title = `切换数据源与方案：${title}`;
+  const sourceButton = document.querySelector("#workbenchSourceButton");
+  if (sourceButton) sourceButton.title = `切换数据源与方案：${scene?.name || "未选择场景"} · ${title}`;
 }
 
 async function openSourceModal() {
@@ -778,6 +926,35 @@ function closeSourceModal() {
   document.querySelector("#sourceModalBackdrop").classList.remove("open");
 }
 
+async function handleSourceModalClick(event) {
+  if (event.target.id === "sourceModalBackdrop") {
+    closeSourceModal();
+    return;
+  }
+  const option = event.target.closest("[data-source-type]");
+  if (!option) return;
+  const type = option.dataset.sourceType;
+  const id = option.dataset.sourceId || "";
+  if (type === "scene") {
+    if (pendingSource.sceneId === id) return;
+    pendingSource.sceneId = id;
+    await loadPendingResources(pendingSource.sceneId);
+    pendingSource.datasetId = pendingResources.datasets[0]?.id || "";
+    pendingSource.schemeId = pendingResources.schemes[0]?.id || "";
+    fillSourceModalOptions();
+    return;
+  }
+  if (type === "dataset") {
+    pendingSource.datasetId = id;
+    fillSourceModalOptions();
+    return;
+  }
+  if (type === "scheme") {
+    pendingSource.schemeId = id;
+    fillSourceModalOptions();
+  }
+}
+
 async function loadPendingResources(sceneId) {
   if (!sceneId) {
     pendingResources = { datasets: [], schemes: [] };
@@ -792,27 +969,69 @@ async function loadPendingResources(sceneId) {
 }
 
 function fillSourceModalOptions() {
-  const sceneSelect = document.querySelector("#sourceSceneSelect");
-  const datasetSelect = document.querySelector("#sourceDatasetSelect");
-  const schemeSelect = document.querySelector("#sourceSchemeSelect");
-  sceneSelect.innerHTML = state.scenes.map((scene) => `<option value="${scene.id}">${scene.name}</option>`).join("") || `<option value="">暂无场景</option>`;
-  datasetSelect.innerHTML = pendingResources.datasets.map((dataset) => `<option value="${dataset.id}">${dataset.name}</option>`).join("") || `<option value="">暂无数据集</option>`;
-  schemeSelect.innerHTML = pendingResources.schemes.map((scheme) => `<option value="${scheme.id}">${scheme.name}</option>`).join("") || `<option value="">暂无方案</option>`;
-  sceneSelect.value = pendingSource.sceneId;
-  datasetSelect.value = pendingSource.datasetId;
-  schemeSelect.value = pendingSource.schemeId;
+  document.querySelector("#sourceSceneList").innerHTML = sourceOptionListHtml(
+    "scene",
+    state.scenes,
+    pendingSource.sceneId,
+    "暂无场景，请先到数据集与方案管理页创建场景。",
+  );
+  document.querySelector("#sourceDatasetList").innerHTML = sourceOptionListHtml(
+    "dataset",
+    pendingResources.datasets,
+    pendingSource.datasetId,
+    "当前场景暂无数据集。",
+  );
+  document.querySelector("#sourceSchemeList").innerHTML = sourceOptionListHtml(
+    "scheme",
+    pendingResources.schemes,
+    pendingSource.schemeId,
+    "当前场景暂无标注方案。",
+  );
   updateSourcePreview();
 }
 
+function sourceOptionListHtml(type, items, selectedId, emptyText) {
+  if (!items.length) return `<div class="empty source-empty">${emptyText}</div>`;
+  return items.map((item, index) => {
+    const selected = item.id === selectedId;
+    return `
+      <button class="source-option-card ${selected ? "active" : ""}" type="button" data-source-type="${type}" data-source-id="${escapeHtml(item.id)}">
+        <span class="source-option-index">${index + 1}</span>
+        <span class="source-option-copy">
+          <strong>${escapeHtml(item.name || item.id)}</strong>
+          <em>${escapeHtml(sourceOptionMeta(type, item))}</em>
+        </span>
+        <i>${selected ? "已选" : "选择"}</i>
+      </button>
+    `;
+  }).join("");
+}
+
+function sourceOptionMeta(type, item) {
+  if (type === "scene") return item.description || item.created_at || "资源隔离场景";
+  if (type === "dataset") {
+    const rows = Number(item.row_count || item.total_rows || item.rows || 0);
+    return rows ? `${rows.toLocaleString()} 行数据` : item.created_at || "Excel 数据集";
+  }
+  if (type === "scheme") {
+    const model = item.model_key || item.method_name || item.annotation_method_name || "";
+    const concurrency = item.concurrency ? `并发 ${item.concurrency}` : "";
+    return [model, concurrency].filter(Boolean).join(" · ") || item.created_at || "标注方案";
+  }
+  return "";
+}
+
 function updateSourcePreview() {
-  const scene = state.scenes.find((item) => item.id === pendingSource.sceneId);
-  const dataset = pendingResources.datasets.find((item) => item.id === pendingSource.datasetId);
-  const scheme = pendingResources.schemes.find((item) => item.id === pendingSource.schemeId);
-  document.querySelector("#sourcePreview").innerHTML = `
-    <div><span>场景</span><strong>${scene?.name || "暂无"}</strong></div>
-    <div><span>数据集</span><strong>${dataset?.name || "暂无"}</strong></div>
-    <div><span>方案</span><strong>${scheme?.name || "暂无"}</strong></div>
-  `;
+  const currentScene = state.scenes.find((item) => item.id === state.activeSceneId);
+  const currentDataset = state.datasets.find((item) => item.id === state.activeDatasetId);
+  const currentScheme = state.schemes.find((item) => item.id === state.activeSchemeId);
+  const currentTitle = [
+    currentScene?.name || "未选择场景",
+    currentDataset?.name || "未选择数据集",
+    currentScheme?.name || "未选择方案",
+  ].join(" · ");
+  document.querySelector("#sourceModalTitle").textContent = currentTitle;
+  document.querySelector("#sourceCurrentTitle").textContent = "按场景、数据源、方案的顺序选择，应用后刷新工作台。";
 }
 
 async function applySourceModal() {
@@ -827,6 +1046,79 @@ async function applySourceModal() {
   toast("数据源与方案已切换");
 }
 
+function openBatchAnalysisModal() {
+  if (!state.activeDatasetId) {
+    toast("请先选择数据集");
+    return;
+  }
+  const modal = document.querySelector("#batchAnalysisModal");
+  const methodSelect = document.querySelector("#batchAnalysisMethodSelect");
+  if (methodSelect) methodSelect.value = defaultAnalysisMethodName();
+  const useStatuses = statusFilters.size > 0;
+  document.querySelector(`input[name="batchAnalysisScope"][value="${useStatuses ? "statuses" : "all"}"]`).checked = true;
+  setBatchAnalysisStatuses(useStatuses ? [...statusFilters] : []);
+  syncBatchAnalysisScope();
+  modal.classList.add("open");
+}
+
+function closeBatchAnalysisModal() {
+  document.querySelector("#batchAnalysisModal")?.classList.remove("open");
+}
+
+function syncBatchAnalysisScope() {
+  const scope = document.querySelector('input[name="batchAnalysisScope"]:checked')?.value || "all";
+  document.querySelector("#batchAnalysisStatusBox").hidden = scope !== "statuses";
+}
+
+function setBatchAnalysisStatuses(values) {
+  const selected = new Set(values);
+  document.querySelectorAll("#batchAnalysisStatusGrid input").forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+}
+
+function handleBatchAnalysisStatusActions(event) {
+  const action = event.target.closest("[data-batch-status-action]")?.dataset.batchStatusAction;
+  if (!action) return;
+  if (action === "current") setBatchAnalysisStatuses([...statusFilters]);
+  if (action === "all") setBatchAnalysisStatuses(statusOptions);
+  if (action === "clear") setBatchAnalysisStatuses([]);
+}
+
+async function startBatchAnalysis() {
+  if (!state.activeDatasetId) {
+    toast("请先选择数据集");
+    return;
+  }
+  const scope = document.querySelector('input[name="batchAnalysisScope"]:checked')?.value || "all";
+  const statuses = [...document.querySelectorAll("#batchAnalysisStatusGrid input:checked")].map((input) => input.value);
+  if (scope === "statuses" && !statuses.length) {
+    toast("请选择要分析的状态");
+    return;
+  }
+  const button = document.querySelector("#batchAnalysisStart");
+  button.disabled = true;
+  button.textContent = "启动中...";
+  try {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/analysis-batch`, {
+      method: "POST",
+      body: JSON.stringify({
+        scheme_id: state.activeSchemeId || "",
+        method_name: document.querySelector("#batchAnalysisMethodSelect")?.value || defaultAnalysisMethodName(),
+        scope,
+        statuses,
+      }),
+    });
+    closeBatchAnalysisModal();
+    toast(`批量分析已启动：${result.total_count || 0} 行，后台顺序执行`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "开始批量分析";
+  }
+}
+
 function setBatchButtonState() {
   const selectedCount = table?.getSelectedRows?.().length || 0;
   const button = document.querySelector("#batchAnnotateButton");
@@ -836,6 +1128,23 @@ function setBatchButtonState() {
   }
   const currentPage = document.querySelector("#selectCurrentPage");
   if (currentPage && selectedCount === 0) currentPage.checked = false;
+}
+
+function toggleTableFocusMode() {
+  tableFocusMode = !tableFocusMode;
+  applyTableFocusMode();
+  window.requestAnimationFrame(() => table?.redraw?.(true));
+}
+
+function applyTableFocusMode() {
+  const root = document.querySelector(".workbench-pro");
+  if (!root) return;
+  root.classList.toggle("table-focus-mode", tableFocusMode);
+  const button = document.querySelector("#tableFocusButton");
+  if (button) {
+    button.textContent = tableFocusMode ? "退出全屏" : "全屏表格";
+    button.classList.toggle("primary", tableFocusMode);
+  }
 }
 
 function selectVisibleRows(checked) {
@@ -1120,13 +1429,16 @@ async function openRowDrawer(rowData, mode = "view") {
   drawerMode = "view";
   drawerEditDirty = false;
   drawerRow = rowData;
+  drawerAnalysisHistoryRows = [];
+  drawerSelectedAnalysisIds = new Set();
+  resetDrawerWidth();
   document.querySelector("#rowDetailDrawer").classList.add("open");
   document.querySelector("#rowDetailDrawer").setAttribute("aria-hidden", "false");
   document.querySelector("#drawerTitle").textContent = `行详情 · ${rowData.ID || rowData.row_id || ""}`;
   document.querySelector("#drawerMeta").textContent = "正在加载完整行数据...";
   document.querySelector("#drawerViewKv").innerHTML = `<div class="empty">正在加载完整数据...</div>`;
   document.querySelector("#drawerAnalysisStatus").textContent = "读取中";
-  document.querySelector("#drawerAnalysisJson").textContent = "{}";
+  document.querySelector("#drawerAnalysisResults").innerHTML = `<div class="empty">正在读取分析结果...</div>`;
   try {
     drawerRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowData.row_id}${schemeQuery()}`);
   } catch {
@@ -1141,7 +1453,9 @@ function closeRowDrawer() {
   document.querySelector("#rowDetailDrawer")?.classList.remove("open");
   document.querySelector("#rowDetailDrawer")?.setAttribute("aria-hidden", "true");
   document.querySelector("#drawerFieldPopover")?.setAttribute("hidden", "");
+  document.querySelector("#drawerAnalysisResultPopover")?.setAttribute("hidden", "");
   stopDrawerResize();
+  stopDrawerAnalysisSplitResize();
 }
 
 function initializeDrawerColumns() {
@@ -1181,6 +1495,7 @@ function setDrawerMode(mode) {
   setDrawerElementVisible("#drawerReanalyze", mode === "analysis");
   document.querySelector("#drawerSave").disabled = true;
   document.querySelector("#drawerFieldPopover")?.setAttribute("hidden", "");
+  document.querySelector("#drawerAnalysisResultPopover")?.setAttribute("hidden", "");
   document.querySelectorAll("[data-drawer-mode]").forEach((button) => {
     button.classList.toggle("active", button.dataset.drawerMode === mode);
   });
@@ -1192,6 +1507,7 @@ function setDrawerMode(mode) {
   if (mode === "analysis") {
     renderDrawerAnalysisRaw();
     renderDrawerAnalysisResult();
+    renderDrawerAnalysisHistory();
   }
   if (mode === "result") {
     renderDrawerResult();
@@ -1245,10 +1561,11 @@ async function analyzeDrawerRow() {
   if (!drawerRow?.row_id || !state.activeDatasetId) return;
   const requestId = ++drawerAnalysisRequest;
   const rowId = drawerRow.row_id;
+  const methodName = document.querySelector("#drawerAnalysisMethodSelect")?.value || defaultAnalysisMethodName();
   document.querySelector("#drawerAnalysisStatus").textContent = "分析中...";
-  document.querySelector("#drawerAnalysisJson").textContent = "后台分析中，关闭抽屉不会中断请求。";
+  document.querySelector("#drawerAnalysisResults").innerHTML = `<div class="empty">后台分析中，关闭抽屉不会中断请求。</div>`;
   try {
-    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/analysis${schemeQuery()}`, { method: "POST" });
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/analysis${analysisQuery(methodName)}`, { method: "POST" });
     const analysisData = result.analysis_data || {};
     if (drawerRow?.row_id === rowId) {
       drawerRow = { ...drawerRow, analysis_data: analysisData, 分析数据: analysisData };
@@ -1257,14 +1574,14 @@ async function analyzeDrawerRow() {
     await ensureDynamicResultColumns({ 分析数据: analysisData });
     updateVisibleRow(rowId, { 分析数据: analysisData });
     if (requestId === drawerAnalysisRequest && drawerRow?.row_id === rowId) {
-      document.querySelector("#drawerAnalysisStatus").textContent = "分析完成";
-      renderDrawerAnalysisResult();
+      document.querySelector("#drawerAnalysisStatus").textContent = `${result.method_label || "分析"}完成`;
+      await renderDrawerAnalysisHistory({ selectLatest: true });
     }
     toast("分析数据已写入");
   } catch (error) {
     if (requestId === drawerAnalysisRequest) {
       document.querySelector("#drawerAnalysisStatus").textContent = "分析失败";
-      document.querySelector("#drawerAnalysisJson").textContent = error.message;
+      document.querySelector("#drawerAnalysisResults").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
     }
     toast(error.message);
   }
@@ -1274,8 +1591,90 @@ function renderDrawerAnalysisResult() {
   const analysis = drawerRow?.analysis_data || drawerRow?.["分析数据"] || {};
   const hasAnalysis = analysis && typeof analysis === "object" && Object.keys(analysis).length;
   document.querySelector("#drawerAnalysisStatus").textContent = hasAnalysis ? "最新结果" : "暂无结果";
-  renderHighlightedJson("#drawerAnalysisJson", hasAnalysis ? analysis : {});
+  document.querySelector("#drawerAnalysisResults").innerHTML = hasAnalysis
+    ? analysisResultArticleHtml({ id: "latest", method_label: "最新分析", analysis_data: analysis, created_at: "" })
+    : `<div class="empty">暂无分析结果</div>`;
   renderDrawerEditAnalysis();
+}
+
+function defaultAnalysisMethodName() {
+  const first = Object.values(state.analysisMethods || {})[0];
+  return first?.method_name || "default_analysis";
+}
+
+function analysisQuery(methodName = "") {
+  const params = new URLSearchParams();
+  if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
+  if (methodName) params.set("method_name", methodName);
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+async function renderDrawerAnalysisHistory(options = {}) {
+  if (!drawerRow?.row_id || !state.activeDatasetId || drawerMode !== "analysis") return;
+  const requestId = ++drawerAnalysisHistoryRequest;
+  const status = document.querySelector("#drawerAnalysisStatus");
+  const results = document.querySelector("#drawerAnalysisResults");
+  status.textContent = "加载中";
+  results.innerHTML = `<div class="empty">正在读取分析历史...</div>`;
+  try {
+    const rows = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}/analysis-history`);
+    if (requestId !== drawerAnalysisHistoryRequest || drawerMode !== "analysis") return;
+    drawerAnalysisHistoryRows = rows;
+    if (options.selectLatest && rows[0]?.id) {
+      drawerSelectedAnalysisIds = new Set([rows[0].id]);
+    } else {
+      syncSelectedAnalysisRows(rows);
+    }
+    renderDrawerAnalysisResultFilter();
+    renderDrawerAnalysisResultList();
+  } catch (error) {
+    if (requestId !== drawerAnalysisHistoryRequest) return;
+    status.textContent = "读取失败";
+    results.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function syncSelectedAnalysisRows(rows) {
+  const ids = new Set(rows.map((row) => row.id));
+  drawerSelectedAnalysisIds = new Set([...drawerSelectedAnalysisIds].filter((id) => ids.has(id)));
+  if (!drawerSelectedAnalysisIds.size && rows.length) {
+    rows.forEach((row) => drawerSelectedAnalysisIds.add(row.id));
+  }
+}
+
+function renderDrawerAnalysisResultFilter() {
+  const grid = document.querySelector("#drawerAnalysisResultGrid");
+  if (!grid) return;
+  grid.innerHTML = drawerAnalysisHistoryRows.map((row, index) => `
+    <label class="drawer-field-chip">
+      <input type="checkbox" value="${escapeHtml(row.id)}" ${drawerSelectedAnalysisIds.has(row.id) ? "checked" : ""}>
+      <span title="${escapeHtml(row.method_label || row.method_name || "分析结果")}">${escapeHtml(row.method_label || row.method_name || `分析 ${index + 1}`)} · ${escapeHtml(formatHistoryTime(row.created_at))}</span>
+    </label>
+  `).join("") || `<div class="empty">暂无分析结果</div>`;
+}
+
+function renderDrawerAnalysisResultList() {
+  const rows = drawerAnalysisHistoryRows.filter((row) => drawerSelectedAnalysisIds.has(row.id));
+  document.querySelector("#drawerAnalysisStatus").textContent = drawerAnalysisHistoryRows.length
+    ? `${rows.length} / ${drawerAnalysisHistoryRows.length} 个结果`
+    : "暂无结果";
+  document.querySelector("#drawerAnalysisResults").innerHTML = rows.map(analysisResultArticleHtml).join("")
+    || `<div class="empty">当前未选择分析结果</div>`;
+}
+
+function analysisResultArticleHtml(row) {
+  return `
+    <article class="drawer-analysis-result-item">
+      <div class="drawer-history-head">
+        <span class="scheme-badge">${escapeHtml(row.method_label || row.method_name || "分析")}</span>
+        <strong>${escapeHtml(row.created_at ? formatHistoryTime(row.created_at) : "最新")}</strong>
+      </div>
+      <div class="drawer-kv drawer-analysis-result-kv">
+        ${drawerKeyValueRowsHtml(row.analysis_data || {}, "暂无分析数据")}
+      </div>
+    </article>
+  `;
 }
 
 function renderDrawerEditAnalysis() {
@@ -1409,10 +1808,42 @@ function handleDrawerFieldPopoverClick(event) {
   }
 }
 
+function toggleDrawerAnalysisResultPopover() {
+  const popover = document.querySelector("#drawerAnalysisResultPopover");
+  popover.hidden = !popover.hidden;
+}
+
+function handleDrawerAnalysisResultPopoverClick(event) {
+  const action = event.target.closest("[data-analysis-result-action]")?.dataset.analysisResultAction;
+  if (action) {
+    if (action === "all") {
+      drawerSelectedAnalysisIds = new Set(drawerAnalysisHistoryRows.map((row) => row.id));
+    }
+    if (action === "clear") {
+      drawerSelectedAnalysisIds = new Set();
+    }
+    if (action === "latest") {
+      drawerSelectedAnalysisIds = new Set(drawerAnalysisHistoryRows[0]?.id ? [drawerAnalysisHistoryRows[0].id] : []);
+    }
+    renderDrawerAnalysisResultFilter();
+    renderDrawerAnalysisResultList();
+    return;
+  }
+  if (event.target.matches('input[type="checkbox"]')) {
+    if (event.target.checked) drawerSelectedAnalysisIds.add(event.target.value);
+    else drawerSelectedAnalysisIds.delete(event.target.value);
+    renderDrawerAnalysisResultList();
+  }
+}
+
 function renderDrawerKeyValues(selector, payload, emptyText = "暂无数据") {
   const container = document.querySelector(selector);
+  container.innerHTML = drawerKeyValueRowsHtml(payload, emptyText);
+}
+
+function drawerKeyValueRowsHtml(payload, emptyText = "暂无数据") {
   const entries = Object.entries(payload || {});
-  container.innerHTML = entries.map(([key, value]) => {
+  return entries.map(([key, value]) => {
     const display = formatDisplayPayload(value);
     const collapsed = shouldCollapseDrawerValue(display.text);
     return `
@@ -1483,6 +1914,45 @@ function setDrawerWidth(width) {
   const min = Math.min(620, max);
   const clamped = Math.max(min, Math.min(width, max));
   drawer.style.setProperty("--drawer-width", `${Math.round(clamped)}px`);
+}
+
+function resetDrawerWidth() {
+  document.querySelector(".detail-drawer")?.style.removeProperty("--drawer-width");
+}
+
+function startDrawerAnalysisSplitResize(event) {
+  const layout = document.querySelector(".drawer-analysis-layout");
+  if (!layout) return;
+  event.preventDefault();
+  stopDrawerAnalysisSplitResize();
+  document.body.classList.add("is-resizing-drawer-split");
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  const move = (moveEvent) => {
+    const rect = layout.getBoundingClientRect();
+    const gutter = 12;
+    const minLeft = Math.min(360, Math.max(220, rect.width * 0.24));
+    const minRight = Math.min(380, Math.max(260, rect.width * 0.28));
+    const maxLeft = rect.width - minRight - gutter;
+    const nextLeft = moveEvent.clientX - rect.left;
+    const clamped = Math.max(minLeft, Math.min(nextLeft, maxLeft));
+    layout.style.setProperty("--analysis-left", `${Math.round(clamped)}px`);
+  };
+  const stop = () => stopDrawerAnalysisSplitResize();
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", stop, { once: true });
+  window.addEventListener("pointercancel", stop, { once: true });
+  drawerAnalysisSplitCleanup = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", stop);
+    window.removeEventListener("pointercancel", stop);
+    document.body.classList.remove("is-resizing-drawer-split");
+  };
+}
+
+function stopDrawerAnalysisSplitResize() {
+  if (!drawerAnalysisSplitCleanup) return;
+  drawerAnalysisSplitCleanup();
+  drawerAnalysisSplitCleanup = null;
 }
 
 function renderDetailPayload() {
@@ -1726,6 +2196,7 @@ async function openColumnSettings() {
       availableDatasetColumns = payload.columns || [];
     }
     latestFieldMapping = await api(`/api/field-mapping?scene_id=${encodeURIComponent(state.activeSceneId)}`);
+    columnSettingsOriginalFontSize = tableFontSize;
     renderColumnSettings();
     document.querySelector("#columnSettingsModal").classList.add("open");
   } catch (error) {
@@ -1734,6 +2205,10 @@ async function openColumnSettings() {
 }
 
 function closeColumnSettings() {
+  if (document.querySelector("#columnSettingsModal")?.classList.contains("open")) {
+    tableFontSize = columnSettingsOriginalFontSize;
+    applyTableFontSize();
+  }
   document.querySelector("#columnSettingsModal")?.classList.remove("open");
 }
 
@@ -1746,6 +2221,7 @@ function renderColumnSettings() {
       <span title="${escapeHtml(column)}">${escapeHtml(column)}</span>
     </label>
   `).join("") || `<div class="empty">当前数据集暂无可配置列</div>`;
+  syncTableFontSizeSegment();
 }
 
 function setColumnSettingsChecked(checked) {
@@ -1767,6 +2243,7 @@ async function saveColumnSettings() {
     annotation_columns: [],
   };
   try {
+    localStorage.setItem("llm-table-font-size", tableFontSize);
     latestFieldMapping = await api("/api/field-mapping", {
       method: "PUT",
       body: JSON.stringify({
@@ -1777,12 +2254,40 @@ async function saveColumnSettings() {
         annotation_columns: mapping.annotation_columns || [],
       }),
     });
+    columnSettingsOriginalFontSize = tableFontSize;
     closeColumnSettings();
     await refreshWorkbench();
     toast("列设置已保存");
   } catch (error) {
     toast(error.message);
   }
+}
+
+function normalizeTableFontSize(value) {
+  return ["small", "medium", "large"].includes(value) ? value : "medium";
+}
+
+function handleTableFontSizeChange(event) {
+  const input = event.target.closest('input[name="tableFontSize"]');
+  if (!input) return;
+  tableFontSize = normalizeTableFontSize(input.value);
+  applyTableFontSize();
+  table?.redraw?.(true);
+}
+
+function syncTableFontSizeSegment() {
+  document.querySelectorAll('input[name="tableFontSize"]').forEach((input) => {
+    input.checked = input.value === tableFontSize;
+  });
+  const label = tableFontSizeLabels[tableFontSize] || tableFontSizeLabels.medium;
+  document.querySelector("#tableFontSizeSegment")?.setAttribute("aria-label", `列表字体大小：${label}`);
+}
+
+function applyTableFontSize() {
+  const size = normalizeTableFontSize(tableFontSize);
+  document.documentElement.dataset.tableFontSize = size;
+  document.querySelector(".workbench-pro")?.setAttribute("data-table-font-size", size);
+  syncTableFontSizeSegment();
 }
 
 function previewColumn(column) {
@@ -2192,6 +2697,11 @@ async function applyTaskEventToTable(payload) {
   if (payload.type === "row_analyzed") {
     await ensureDynamicResultColumns({ 分析数据: payload.analysis_data || {} });
     updateVisibleRow(payload.row_id, { 分析数据: payload.analysis_data || {} });
+    if (drawerRow?.row_id === payload.row_id) {
+      drawerRow = { ...drawerRow, analysis_data: payload.analysis_data || {}, 分析数据: payload.analysis_data || {} };
+      if (drawerMode === "analysis") renderDrawerAnalysisHistory();
+      if (drawerMode === "edit") renderDrawerEditAnalysis();
+    }
     return;
   }
   if (payload.type === "task_stopped") {
