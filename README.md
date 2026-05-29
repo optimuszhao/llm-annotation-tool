@@ -40,6 +40,35 @@ http://127.0.0.1:8000
 业务开发人员在根目录 `user_hooks.py` 中实现内部模型调用：
 
 - `list_models()`
-- `call_model(model_key, prompt, context)`
+- `call_model(model_key, prompts, context)`
 - `build_prompt(template, row_data, knowledge, error_examples)`
+- `build_prompts_custom(prompt_contents, knowledge, error_sets, field_mapping, row_data, context)`
 - `analyze_row(row_data, model_result)`
+
+Prompt 占位符统一使用 `[[...]]`：
+
+```text
+工单名称：[[row.工单名称]]
+知识库：[[knowledge]]
+
+请严格返回 JSON：
+{
+  "GPT4_标注": "是/否",
+  "原因": "..."
+}
+```
+
+自定义 Prompt 初始化建议复用 `user_hooks.py` 中的 `render_prompt_template(...)`，避免用 `str.format()` 处理整段 Prompt。这样 JSON 大括号可以原样保留。
+
+初始化后的 Prompt 会统一传给标注方法，结构如下：
+
+```python
+{
+    "质检员": {
+        "prompt_id": "prompt_xxx",
+        "name": "情感分类 Prompt",
+        "role_name": "质检员",
+        "content": "替换后的 Prompt 正文"
+    }
+}
+```

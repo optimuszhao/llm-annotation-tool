@@ -494,7 +494,7 @@ function openPromptModal() {
     <div class="prompt-editor-layout">
       <section class="prompt-rule-box prompt-rule-strip">
         <strong>Prompt 规范</strong>
-        <p>大模型输出必须是可以被 JSON 化的内容。占位符使用双大括号：<code>{{row.列名}}</code>、<code>{{knowledge}}</code>、<code>{{error_sets}}</code>。</p>
+        <p>占位符统一使用 <code>[[row.列名]]</code>、<code>[[knowledge]]</code>、<code>[[error_sets]]</code>。JSON 返回格式直接写 <code>{ "字段": "值" }</code>，无需转义大括号。旧版 <code>{{row.列名}}</code> 会临时兼容。</p>
       </section>
       <aside class="prompt-sidebar" aria-label="已添加 Prompt">
         <div class="prompt-sidebar-head">
@@ -648,11 +648,16 @@ function renderRichResourceList(items, metaField, contentField) {
 
 function extractPromptPlaceholders(content) {
   const matches = [];
-  const pattern = /\{\{\s*([^{}]+?)\s*\}\}/g;
-  let match;
-  while ((match = pattern.exec(content)) !== null) {
-    const value = match[1].trim();
-    if (value && !matches.includes(value)) matches.push(value);
+  const patterns = [
+    /\[\[\s*([^\[\]]+?)\s*\]\]/g,
+    /\{\{\s*([A-Za-z0-9_.\-\u4e00-\u9fff\uff00-\uffef ]+?)\s*\}\}/g,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      const value = match[1].trim();
+      if (value && !matches.includes(value)) matches.push(value);
+    }
   }
   return matches;
 }
@@ -701,7 +706,7 @@ function bindPromptEditor() {
     const missing = findUnmappedPromptPlaceholders(contentInput.value);
     warningNode.hidden = missing.length === 0;
     warningNode.textContent = missing.length
-      ? `未找到映射值：${missing.map((item) => `{{${item}}}`).join("、")}`
+      ? `未找到映射值：${missing.map((item) => `[[${item}]]`).join("、")}`
       : "";
     formNode.scrollTop = 0;
     return missing;
@@ -753,7 +758,7 @@ function bindPromptEditor() {
     const form = new FormData(event.currentTarget);
     const missing = updatePlaceholderWarning();
     if (missing.length) {
-      const ok = window.confirm(`以下占位符没有对应的映射值：${missing.map((item) => `{{${item}}}`).join("、")}。点击“确定”继续保存，点击“取消”返回编辑。`);
+      const ok = window.confirm(`以下占位符没有对应的映射值：${missing.map((item) => `[[${item}]]`).join("、")}。点击“确定”继续保存，点击“取消”返回编辑。`);
       if (!ok) return;
     }
     const payload = {
@@ -941,7 +946,7 @@ async function openSchemeModal() {
   try {
     promptInitMethods = await api("/api/schemes/prompt-init-methods");
   } catch {
-    promptInitMethods = { custom_default: { name: "自定义 Prompt 初始化", method_name: "build_prompt_custom" } };
+    promptInitMethods = { custom_default: { name: "自定义 Prompt 初始化", method_name: "build_prompts_custom" } };
   }
   openModal("添加方案", "方案会保存当前场景的资源、Prompt 初始化方式、后台方法和并发数。", `
     <form id="schemeForm" class="form-grid labeled-form">

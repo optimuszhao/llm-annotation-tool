@@ -193,8 +193,13 @@ Prompt 创建方式：
 
 Prompt 初始化规则：
 
-- 自动替换占位符使用双大括号语法：`{{row.列名}}`、`{{knowledge}}`、`{{error_sets}}`
-- 自定义处理会把 Prompt 内容、知识库、错题集、字段映射和当前行数据传给用户实现的方法
+- 自动替换占位符使用方括号语法：`[[row.列名]]`、`[[knowledge]]`、`[[error_sets]]`
+- Prompt 中要求模型返回 JSON 时，JSON 示例直接写 `{ "字段": "值" }`，系统只解析 `[[...]]`，不会解析普通大括号
+- 旧版简单占位符 `{{row.列名}}`、`{{knowledge}}`、`{{error_sets}}` 临时兼容；新 Prompt 统一使用 `[[...]]`
+- 自定义处理会把 Prompt 列表、知识库、错题集、字段映射和当前行数据传给用户实现的方法
+- 自动处理和自定义处理都输出同一种结构：`{ 角色名: Prompt对象 }`
+- Prompt 对象结构：`prompt_id`、`name`、`role_name`、`content`
+- 调用标注方法时，系统会把完整 Prompt 字典传给用户选择的标注方法
 - 标注方法最终返回 dict，dict 中必须包含字段映射配置里的“标注答案列”
 
 ---
@@ -666,11 +671,11 @@ class UserHooks:
         """返回可用模型列表。"""
         ...
 
-    def call_model(self, model_key: str, prompt: str, context: dict) -> dict:
+    def call_model(self, model_key: str, prompts: dict, context: dict) -> dict:
         """调用用户自己的模型服务，返回模型标注结果。"""
         ...
 
-    def mock_model_call(self, model_key: str, prompt: str, context: dict) -> dict:
+    def mock_model_call(self, model_key: str, prompts: dict, context: dict) -> dict:
         """Mock 大模型调用，延时 3 秒并返回 dict。"""
         ...
 
@@ -678,7 +683,7 @@ class UserHooks:
         """返回可选 Prompt 初始化方法。"""
         ...
 
-    def build_prompt_custom(
+    def build_prompts_custom(
         self,
         prompt_contents: list,
         knowledge: list,
@@ -686,8 +691,8 @@ class UserHooks:
         field_mapping: dict,
         row_data: dict,
         context: dict,
-    ) -> str:
-        """自定义 Prompt 初始化。"""
+    ) -> dict:
+        """自定义 Prompt 初始化，返回 {角色名: Prompt对象}。"""
         ...
 
     def build_prompt(
@@ -697,7 +702,7 @@ class UserHooks:
         knowledge: list,
         error_examples: list,
     ) -> str:
-        """按用户规则构造最终 Prompt。"""
+        """按 [[...]] 占位符规则构造最终 Prompt，避免和 JSON 大括号冲突。"""
         ...
 
     def analyze_row(self, row_data: dict, model_result: dict) -> dict:

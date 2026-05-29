@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260529-prompt-placeholder-rules";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-vivid-themes";
+import { renderManagePage } from "/pages/manage.js?v=20260529-bracket-placeholders";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-cell-json-viewer";
 import { initComponents } from "/assets/components.js";
 
 export const state = {

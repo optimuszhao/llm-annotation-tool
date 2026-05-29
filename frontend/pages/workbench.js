@@ -1150,7 +1150,29 @@ function renderDrawerResult() {
   const hasResult = result && typeof result === "object" && Object.keys(result).length;
   document.querySelector("#drawerResultStatus").textContent = hasResult ? "最新标注结果" : "暂无标注结果";
   document.querySelector("#drawerResultJson").textContent = hasResult ? JSON.stringify(result, null, 2) : "{}";
-  document.querySelector("#drawerPromptText").textContent = drawerRow?.rendered_prompt || "暂无 Prompt";
+  document.querySelector("#drawerPromptText").textContent = formatRenderedPrompts(drawerRow?.rendered_prompt);
+}
+
+function formatRenderedPrompts(value) {
+  if (!value) return "暂无 Prompt";
+  let prompts = value;
+  if (typeof value === "string") {
+    try {
+      prompts = JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  if (!prompts || typeof prompts !== "object") return String(value);
+  return Object.entries(prompts).map(([roleName, prompt]) => {
+    if (!prompt || typeof prompt !== "object") return `[${roleName}]\n${String(prompt)}`;
+    return [
+      `[${roleName}] ${prompt.name || ""}`.trim(),
+      `prompt_id: ${prompt.prompt_id || ""}`,
+      "",
+      prompt.content || "",
+    ].join("\n");
+  }).join("\n\n---\n\n");
 }
 
 async function renderDrawerAnnotationHistory() {

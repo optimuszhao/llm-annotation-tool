@@ -465,8 +465,9 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
             "row_data": row_data,
         }
 
-    rendered_prompt = _render_prompt(scheme, resources, field_mapping, row_data, context)
-    model_result = _call_scheme_method(scheme, rendered_prompt, context)
+    rendered_prompts = _render_prompt(scheme, resources, field_mapping, row_data, context)
+    rendered_prompt = encode_json(rendered_prompts)
+    model_result = _call_scheme_method(scheme, rendered_prompts, context)
     if not isinstance(model_result, dict):
         raise ValueError("标注方法必须返回 dict")
 
@@ -530,6 +531,7 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
         "status": status,
         "model_result": model_result,
         "rendered_prompt": rendered_prompt,
+        "rendered_prompts": rendered_prompts,
         "metrics": get_dataset_metrics(context["dataset_id"]),
         "task": get_annotation_task(task_id),
     }
@@ -695,17 +697,20 @@ def _get_scheme_resources(conn, scheme_id: str) -> dict[str, list[dict]]:
     return resources
 
 
-def _render_prompt(scheme: dict, resources: dict, field_mapping: dict, row_data: dict, context: dict) -> str:
+def _render_prompt(scheme: dict, resources: dict, field_mapping: dict, row_data: dict, context: dict) -> dict:
     if scheme.get("prompt_init_type") == "custom":
-        method_name = scheme.get("prompt_init_method_name") or "build_prompt_custom"
+        method_name = scheme.get("prompt_init_method_name") or "build_prompts_custom"
         method = getattr(hooks, method_name, None)
         if not method:
             raise ValueError(f"Prompt 初始化方法不存在：{method_name}")
-        return method(resources["prompts"], resources["knowledge"], resources["error_sets"], field_mapping, row_data, context)
-    return "\n\n".join(
-        _render_prompt_template(prompt, resources["knowledge"], resources["error_sets"], row_data)
-        for prompt in resources["prompts"]
-    )
+        custom_prompts = method(resources["prompts"], resources["knowledge"], resources["error_sets"], field_mapping, row_data, context)
+        return _normalize_rendered_prompts(custom_prompts, resources["prompts"])
+
+    rendered_prompts = {}
+    for prompt in resources["prompts"]:
+        content = _render_prompt_template(prompt, resources["knowledge"], resources["error_sets"], row_data)
+        _set_rendered_prompt(rendered_prompts, prompt, content)
+    return rendered_prompts
 
 
 def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: list[dict], row_data: dict) -> str:
@@ -718,24 +723,78 @@ def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: lis
 
     def replace(match: re.Match) -> str:
         key = match.group(1).strip()
-        if key == "knowledge":
+        if key in {"knowledge", "知识库"}:
             return knowledge_text
-        if key == "error_sets":
+        if key in {"error_sets", "error_set", "错题集"}:
             return error_text
         if key.startswith("row."):
             return str(row_data.get(key[4:].strip(), ""))
-        return ""
+        return match.group(0)
 
-    rendered = re.sub(r"\{\{\s*([^{}]+?)\s*\}\}", replace, text)
-    return f"[{prompt.get('role_name', '')}] {prompt.get('name', '')}\n{rendered}"
+    rendered = re.sub(r"\[\[\s*([^\[\]]+?)\s*\]\]", replace, text)
+    rendered = re.sub(r"\{\{\s*([A-Za-z0-9_.\-\u4e00-\u9fff\uff00-\uffef ]+?)\s*\}\}", replace, rendered)
+    return rendered
 
 
-def _call_scheme_method(scheme: dict, rendered_prompt: str, context: dict) -> dict:
+def _normalize_rendered_prompts(value, source_prompts: list[dict]) -> dict:
+    if isinstance(value, dict):
+        normalized = {}
+        for role_name, prompt in value.items():
+            if isinstance(prompt, dict):
+                normalized[str(role_name)] = {
+                    "prompt_id": prompt.get("prompt_id") or prompt.get("id") or "",
+                    "name": prompt.get("name") or str(role_name),
+                    "role_name": prompt.get("role_name") or str(role_name),
+                    "content": str(prompt.get("content", "")),
+                }
+            else:
+                normalized[str(role_name)] = {
+                    "prompt_id": "",
+                    "name": str(role_name),
+                    "role_name": str(role_name),
+                    "content": str(prompt),
+                }
+        return normalized
+    if isinstance(value, list):
+        normalized = {}
+        for prompt in value:
+            if isinstance(prompt, dict):
+                _set_rendered_prompt(normalized, prompt, str(prompt.get("content", "")))
+        return normalized
+    if isinstance(value, str):
+        role_name = source_prompts[0].get("role_name") if source_prompts else "default"
+        return {
+            role_name or "default": {
+                "prompt_id": source_prompts[0].get("id", "") if source_prompts else "",
+                "name": source_prompts[0].get("name", role_name or "default") if source_prompts else "default",
+                "role_name": role_name or "default",
+                "content": value,
+            }
+        }
+    return {}
+
+
+def _set_rendered_prompt(target: dict, prompt: dict, content: str) -> None:
+    role_name = str(prompt.get("role_name") or prompt.get("name") or prompt.get("id") or "default")
+    key = role_name
+    index = 2
+    while key in target:
+        key = f"{role_name}#{index}"
+        index += 1
+    target[key] = {
+        "prompt_id": prompt.get("id") or prompt.get("prompt_id") or "",
+        "name": prompt.get("name") or key,
+        "role_name": role_name,
+        "content": content,
+    }
+
+
+def _call_scheme_method(scheme: dict, rendered_prompts: dict, context: dict) -> dict:
     method_name = scheme.get("method_name") or "call_model"
     method = getattr(hooks, method_name, None)
     if not method:
         raise ValueError(f"标注方法不存在：{method_name}")
-    return method(scheme.get("model_key", "configured"), rendered_prompt, context)
+    return method(scheme.get("model_key", "configured"), rendered_prompts, context)
 
 
 def _ensure_dataset_columns(conn, dataset: dict, columns: Iterable[str]) -> None:
