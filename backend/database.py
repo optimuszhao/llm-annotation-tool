@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -252,8 +252,14 @@ def init_db() -> None:
         )
 
 
+def _json_default(value: Any) -> str:
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    return str(value)
+
+
 def encode_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    return json.dumps(value, ensure_ascii=False, default=_json_default)
 
 
 def decode_json(value: Optional[str], default: Any = None) -> Any:
