@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LLM 标注工具</title>
   <link rel="stylesheet" href="/vendor/tabulator.min.css">
-  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/app.css?v=20260529-start-code-guide">
+  <link rel="stylesheet" href="/assets/components.css">
 </head>
 <body>
   <header class="app-header">
@@ -21,16 +22,17 @@
       <i class="workflow-arrow">›</i>
       <button class="workflow-tab" data-page="manage"><span>2</span>数据集与方案管理</button>
       <i class="workflow-arrow">›</i>
-      <button class="workflow-tab" data-page="workbench"><span>3</span>标注管理</button>
+      <button class="workflow-tab" data-page="workbench"><span>3</span>标注工作台</button>
     </nav>
     <div class="theme-tools">
       <button class="icon-btn" id="modeToggle" title="切换明暗模式">◐</button>
       <button class="btn" id="themeButton">主题</button>
       <div class="theme-popover" id="themePopover">
-        <button data-theme-choice="default"><i class="swatch mint"></i>Mint</button>
-        <button data-theme-choice="sunset"><i class="swatch sunset"></i>Sunset</button>
-        <button data-theme-choice="lime"><i class="swatch lime"></i>Lime</button>
-        <button data-theme-choice="violet"><i class="swatch violet"></i>Violet</button>
+        <button data-theme-choice="default"><i class="swatch cobalt"></i>Cobalt</button>
+        <button data-theme-choice="teal"><i class="swatch teal"></i>Teal</button>
+        <button data-theme-choice="indigo"><i class="swatch indigo"></i>Indigo</button>
+        <button data-theme-choice="emerald"><i class="swatch emerald"></i>Emerald</button>
+        <button data-theme-choice="graphite"><i class="swatch graphite"></i>Graphite</button>
       </div>
     </div>
   </header>
@@ -50,6 +52,6 @@
 
   <script src="/vendor/gsap.min.js"></script>
   <script src="/vendor/tabulator.min.js"></script>
-  <script type="module" src="/assets/app.js"></script>
+  <script type="module" src="/assets/app.js?v=20260529-start-code-guide"></script>
 </body>
 </html>

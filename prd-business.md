@@ -181,6 +181,8 @@ Prompt 创建方式：
 - 并发数量
 - 调用模型
 - 后台方法名
+- Prompt 初始化类型：自动替换占位符 / 自定义处理
+- Prompt 初始化后台方法名：仅自定义处理时使用
 
 后台方法规则：
 
@@ -188,6 +190,12 @@ Prompt 创建方式：
 - Key 为方案名
 - Value 为对应的后台方法名
 - 用户在前端选择方案名后，系统根据 Key 找到后台方法名，并调用对应方案方法
+
+Prompt 初始化规则：
+
+- 自动替换占位符使用双大括号语法：`{{row.列名}}`、`{{knowledge}}`、`{{error_sets}}`
+- 自定义处理会把 Prompt 内容、知识库、错题集、字段映射和当前行数据传给用户实现的方法
+- 标注方法最终返回 dict，dict 中必须包含字段映射配置里的“标注答案列”
 
 ---
 
@@ -207,7 +215,7 @@ Prompt 创建方式：
 
 ### 6.2 指标区
 
-第一阶段指标区仅作为界面预留，可展示当前数据集的基础数量统计。
+指标区实时展示当前数据集的基础数量、任务状态和标注结果。
 
 指标包括：
 
@@ -227,7 +235,7 @@ Prompt 创建方式：
 - 特异度
 - 误报率
 
-指标以单行分组展示，整体减少边框线条。第一阶段先保留界面展示效果，真实 TP/TN/FP/FN 和评估率计算后续实现。
+第一版采用“人工答案列”和“标注答案列”的相等判断：相等为 TP，不相等为 FP。FN/TN 暂作预留。
 
 ### 6.3 操作条
 
@@ -237,18 +245,19 @@ Prompt 创建方式：
 
 - 全选当前页
 - 批量标注
+- 全量标注
 - 删除
 - 搜索
-- 开始标注
 - 筛选
 - 导出
 - 列设置
+- 停止未完成标注
 
 搜索和筛选走后端查询，前端只刷新当前页数据。
 
 ### 6.4 数据列表
 
-数据列表是页面主体，使用 Tabulator 实现。第一阶段只需要把当前选中数据集中导入的数据展示出来。
+数据列表是页面主体，使用 Tabulator 实现。除原始数据列外，模型返回 dict 的所有 key 都会追加为表格列。
 
 默认列：
 
@@ -273,7 +282,7 @@ Prompt 创建方式：
 | 情感分类 | GT 结果 |
 | GPT4_标注 | 外部模型结果 |
 | Claude_结果 | 外部模型结果 |
-| 状态 | TP/TN/FP/FN/未标注/标注中/失败，固定在操作列左侧 |
+| 状态 | 未标注/排队中/标注中/TP/FP/失败/取消，固定在操作列左侧 |
 | 操作 | 固定在最右侧，展示标注、查看、分析、更多；更多菜单包含编辑、导出、删除 |
 
 列表要求：
@@ -286,28 +295,22 @@ Prompt 创建方式：
 - 支持列宽调整和列显示设置
 - `API Order`、`API Part 1-7`、`Summary`、`标注数据` 在表格中只展示截断预览
 - 点击行或查看按钮打开详情
+- 同一行重复标注时，列表只展示最近一次标注结果
+- 历史结果保存在任务行记录中，后续通过“查看”弹窗或历史任务查看
 
-### 6.5 第一阶段范围
+### 6.5 标注结果写回
 
-第一阶段只实现：
+标注方法返回 dict 后：
 
-- 选择场景
-- 选择数据集
-- 展示该数据集导入后的数据行
-- 支持表格横向滚动和基础分页 / 虚拟滚动
-
-以下能力暂不实现：
-
-- 批量标注任务
-- 指标真实计算
-- 行详情抽屉
-- 一键加入错题集
-- 单行重新标注
-- SSE 实时任务更新
+- 完整 dict 写入最新标注结果
+- dict 所有 key/value 写入当前行最新投影
+- 新 key 追加到数据集列结构，前端表格自动显示
+- 与已有列重名时更新该列最新值
+- “标注答案列”用于与“人工答案列”比较，得到 TP 或 FP
 
 ### 6.6 行详情
 
-行详情以右侧抽屉展示。
+行详情以弹窗展示。
 
 内容包括：
 
@@ -323,7 +326,7 @@ Prompt 创建方式：
 
 ### 6.7 批量标注任务
 
-点击开始标注后，打开确认弹窗。
+用户可以启动全量标注或批量标注。
 
 弹窗内容：
 
@@ -340,6 +343,8 @@ Prompt 创建方式：
 - 行状态局部更新
 - 指标区实时刷新
 - 页面无需刷新
+- 用户切换数据集或方案时，后台任务持续运行
+- “停止未完成标注”只取消排队中的任务，正在运行的调用自然完成
 
 ---
 
@@ -447,6 +452,8 @@ Prompt 表。
 | name | TEXT NOT NULL | 方案名称 |
 | model_key | TEXT NOT NULL | 调用模型 |
 | method_name | TEXT NOT NULL | 后台方法名 |
+| prompt_init_type | TEXT NOT NULL | `auto` / `custom` |
+| prompt_init_method_name | TEXT | Prompt 初始化方法名 |
 | concurrency | INTEGER | 并发数量 |
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
@@ -463,6 +470,54 @@ Prompt 表。
 | resource_id | TEXT NOT NULL | 资源 ID |
 | sort_order | INTEGER | 顺序 |
 
+### 7.9 annotation_tasks
+
+标注任务表。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | TEXT PRIMARY KEY | 任务 ID |
+| scene_id | TEXT NOT NULL | 场景 ID |
+| dataset_id | TEXT NOT NULL | 数据集 ID |
+| scheme_id | TEXT NOT NULL | 方案 ID |
+| status | TEXT NOT NULL | queued/running/done/stopped/failed |
+| total_count | INTEGER | 总行数 |
+| queued_count | INTEGER | 排队数 |
+| running_count | INTEGER | 运行数 |
+| done_count | INTEGER | 完成数 |
+| failed_count | INTEGER | 失败数 |
+| cancelled_count | INTEGER | 取消数 |
+| concurrency | INTEGER | 任务并发数 |
+
+### 7.10 annotation_task_rows
+
+任务行历史表。每次标注都会保留一条记录。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | TEXT PRIMARY KEY | 任务行 ID |
+| task_id | TEXT NOT NULL | 任务 ID |
+| row_id | TEXT NOT NULL | 数据行 ID |
+| row_index | INTEGER | 原始行号 |
+| status | TEXT NOT NULL | 排队中/标注中/TP/FP/失败/取消 |
+| model_result | TEXT | 标注方法返回 dict |
+| analysis_data | TEXT | 分析方法返回 dict |
+| rendered_prompt | TEXT | 初始化后的 Prompt |
+| error | TEXT | 错误信息 |
+
+### 7.11 场景数据表新增字段
+
+每个 `scene_data_<scene_id>` 表增加最新标注投影字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| annotation_status | TEXT | 当前行最新状态 |
+| annotation_task_id | TEXT | 最近一次任务 ID |
+| model_result | TEXT | 最近一次模型返回 dict |
+| analysis_data | TEXT | 最近一次分析返回 dict |
+| rendered_prompt | TEXT | 最近一次渲染 Prompt |
+| updated_at | TEXT | 更新时间 |
+
 ---
 
 ## 8. 第一阶段实现思路
@@ -478,7 +533,8 @@ Prompt 表。
 - 实现知识库手动新增、单文件/多文件导入
 - 预留错题集基础表和接口
 - 实现标注方案 CRUD 和资源关联
-- 标注工作台接口先返回数据集行数据
+- 实现标注任务队列、SSE 推送、结果写回和指标统计
+- 实现分析接口，将分析 dict 写入“分析数据”
 
 ### 8.2 前端
 
@@ -486,14 +542,14 @@ Prompt 表。
 - 开始使用工具页面只做静态介绍
 - 数据集与方案管理页面对接场景、资源卡片、列表弹窗
 - 标注工作台接入 Tabulator 展示数据集行
-- 第一阶段不实现真实标注任务和 SSE
+- 标注工作台接入全量/批量标注、SSE 更新、动态结果列和停止排队任务
 
 ### 8.3 用户扩展
 
 - `user_hooks.py` 放在项目根目录
 - 后台方案字典维护 `方案名 -> 方法名`
-- 第一阶段先完成方法注册和调用占位
-- 后续标注任务实现时，再调用用户自定义方法执行真实模型标注
+- 用户在 `user_hooks.py` 中实现模型调用、Prompt 自定义初始化和分析逻辑
+- Mock 阶段默认模型调用延时 3 秒返回 dict
 
 ---
 
@@ -506,6 +562,8 @@ Prompt 表。
 - 搜索、筛选、分页、指标统计由后端完成
 - 标注任务在后端队列中运行
 - 前端通过 SSE 接收增量事件
+- 后端全局并发上限默认 20；每个方案按自己的并发数执行
+- 停止任务只取消排队项，运行中的模型调用自然完成
 - 大字段只在详情抽屉打开时加载
 - 前端不缓存完整数据集
 
@@ -612,6 +670,26 @@ class UserHooks:
         """调用用户自己的模型服务，返回模型标注结果。"""
         ...
 
+    def mock_model_call(self, model_key: str, prompt: str, context: dict) -> dict:
+        """Mock 大模型调用，延时 3 秒并返回 dict。"""
+        ...
+
+    def list_prompt_init_methods(self) -> dict:
+        """返回可选 Prompt 初始化方法。"""
+        ...
+
+    def build_prompt_custom(
+        self,
+        prompt_contents: list,
+        knowledge: list,
+        error_sets: list,
+        field_mapping: dict,
+        row_data: dict,
+        context: dict,
+    ) -> str:
+        """自定义 Prompt 初始化。"""
+        ...
+
     def build_prompt(
         self,
         template: str,
@@ -669,8 +747,12 @@ interface Scheme {
   id: string
   name: string
   promptIds: string[]
+  knowledgeIds: string[]
+  errorSetIds: string[]
   concurrency: number
-  compareRole: string
+  methodName: string
+  promptInitType: "auto" | "custom"
+  promptInitMethodName?: string
 }
 ```
 
@@ -681,7 +763,7 @@ interface AnnotationTask {
   id: string
   datasetId: string
   schemeId: string
-  status: "queued" | "running" | "done" | "failed" | "cancelled"
+  status: "queued" | "running" | "done" | "stopped" | "failed"
   progress: {
     done: number
     total: number

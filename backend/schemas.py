@@ -34,8 +34,10 @@ class ErrorSetCreate(BaseModel):
 class SchemeCreate(BaseModel):
     scene_id: str
     name: str
-    model_key: str
+    model_key: str = "configured"
     method_name: str
+    prompt_init_type: Literal["auto", "custom"] = "auto"
+    prompt_init_method_name: str = ""
     concurrency: int = Field(default=1, ge=1, le=50)
     prompt_ids: List[str] = []
     knowledge_ids: List[str] = []
@@ -55,3 +57,22 @@ class PageResult(BaseModel):
     page_size: int
     last_page: int
     columns: List[str]
+
+
+class FieldMappingSave(BaseModel):
+    scene_id: str
+    human_answer_column: str = ""
+    model_answer_column: str = ""
+    visible_columns: List[str] = []
+    annotation_columns: List[str] = []
+
+
+class AnnotationTaskCreate(BaseModel):
+    dataset_id: str
+    scheme_id: str
+    row_ids: List[str] = []
+    mode: Literal["all", "selected"] = "all"
+
+
+class AnalysisCreate(BaseModel):
+    task_row_id: Optional[str] = None

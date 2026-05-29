@@ -2,4 +2,6 @@ backend/data/*.db
 backend/data/*.db-*
 __pycache__/
 .DS_Store
+.idea/
+*.xlsx
 .~*.xlsx

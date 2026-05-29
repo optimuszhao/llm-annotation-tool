@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter
 
 from backend.schemas import KnowledgeCreate
-from backend.services.resource_service import create_knowledge, list_knowledge
+from backend.services.resource_service import create_knowledge, list_knowledge, update_knowledge
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -18,3 +18,8 @@ def get_knowledge(scene_id: Optional[str] = None):
 @router.post("")
 def post_knowledge(payload: KnowledgeCreate):
     return create_knowledge(payload.dict())
+
+
+@router.put("/{knowledge_id}")
+def put_knowledge(knowledge_id: str, payload: KnowledgeCreate):
+    return update_knowledge(knowledge_id, payload.dict())

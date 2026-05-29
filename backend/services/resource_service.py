@@ -38,6 +38,23 @@ def _list_resource(table: str, scene_id: Optional[str]) -> list[dict]:
         return conn.execute(f"SELECT * FROM {table} ORDER BY created_at DESC").fetchall()
 
 
+def _update_resource(table: str, resource_id: str, payload: dict, fields: list[str]) -> dict:
+    timestamp = now_iso()
+    with get_db() as conn:
+        existing = conn.execute(f"SELECT * FROM {table} WHERE id=?", (resource_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="资源不存在")
+        if payload.get("scene_id"):
+            _ensure_scene(conn, payload["scene_id"])
+        assignments = ", ".join([f"{field}=?" for field in fields] + ["updated_at=?"])
+        values = [payload.get(field, existing.get(field, "")) for field in fields]
+        conn.execute(
+            f"UPDATE {table} SET {assignments} WHERE id=?",
+            [*values, timestamp, resource_id],
+        )
+        return conn.execute(f"SELECT * FROM {table} WHERE id=?", (resource_id,)).fetchone()
+
+
 def list_prompts(scene_id: Optional[str]) -> list[dict]:
     return _list_resource("prompts", scene_id)
 
@@ -45,6 +62,15 @@ def list_prompts(scene_id: Optional[str]) -> list[dict]:
 def create_prompt(payload: dict) -> dict:
     return _insert_resource(
         "prompts",
+        payload,
+        ["scene_id", "name", "role_name", "content", "source_file"],
+    )
+
+
+def update_prompt(prompt_id: str, payload: dict) -> dict:
+    return _update_resource(
+        "prompts",
+        prompt_id,
         payload,
         ["scene_id", "name", "role_name", "content", "source_file"],
     )
@@ -62,12 +88,30 @@ def create_knowledge(payload: dict) -> dict:
     )
 
 
+def update_knowledge(knowledge_id: str, payload: dict) -> dict:
+    return _update_resource(
+        "knowledge_items",
+        knowledge_id,
+        payload,
+        ["scene_id", "name", "content", "source_file"],
+    )
+
+
 def list_error_sets(scene_id: Optional[str]) -> list[dict]:
     return _list_resource("error_sets", scene_id)
 
 
 def create_error_set(payload: dict) -> dict:
     return _insert_resource("error_sets", payload, ["scene_id", "name", "description"])
+
+
+def update_error_set(error_set_id: str, payload: dict) -> dict:
+    return _update_resource(
+        "error_sets",
+        error_set_id,
+        payload,
+        ["scene_id", "name", "description"],
+    )
 
 
 def list_schemes(scene_id: Optional[str]) -> list[dict]:
@@ -93,8 +137,19 @@ def create_scheme(payload: dict) -> dict:
         _ensure_scene(conn, payload["scene_id"])
         conn.execute(
             """
-            INSERT INTO schemes(id, scene_id, name, model_key, method_name, concurrency, created_at, updated_at)
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO schemes(
+                id,
+                scene_id,
+                name,
+                model_key,
+                method_name,
+                prompt_init_type,
+                prompt_init_method_name,
+                concurrency,
+                created_at,
+                updated_at
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 scheme_id,
@@ -102,6 +157,8 @@ def create_scheme(payload: dict) -> dict:
                 payload["name"],
                 payload["model_key"],
                 payload["method_name"],
+                payload.get("prompt_init_type", "auto"),
+                payload.get("prompt_init_method_name", ""),
                 payload.get("concurrency", 1),
                 timestamp,
                 timestamp,

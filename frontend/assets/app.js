@@ -1,6 +1,7 @@
-import { renderStartPage } from "/pages/start.js";
-import { renderManagePage } from "/pages/manage.js";
+import { renderStartPage } from "/pages/start.js?v=20260529-start-code-guide";
+import { renderManagePage } from "/pages/manage.js?v=20260529-prompt-placeholder-rules";
 import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js";
+import { initComponents } from "/assets/components.js";
 
 export const state = {
   scenes: [],
@@ -112,6 +113,7 @@ function setupShell() {
 
 async function boot() {
   setupShell();
+  initComponents();
   renderStartPage();
   renderManagePage();
   renderWorkbenchPage();
