@@ -1522,8 +1522,10 @@ button { cursor: pointer; }
   height: min(700px, calc(100dvh - 120px));
   max-height: calc(100dvh - 120px);
 }
-.cell-detail-modal {
+#rowDetailModal .cell-detail-modal {
   grid-template-rows: auto minmax(0, 1fr);
+  height: 80dvh !important;
+  max-height: 80dvh !important;
 }
 .row-detail-modal .modal-body {
   display: grid;
@@ -2104,7 +2106,15 @@ body.is-resizing-drawer-split {
   display: grid;
   grid-template-columns: minmax(260px, var(--analysis-left, 50%)) 12px minmax(300px, 1fr);
   gap: 0;
-  height: 100%;
+  height: auto;
+  min-height: 100%;
+  align-items: start;
+}
+.drawer-analysis-pane {
+  display: block;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
   min-height: 0;
 }
 .drawer-result-layout {
@@ -2261,7 +2271,9 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   opacity: 1;
 }
 .drawer-analysis-card:nth-of-type(2) {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  height: auto;
+  overflow: visible;
   border-color: color-mix(in srgb, var(--accent) 17%, var(--line));
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 42%, transparent), transparent 62%),
@@ -2283,19 +2295,18 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   gap: 10px;
   min-height: 0;
   min-width: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: visible;
   padding-right: 4px;
 }
 .drawer-analysis-result-item {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   width: 100%;
   min-width: 0;
   max-width: 100%;
   min-height: 0;
   padding: 10px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--soft-line));
   border-radius: 12px;
   background:
@@ -2303,12 +2314,10 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
     color-mix(in srgb, var(--surface) 86%, var(--surface-2));
   box-shadow: inset 0 1px 0 rgba(255,255,255,.62);
 }
-.drawer-analysis-result-kv {
+.drawer-analysis-card .drawer-analysis-result-kv {
   height: auto;
-  max-height: min(520px, 52dvh);
-  min-height: 120px;
   margin-top: 8px;
-  overflow: auto;
+  overflow: visible;
 }
 .drawer-analysis-result-popover {
   width: min(420px, 56vw);
@@ -3708,10 +3717,10 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   place-items: start center;
   padding: clamp(70px, 9dvh, 96px) 20px 28px;
 }
-.scheme-modal {
+#modalBackdrop .scheme-modal {
   width: min(1060px, calc(100vw - 64px));
-  height: auto;
-  max-height: calc(100dvh - 104px);
+  height: 80dvh !important;
+  max-height: 80dvh !important;
   overflow: hidden;
   border-radius: 16px;
   grid-template-rows: auto minmax(0, 1fr);
@@ -3744,12 +3753,13 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   border-radius: 999px;
   font-size: 13px;
 }
-.scheme-form-v2 {
+#modalBackdrop .scheme-modal .scheme-form-v2 {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 0;
   min-height: 0;
-  max-height: calc(100dvh - 214px);
+  height: 100%;
+  max-height: calc(80dvh - 112px) !important;
 }
 .scheme-two-column-layout {
   display: grid;

@@ -245,10 +245,15 @@ def delete_scheme(scheme_id: str) -> dict:
                 conn.execute(
                     f"""
                     UPDATE {scene['data_table_name']}
-                    SET annotation_task_id=NULL
+                    SET annotation_status='未标注',
+                        annotation_task_id=NULL,
+                        model_result='{{}}',
+                        analysis_data='{{}}',
+                        rendered_prompt='',
+                        updated_at=?
                     WHERE annotation_task_id IN ({placeholders})
                     """,
-                    task_ids,
+                    (now_iso(), *task_ids),
                 )
         conn.execute("DELETE FROM scheme_resources WHERE scheme_id=?", (scheme_id,))
         conn.execute("DELETE FROM schemes WHERE id=?", (scheme_id,))

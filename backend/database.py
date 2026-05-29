@@ -26,10 +26,16 @@ def get_db():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = dict_factory
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -85,7 +91,7 @@ def create_scene_data_table(conn: sqlite3.Connection, table_name: str) -> None:
     )
 
 
-def init_db() -> None:
+def init_db(recover_interrupted: bool = False) -> None:
     with get_db() as conn:
         conn.executescript(
             """
@@ -240,7 +246,8 @@ def init_db() -> None:
         ensure_column(conn, "row_analysis_history", "method_label", "TEXT NOT NULL DEFAULT ''")
         for scene in conn.execute("SELECT data_table_name FROM scenes").fetchall():
             create_scene_data_table(conn, scene["data_table_name"])
-        recover_interrupted_annotation_state(conn)
+        if recover_interrupted:
+            recover_interrupted_annotation_state(conn)
 
 
 def recover_interrupted_annotation_state(conn: sqlite3.Connection) -> None:

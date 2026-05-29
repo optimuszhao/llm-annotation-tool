@@ -3,6 +3,7 @@ from __future__ import annotations
 import queue
 import re
 import threading
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Iterable, Optional
 from uuid import uuid4
@@ -24,6 +25,8 @@ ROW_STATUS_FP = "FP"
 _global_semaphore = threading.Semaphore(GLOBAL_CONCURRENCY_LIMIT)
 _subscriber_lock = threading.Lock()
 _subscribers: dict[str, list[queue.Queue]] = {}
+_event_history: dict[str, deque[dict]] = {}
+_EVENT_HISTORY_LIMIT = 2000
 
 
 def create_annotation_task(payload: dict) -> dict:
@@ -232,12 +235,18 @@ def analyze_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "", metho
 
     with get_db() as conn:
         dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
         scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+        if not scene:
+            raise HTTPException(status_code=404, detail="场景不存在")
         table_name = scene["data_table_name"]
         row = conn.execute(
             f"SELECT raw_data FROM {table_name} WHERE id=? AND dataset_id=?",
             (row_id, dataset_id),
         ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="数据行不存在")
         raw_data = decode_json(row["raw_data"], {})
         raw_data["分析数据"] = analysis_result
         _ensure_dataset_columns(conn, dataset, ["分析数据"])
@@ -350,7 +359,35 @@ def _run_batch_analysis(batch_id: str, dataset_id: str, scheme_id: str, method_n
         try:
             analyze_dataset_row(dataset_id, row_id, scheme_id, method_name)
         except Exception as exc:
+            _record_analysis_failure(dataset_id, row_id, method_name, str(exc))
             print(f"[{batch_id}] row {row_id} analysis failed: {exc}")
+
+
+def _record_analysis_failure(dataset_id: str, row_id: str, method_name: str, error: str) -> None:
+    timestamp = now_iso()
+    method_config = _resolve_analysis_method(method_name)
+    try:
+        with get_db() as conn:
+            if not conn.execute("SELECT id FROM datasets WHERE id=?", (dataset_id,)).fetchone():
+                return
+            conn.execute(
+                """
+                INSERT INTO row_analysis_history(id, dataset_id, row_id, task_row_id, method_name, method_label, analysis_data, created_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"analysis_{uuid4().hex[:12]}",
+                    dataset_id,
+                    row_id,
+                    "",
+                    method_config["method_name"],
+                    method_config.get("name", method_config["method_name"]),
+                    encode_json({"分析失败": error}),
+                    timestamp,
+                ),
+            )
+    except Exception as exc:
+        print(f"[analysis_failure_record] row {row_id} failed: {exc}")
 
 
 def _select_batch_analysis_row_ids(
@@ -607,7 +644,10 @@ def get_dataset_metrics(dataset_id: str, scheme_id: str = "") -> dict:
 def subscribe_task_events(task_id: str) -> queue.Queue:
     event_queue: queue.Queue = queue.Queue()
     with _subscriber_lock:
+        history = list(_event_history.get(task_id, ()))
         _subscribers.setdefault(task_id, []).append(event_queue)
+    for event in history:
+        event_queue.put(event)
     return event_queue
 
 
@@ -1169,6 +1209,7 @@ def _refresh_task_counts(conn, task_id: str, timestamp: str) -> dict:
 
 def _broadcast(task_id: str, event: dict) -> None:
     with _subscriber_lock:
+        _event_history.setdefault(task_id, deque(maxlen=_EVENT_HISTORY_LIMIT)).append(event)
         queues = list(_subscribers.get(task_id, []))
     for event_queue in queues:
         event_queue.put(event)

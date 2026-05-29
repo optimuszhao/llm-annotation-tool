@@ -18,6 +18,7 @@ from backend.services.annotation_service import (
 )
 
 router = APIRouter(prefix="/api/annotation-tasks", tags=["annotation_tasks"])
+TERMINAL_TASK_STATUSES = {"done", "stopped", "failed", "interrupted"}
 
 
 @router.post("")
@@ -48,13 +49,14 @@ def get_task_events(task_id: str):
         try:
             snapshot = get_annotation_task(task_id)
             yield f"data: {json.dumps({'type': 'snapshot', 'task': snapshot}, ensure_ascii=False)}\n\n"
-            if snapshot.get("status") in {"done", "stopped", "failed", "interrupted"}:
+            if snapshot.get("status") in TERMINAL_TASK_STATUSES:
                 return
             while True:
                 try:
                     event = event_queue.get(timeout=15)
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                    if event.get("type") == "task_finished":
+                    task_status = (event.get("task") or {}).get("status")
+                    if event.get("type") == "task_finished" or task_status in TERMINAL_TASK_STATUSES:
                         break
                 except queue.Empty:
                     yield f"data: {json.dumps({'type': 'heartbeat'}, ensure_ascii=False)}\n\n"

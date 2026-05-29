@@ -114,7 +114,7 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
             if not header_row:
                 raise HTTPException(status_code=400, detail=f"{file.filename} 没有表头")
 
-            columns = [str(value).strip() for value in header_row if value not in (None, "")]
+            column_mappings, columns = _excel_column_mappings(header_row)
             if not columns:
                 raise HTTPException(status_code=400, detail=f"{file.filename} 表头为空")
 
@@ -124,7 +124,7 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
             for row_index, row in enumerate(rows, start=2):
                 row_data = {
                     column: _cell_value(row[index] if index < len(row) else "")
-                    for index, column in enumerate(columns)
+                    for index, column in column_mappings
                 }
                 if all(value == "" for value in row_data.values()):
                     continue
@@ -226,8 +226,14 @@ def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
     }
     timestamp = now_iso()
     with get_db() as conn:
-        dataset, scene, _row = _load_dataset_row(conn, dataset_id, row_id)
+        dataset, scene, row = _load_dataset_row(conn, dataset_id, row_id)
         table_name = scene["data_table_name"]
+        model_result = decode_json(row.get("model_result"), {})
+        analysis_data = decode_json(row.get("analysis_data"), {})
+        for key, value in model_result.items():
+            raw_data.setdefault(key, value)
+        if analysis_data and "分析数据" not in raw_data:
+            raw_data["分析数据"] = analysis_data
         columns = decode_json(dataset["column_schema"], [])
         for key in raw_data:
             if key not in columns:
@@ -249,6 +255,25 @@ def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
             (row_id, dataset_id),
         ).fetchone()
     return _format_row(row, columns, preview=False)
+
+
+def _excel_column_mappings(header_row: tuple[Any, ...]) -> tuple[list[tuple[int, str]], list[str]]:
+    mappings: list[tuple[int, str]] = []
+    columns: list[str] = []
+    seen: dict[str, int] = {}
+    for index, value in enumerate(header_row):
+        column = str(value).strip() if value not in (None, "") else ""
+        if not column:
+            continue
+        count = seen.get(column, 0) + 1
+        seen[column] = count
+        unique_column = column if count == 1 else f"{column}_{count}"
+        while unique_column in columns:
+            count += 1
+            unique_column = f"{column}_{count}"
+        mappings.append((index, unique_column))
+        columns.append(unique_column)
+    return mappings, columns
 
 
 def delete_dataset_row(dataset_id: str, row_id: str) -> dict:

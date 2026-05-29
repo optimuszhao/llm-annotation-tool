@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260529-placeholder-fullwidth";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260529-analysis-select";
+import { renderManagePage } from "/pages/manage.js?v=20260530-modal-height";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260530-modal-height";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
