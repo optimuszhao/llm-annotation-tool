@@ -132,7 +132,7 @@ button { cursor: pointer; }
   z-index: 1000;
   height: 64px;
   display: grid;
-  grid-template-columns: 260px 1fr 126px;
+  grid-template-columns: minmax(220px, 260px) minmax(360px, 1fr) max-content;
   align-items: center;
   gap: 16px;
   padding: 0 20px;
@@ -215,14 +215,18 @@ button { cursor: pointer; }
   position: relative;
   z-index: 20010;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  min-width: max-content;
   gap: 8px;
   pointer-events: auto;
 }
 .theme-tools button {
   position: relative;
+  flex: 0 0 auto;
   z-index: 1;
   pointer-events: auto;
+  white-space: nowrap;
 }
 .shell-source-switch {
   max-width: 280px;
@@ -248,6 +252,7 @@ button { cursor: pointer; }
   color: var(--primary-strong);
 }
 .lag-helper-button {
+  min-width: 92px;
   padding-inline: 12px;
   border-color: color-mix(in srgb, var(--primary) 18%, var(--line));
   background:
@@ -307,6 +312,7 @@ button { cursor: pointer; }
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--surface) 94%, var(--surface-2));
   color: var(--text);
+  white-space: nowrap;
 }
 .btn:hover, .icon-btn:hover { border-color: var(--primary); color: var(--primary-strong); }
 .btn.primary {
@@ -323,6 +329,9 @@ button { cursor: pointer; }
   background: color-mix(in srgb, var(--danger-soft) 62%, var(--surface));
 }
 .icon-btn { width: 34px; padding: 0; }
+#themeButton {
+  min-width: 58px;
+}
 .input, .select, .textarea {
   height: 34px;
   min-width: 170px;
