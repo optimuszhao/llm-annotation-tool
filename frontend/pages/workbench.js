@@ -910,14 +910,15 @@ function updateWorkbenchTitle() {
 }
 
 async function openSourceModal() {
+  await refreshSourceScenes();
   pendingSource = {
     sceneId: state.activeSceneId || state.scenes[0]?.id || "",
     datasetId: state.activeDatasetId || "",
     schemeId: state.activeSchemeId || "",
   };
   await loadPendingResources(pendingSource.sceneId);
-  if (!pendingSource.datasetId) pendingSource.datasetId = pendingResources.datasets[0]?.id || "";
-  if (!pendingSource.schemeId) pendingSource.schemeId = pendingResources.schemes[0]?.id || "";
+  pendingSource.datasetId = validResourceId(pendingResources.datasets, pendingSource.datasetId);
+  pendingSource.schemeId = validResourceId(pendingResources.schemes, pendingSource.schemeId);
   fillSourceModalOptions();
   document.querySelector("#sourceModalBackdrop").classList.add("open");
 }
@@ -939,8 +940,8 @@ async function handleSourceModalClick(event) {
     if (pendingSource.sceneId === id) return;
     pendingSource.sceneId = id;
     await loadPendingResources(pendingSource.sceneId);
-    pendingSource.datasetId = pendingResources.datasets[0]?.id || "";
-    pendingSource.schemeId = pendingResources.schemes[0]?.id || "";
+    pendingSource.datasetId = validResourceId(pendingResources.datasets, "");
+    pendingSource.schemeId = validResourceId(pendingResources.schemes, "");
     fillSourceModalOptions();
     return;
   }
@@ -966,6 +967,25 @@ async function loadPendingResources(sceneId) {
     api(`/api/schemes${param}`),
   ]);
   pendingResources = { datasets, schemes };
+}
+
+async function refreshSourceScenes() {
+  try {
+    state.scenes = await api("/api/scenes");
+    if (!state.scenes.some((scene) => scene.id === state.activeSceneId)) {
+      state.activeSceneId = state.scenes[0]?.id || "";
+      state.activeDatasetId = "";
+      state.activeSchemeId = "";
+      await loadSceneResources();
+    }
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function validResourceId(items, preferredId) {
+  if (preferredId && items.some((item) => item.id === preferredId)) return preferredId;
+  return items[0]?.id || "";
 }
 
 function fillSourceModalOptions() {
@@ -1022,9 +1042,9 @@ function sourceOptionMeta(type, item) {
 }
 
 function updateSourcePreview() {
-  const currentScene = state.scenes.find((item) => item.id === state.activeSceneId);
-  const currentDataset = state.datasets.find((item) => item.id === state.activeDatasetId);
-  const currentScheme = state.schemes.find((item) => item.id === state.activeSchemeId);
+  const currentScene = state.scenes.find((item) => item.id === pendingSource.sceneId);
+  const currentDataset = pendingResources.datasets.find((item) => item.id === pendingSource.datasetId);
+  const currentScheme = pendingResources.schemes.find((item) => item.id === pendingSource.schemeId);
   const currentTitle = [
     currentScene?.name || "未选择场景",
     currentDataset?.name || "未选择数据集",
@@ -1035,15 +1055,40 @@ function updateSourcePreview() {
 }
 
 async function applySourceModal() {
-  state.activeSceneId = pendingSource.sceneId;
+  const nextSceneId = pendingSource.sceneId;
+  if (!nextSceneId) {
+    toast("请先选择场景");
+    return;
+  }
+  await loadPendingResources(nextSceneId);
+  const nextDatasetId = validResourceId(pendingResources.datasets, pendingSource.datasetId);
+  const nextSchemeId = validResourceId(pendingResources.schemes, pendingSource.schemeId);
+  const changed = state.activeSceneId !== nextSceneId
+    || state.activeDatasetId !== nextDatasetId
+    || state.activeSchemeId !== nextSchemeId;
+  state.activeSceneId = nextSceneId;
+  state.activeDatasetId = nextDatasetId;
+  state.activeSchemeId = nextSchemeId;
   await loadSceneResources();
-  state.activeDatasetId = pendingSource.datasetId;
-  state.activeSchemeId = pendingSource.schemeId;
+  state.activeDatasetId = validResourceId(state.datasets, nextDatasetId);
+  state.activeSchemeId = validResourceId(state.schemes, nextSchemeId);
+  if (changed) resetWorkbenchQueryState();
   closeTaskEvents();
   currentTask = null;
   closeSourceModal();
   await refreshWorkbench();
   toast("数据源与方案已切换");
+}
+
+function resetWorkbenchQueryState() {
+  statusFilters = new Set();
+  const search = document.querySelector("#tableSearch");
+  if (search) search.value = "";
+  const searchColumn = document.querySelector("#tableSearchColumn");
+  if (searchColumn) searchColumn.value = "";
+  const selectCurrentPage = document.querySelector("#selectCurrentPage");
+  if (selectCurrentPage) selectCurrentPage.checked = false;
+  tableBuildKey = "";
 }
 
 function openBatchAnalysisModal() {

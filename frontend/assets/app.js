@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260530-modal-height";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260530-modal-height";
+import { renderManagePage } from "/pages/manage.js?v=20260530-source-switch";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260530-source-switch";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
