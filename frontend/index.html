@@ -6,7 +6,7 @@
   <title>LLM 标注工具</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/vendor/tabulator.min.css">
-  <link rel="stylesheet" href="/assets/app.css?v=20260530-source-switch">
+  <link rel="stylesheet" href="/assets/app.css?v=20260530-lag-helper">
   <link rel="stylesheet" href="/assets/components.css">
 </head>
 <body>
@@ -26,6 +26,7 @@
     <div class="theme-tools">
       <button class="icon-btn" id="modeToggle" type="button" title="切换明暗模式" onclick="window.__toggleMode?.()">◐</button>
       <button class="btn" id="themeButton" type="button" onclick="window.__toggleThemePopover?.(event)">主题</button>
+      <button class="btn lag-helper-button" id="lagHelperButton" type="button">卡顿助手</button>
       <div class="theme-popover" id="themePopover">
         <button type="button" data-theme-choice="white" onclick="window.__chooseTheme?.('white', event)"><i class="swatch white"></i>白色</button>
         <button type="button" data-theme-choice="blue" onclick="window.__chooseTheme?.('blue', event)"><i class="swatch blue"></i>蓝色</button>
@@ -127,6 +128,6 @@
   </script>
   <script src="/vendor/gsap.min.js"></script>
   <script src="/vendor/tabulator.min.js"></script>
-  <script type="module" src="/assets/app.js?v=20260530-source-switch"></script>
+  <script type="module" src="/assets/app.js?v=20260530-lag-helper"></script>
 </body>
 </html>

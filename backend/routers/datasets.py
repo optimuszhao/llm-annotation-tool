@@ -17,6 +17,7 @@ from backend.services.dataset_service import (
     delete_dataset_rows,
     export_dataset_rows,
     get_dataset_row,
+    get_dataset_row_field,
     get_dataset_rows,
     import_excel_files,
     list_datasets,
@@ -57,6 +58,11 @@ def get_rows(
 @router.get("/{dataset_id}/export")
 def export_rows(dataset_id: str):
     return export_dataset_rows(dataset_id)
+
+
+@router.get("/{dataset_id}/rows/{row_id}/fields/{column:path}")
+def get_row_field(dataset_id: str, row_id: str, column: str, scheme_id: str = ""):
+    return get_dataset_row_field(dataset_id, row_id, column, scheme_id)
 
 
 @router.get("/{dataset_id}/rows/{row_id}")

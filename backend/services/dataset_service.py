@@ -25,6 +25,7 @@ PREVIEW_FIELDS = {
     "模型说明",
     "raw_output",
 }
+PREVIEW_LIMIT = 120
 
 
 def _cell_value(value: Any) -> Any:
@@ -33,11 +34,30 @@ def _cell_value(value: Any) -> Any:
     return value
 
 
-def _preview(value: Any, limit: int = 120) -> Any:
+def _preview(value: Any, limit: int = PREVIEW_LIMIT) -> Any:
     if value is None:
         return ""
     text = str(value)
     return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def _is_large_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (dict, list)):
+        return True
+    text = str(value)
+    return len(text) > PREVIEW_LIMIT or "\n" in text
+
+
+def build_row_preview_payload(row_data: dict[str, Any]) -> tuple[str, str]:
+    preview_data = {key: _preview(value) for key, value in row_data.items()}
+    large_fields = [
+        key
+        for key, value in row_data.items()
+        if key in PREVIEW_FIELDS or _is_large_value(value)
+    ]
+    return encode_json(preview_data), encode_json(large_fields)
 
 
 def _normalize_answer(value: Any) -> str:
@@ -120,7 +140,7 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
 
             dataset_id = f"dataset_{uuid4().hex[:12]}"
             timestamp = now_iso()
-            data_rows: list[tuple[str, str, int, str, str, str]] = []
+            data_rows: list[tuple[str, str, int, str, str, str, str, str]] = []
             for row_index, row in enumerate(rows, start=2):
                 row_data = {
                     column: _cell_value(row[index] if index < len(row) else "")
@@ -128,12 +148,15 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
                 }
                 if all(value == "" for value in row_data.values()):
                     continue
+                preview_data, large_fields = build_row_preview_payload(row_data)
                 data_rows.append(
                     (
                         f"row_{uuid4().hex[:16]}",
                         dataset_id,
                         row_index,
                         encode_json(row_data),
+                        preview_data,
+                        large_fields,
                         _infer_import_status(row_data, field_mapping),
                         timestamp,
                     )
@@ -157,8 +180,8 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
             insert_many(
                 conn,
                 f"""
-                INSERT INTO {scene['data_table_name']}(id, dataset_id, row_index, raw_data, annotation_status, created_at)
-                VALUES(?, ?, ?, ?, ?, ?)
+                INSERT INTO {scene['data_table_name']}(id, dataset_id, row_index, raw_data, preview_data, large_fields, annotation_status, created_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 data_rows,
             )
@@ -212,6 +235,26 @@ def get_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "") -> dict:
     return _format_row(row, columns, preview=False, scheme_view=bool(scheme_id))
 
 
+def get_dataset_row_field(dataset_id: str, row_id: str, column: str, scheme_id: str = "") -> dict:
+    with get_db() as conn:
+        dataset, _scene, row = _load_dataset_row(conn, dataset_id, row_id, scheme_id)
+        columns = decode_json(dataset["column_schema"], [])
+    raw_data = decode_json(row["raw_data"], {})
+    if scheme_id:
+        raw_data = {**raw_data, **decode_json(row.get("scheme_model_result"), {})}
+    elif column not in raw_data:
+        raw_data = {**raw_data, **decode_json(row.get("model_result"), {})}
+    value = raw_data.get(column, "")
+    text = value if isinstance(value, str) else encode_json(value)
+    return {
+        "row_id": row_id,
+        "column": column,
+        "value": value,
+        "size": len(str(text)),
+        "exists": column in raw_data or column in columns,
+    }
+
+
 def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
     raw_data = payload.get("raw_data") if isinstance(payload, dict) else None
     if raw_data is None:
@@ -238,6 +281,7 @@ def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
         for key in raw_data:
             if key not in columns:
                 columns.append(key)
+        preview_data, large_fields = build_row_preview_payload(raw_data)
         conn.execute(
             "UPDATE datasets SET column_schema=? WHERE id=?",
             (encode_json(columns), dataset_id),
@@ -245,10 +289,10 @@ def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
         conn.execute(
             f"""
             UPDATE {table_name}
-            SET raw_data=?, updated_at=?
+            SET raw_data=?, preview_data=?, large_fields=?, updated_at=?
             WHERE id=? AND dataset_id=?
             """,
-            (encode_json(raw_data), timestamp, row_id, dataset_id),
+            (encode_json(raw_data), preview_data, large_fields, timestamp, row_id, dataset_id),
         )
         row = conn.execute(
             f"SELECT id, row_index, raw_data, annotation_status FROM {table_name} WHERE id=? AND dataset_id=?",
@@ -360,7 +404,6 @@ def get_dataset_rows(
         scheme_view = bool(scheme_id)
         base_alias = "d" if scheme_view else ""
         status_expr = "COALESCE(latest.scheme_status, d.annotation_status, '未标注')" if scheme_view else "annotation_status"
-        raw_field = "d.raw_data" if scheme_view else "raw_data"
         where = f"{base_alias + '.' if base_alias else ''}dataset_id=?"
         params: list[Any] = [dataset_id]
         search_text = search.strip()
@@ -423,7 +466,8 @@ def get_dataset_rows(
                 SELECT
                     d.id,
                     d.row_index,
-                    d.raw_data,
+                    COALESCE(NULLIF(d.preview_data, '{{}}'), d.raw_data) AS preview_data,
+                    d.large_fields,
                     d.annotation_status,
                     d.model_result,
                     d.analysis_data,
@@ -447,7 +491,12 @@ def get_dataset_rows(
             ).fetchone()["total"]
             rows = conn.execute(
                 f"""
-                SELECT id, row_index, raw_data, annotation_status
+                SELECT
+                    id,
+                    row_index,
+                    COALESCE(NULLIF(preview_data, '{{}}'), raw_data) AS preview_data,
+                    large_fields,
+                    annotation_status
                 FROM {table_name}
                 WHERE {where}
                 ORDER BY row_index ASC
@@ -518,6 +567,8 @@ def _load_dataset_row(conn, dataset_id: str, row_id: str, scheme_id: str = "") -
                 d.id,
                 d.row_index,
                 d.raw_data,
+                d.preview_data,
+                d.large_fields,
                 d.annotation_status,
                 d.model_result,
                 d.analysis_data,
@@ -535,7 +586,7 @@ def _load_dataset_row(conn, dataset_id: str, row_id: str, scheme_id: str = "") -
     else:
         row = conn.execute(
             f"""
-            SELECT id, row_index, raw_data, annotation_status, model_result, analysis_data, rendered_prompt
+            SELECT id, row_index, raw_data, preview_data, large_fields, annotation_status, model_result, analysis_data, rendered_prompt
             FROM {scene['data_table_name']}
             WHERE id=? AND dataset_id=?
             """,
@@ -554,22 +605,28 @@ def _normalize_status_filters(statuses: Optional[list[str]]) -> list[str]:
 
 
 def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool = False) -> dict:
-    raw_data = decode_json(row["raw_data"], {})
+    raw_data = decode_json(row.get("preview_data") if preview else row.get("raw_data"), {})
     if scheme_view:
         model_result = decode_json(row.get("scheme_model_result"), {})
-        raw_data = {**raw_data, **model_result}
+        raw_data = {**raw_data, **{key: _preview(value) if preview else value for key, value in model_result.items()}}
         status = row.get("scheme_status") or row.get("annotation_status") or raw_data.get("状态") or raw_data.get("status") or "未标注"
     else:
         model_result = decode_json(row.get("model_result"), {})
         status = row.get("annotation_status") or raw_data.get("状态") or raw_data.get("status") or "未标注"
+    large_fields = set(decode_json(row.get("large_fields"), []) or [])
     item = {
         "row_id": row["id"],
         "row_index": row["row_index"],
         "状态": status,
     }
+    infer_large_fields = preview and not large_fields
     for column in columns:
         value = raw_data.get(column, "")
-        item[column] = _preview(value) if preview and column in PREVIEW_FIELDS else value
+        if infer_large_fields and (column in PREVIEW_FIELDS or _is_large_value(value)):
+            large_fields.add(column)
+        item[column] = _preview(value) if preview else value
+    if preview:
+        item["__large_fields"] = sorted(large_fields)
     if not preview:
         analysis_data = decode_json(row.get("scheme_analysis_data") if scheme_view else row.get("analysis_data"), {})
         item["model_result"] = model_result

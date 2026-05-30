@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.database import init_db
-from backend.routers import annotation_tasks, datasets, error_sets, field_mappings, knowledge, prompts, scenes, schemes
+from backend.routers import annotation_tasks, datasets, error_sets, field_mappings, knowledge, maintenance, prompts, scenes, schemes
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
     app.include_router(schemes.router)
     app.include_router(field_mappings.router)
     app.include_router(annotation_tasks.router)
+    app.include_router(maintenance.router)
 
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
     app.mount("/pages", StaticFiles(directory=FRONTEND_DIR / "pages"), name="pages")

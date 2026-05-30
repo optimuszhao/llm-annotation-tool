@@ -24,6 +24,7 @@ let drawerEditDirty = false;
 let drawerSelectedColumns = new Set();
 let drawerAnalysisHistoryRows = [];
 let drawerSelectedAnalysisIds = new Set();
+let drawerFullFields = new Set();
 let drawerAnalysisRequest = 0;
 let drawerAnalysisHistoryRequest = 0;
 let drawerAnnotationHistoryRequest = 0;
@@ -1345,8 +1346,8 @@ async function openCellValue(field, value, rowId = "") {
   if (rowId && state.activeDatasetId) {
     document.querySelector("#rowDetailMeta").textContent = "正在读取完整单元格内容...";
     try {
-      const fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}${schemeQuery()}`);
-      setCellDetailValue(Object.prototype.hasOwnProperty.call(fullRow, field) ? fullRow[field] : value);
+      const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/fields/${encodeURIComponent(field)}${schemeQuery()}`);
+      setCellDetailValue(result.exists ? result.value : value);
     } catch {
       setCellDetailValue(value);
     }
@@ -1473,25 +1474,21 @@ async function openRowDrawer(rowData, mode = "view") {
   if (!rowData?.row_id || !state.activeDatasetId) return;
   drawerMode = "view";
   drawerEditDirty = false;
-  drawerRow = rowData;
+  drawerRow = { ...rowData, __is_full: false };
+  drawerFullFields = new Set();
   drawerAnalysisHistoryRows = [];
   drawerSelectedAnalysisIds = new Set();
   resetDrawerWidth();
   document.querySelector("#rowDetailDrawer").classList.add("open");
   document.querySelector("#rowDetailDrawer").setAttribute("aria-hidden", "false");
   document.querySelector("#drawerTitle").textContent = `行详情 · ${rowData.ID || rowData.row_id || ""}`;
-  document.querySelector("#drawerMeta").textContent = "正在加载完整行数据...";
-  document.querySelector("#drawerViewKv").innerHTML = `<div class="empty">正在加载完整数据...</div>`;
+  document.querySelector("#drawerMeta").textContent = "预览数据已加载，大字段可按需展开。";
+  document.querySelector("#drawerViewKv").innerHTML = `<div class="empty">正在渲染预览数据...</div>`;
   document.querySelector("#drawerAnalysisStatus").textContent = "读取中";
   document.querySelector("#drawerAnalysisResults").innerHTML = `<div class="empty">正在读取分析结果...</div>`;
-  try {
-    drawerRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowData.row_id}${schemeQuery()}`);
-  } catch {
-    drawerRow = rowData;
-  }
   initializeDrawerColumns();
   renderDrawerPayload();
-  setDrawerMode(mode);
+  await setDrawerMode(mode);
 }
 
 function closeRowDrawer() {
@@ -1525,7 +1522,7 @@ function renderDrawerPayload() {
   renderDrawerEditAnalysis();
 }
 
-function setDrawerMode(mode) {
+async function setDrawerMode(mode) {
   if (!drawerRow) return;
   drawerMode = mode;
   drawerEditDirty = false;
@@ -1544,6 +1541,14 @@ function setDrawerMode(mode) {
   document.querySelectorAll("[data-drawer-mode]").forEach((button) => {
     button.classList.toggle("active", button.dataset.drawerMode === mode);
   });
+  if (["edit", "result"].includes(mode) && !drawerRow.__is_full) {
+    if (mode === "edit") {
+      document.querySelector("#drawerEditor").value = "正在加载完整行数据...";
+      document.querySelector("#drawerEditStatus").textContent = "加载中";
+    }
+    await ensureDrawerFullRow();
+    if (drawerMode !== mode) return;
+  }
   if (mode === "edit") {
     document.querySelector("#drawerEditor").value = JSON.stringify(drawerEditableData(), null, 2);
     document.querySelector("#drawerEditStatus").textContent = "修改后点击保存";
@@ -1558,6 +1563,16 @@ function setDrawerMode(mode) {
     renderDrawerResult();
     renderDrawerAnnotationHistory();
   }
+}
+
+async function ensureDrawerFullRow() {
+  if (!drawerRow?.row_id || !state.activeDatasetId || drawerRow.__is_full) return;
+  const fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}${schemeQuery()}`);
+  drawerRow = { ...fullRow, __is_full: true };
+  currentDetailRow = drawerRow;
+  drawerFullFields = new Set(Object.keys(drawerEditableData()));
+  initializeDrawerColumns();
+  renderDrawerPayload();
 }
 
 function setDrawerElementVisible(selector, visible) {
@@ -1588,8 +1603,9 @@ async function saveDrawerEdit() {
       method: "PUT",
       body: JSON.stringify({ raw_data: rawData }),
     });
-    drawerRow = updated;
+    drawerRow = { ...updated, __is_full: true };
     currentDetailRow = updated;
+    drawerFullFields = new Set(Object.keys(drawerEditableData()));
     await ensureDynamicResultColumns(updated);
     updateVisibleRow(updated.row_id, updated);
     initializeDrawerColumns();
@@ -1897,12 +1913,13 @@ function drawerKeyValueRowsHtml(payload, emptyText = "暂无数据") {
   const entries = Object.entries(payload || {});
   return entries.map(([key, value]) => {
     const display = formatDisplayPayload(value);
-    const collapsed = shouldCollapseDrawerValue(display.text);
+    const needsFullLoad = drawerFieldNeedsFullLoad(key);
+    const collapsed = needsFullLoad || shouldCollapseDrawerValue(display.text);
     return `
-    <article class="drawer-kv-row ${collapsed ? "is-collapsible is-collapsed" : ""}">
+    <article class="drawer-kv-row ${collapsed ? "is-collapsible is-collapsed" : ""}" data-drawer-field="${escapeHtml(key)}">
       <div class="drawer-kv-key" title="${escapeHtml(key)}">
         <span>${escapeHtml(key)}</span>
-        ${collapsed ? `<button class="drawer-kv-toggle" type="button" data-drawer-kv-toggle>展开</button>` : ""}
+        ${collapsed ? `<button class="drawer-kv-toggle" type="button" data-drawer-kv-toggle>${needsFullLoad ? "加载完整" : "展开"}</button>` : ""}
       </div>
       <div class="drawer-kv-value-wrap">
         <div class="drawer-kv-value ${display.isJson ? "json-highlight" : ""}">${display.html}</div>
@@ -1910,6 +1927,19 @@ function drawerKeyValueRowsHtml(payload, emptyText = "暂无数据") {
     </article>
   `;
   }).join("") || `<div class="empty">${emptyText}</div>`;
+}
+
+function drawerFieldNeedsFullLoad(key) {
+  const largeFields = drawerRow?.__large_fields || [];
+  return Array.isArray(largeFields) && largeFields.includes(key) && !drawerFullFields.has(key);
+}
+
+async function loadDrawerFieldValue(key) {
+  if (!drawerRow?.row_id || !state.activeDatasetId || !key) return false;
+  const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}/fields/${encodeURIComponent(key)}${schemeQuery()}`);
+  drawerRow = { ...drawerRow, [key]: result.value };
+  drawerFullFields.add(key);
+  return result.exists;
 }
 
 function drawerEditableData() {
@@ -1921,11 +1951,33 @@ function shouldCollapseDrawerValue(text) {
   return value.length > 360 || value.split("\n").length > 8;
 }
 
-function handleDrawerKvToggle(event) {
+async function handleDrawerKvToggle(event) {
   const button = event.target.closest("[data-drawer-kv-toggle]");
   if (!button) return;
   const row = button.closest(".drawer-kv-row");
   if (!row) return;
+  const key = row.dataset.drawerField || "";
+  if (drawerFieldNeedsFullLoad(key)) {
+    button.disabled = true;
+    button.textContent = "读取中";
+    try {
+      await loadDrawerFieldValue(key);
+      const display = formatDisplayPayload(drawerRow?.[key]);
+      const valueNode = row.querySelector(".drawer-kv-value");
+      if (valueNode) {
+        valueNode.classList.toggle("json-highlight", display.isJson);
+        valueNode.innerHTML = display.html;
+      }
+      row.classList.remove("is-collapsed");
+      button.disabled = false;
+      button.textContent = "收起";
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = "加载完整";
+      toast(error.message);
+    }
+    return;
+  }
   const collapsed = row.classList.toggle("is-collapsed");
   button.textContent = collapsed ? "展开" : "收起";
 }
@@ -2126,7 +2178,7 @@ function editableDetailData() {
 function editableDetailDataFrom(row) {
   const reserved = new Set(["row_id", "row_index", "状态", "model_result", "analysis_data", "rendered_prompt"]);
   return Object.fromEntries(
-    Object.entries(row || {}).filter(([key]) => !reserved.has(key)),
+    Object.entries(row || {}).filter(([key]) => !reserved.has(key) && !key.startsWith("__")),
   );
 }
 

@@ -67,6 +67,8 @@ def create_scene_data_table(conn: sqlite3.Connection, table_name: str) -> None:
             dataset_id TEXT NOT NULL,
             row_index INTEGER NOT NULL,
             raw_data TEXT NOT NULL,
+            preview_data TEXT NOT NULL DEFAULT '{{}}',
+            large_fields TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             annotation_status TEXT NOT NULL DEFAULT '未标注',
             annotation_task_id TEXT,
@@ -77,6 +79,8 @@ def create_scene_data_table(conn: sqlite3.Connection, table_name: str) -> None:
         )
         """
     )
+    ensure_column(conn, table_name, "preview_data", "TEXT NOT NULL DEFAULT '{}'")
+    ensure_column(conn, table_name, "large_fields", "TEXT NOT NULL DEFAULT '[]'")
     ensure_column(conn, table_name, "annotation_status", "TEXT NOT NULL DEFAULT '未标注'")
     ensure_column(conn, table_name, "annotation_task_id", "TEXT")
     ensure_column(conn, table_name, "model_result", "TEXT NOT NULL DEFAULT '{}'")

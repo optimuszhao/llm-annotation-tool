@@ -11,6 +11,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from backend.database import decode_json, encode_json, get_db, now_iso
+from backend.services.dataset_service import build_row_preview_payload
 from user_hooks import hooks
 
 
@@ -249,14 +250,15 @@ def analyze_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "", metho
             raise HTTPException(status_code=404, detail="数据行不存在")
         raw_data = decode_json(row["raw_data"], {})
         raw_data["分析数据"] = analysis_result
+        preview_data, large_fields = build_row_preview_payload(raw_data)
         _ensure_dataset_columns(conn, dataset, ["分析数据"])
         conn.execute(
             f"""
             UPDATE {table_name}
-            SET raw_data=?, analysis_data=?, updated_at=?
+            SET raw_data=?, preview_data=?, large_fields=?, analysis_data=?, updated_at=?
             WHERE id=? AND dataset_id=?
             """,
-            (encode_json(raw_data), encode_json(analysis_result), timestamp, row_id, dataset_id),
+            (encode_json(raw_data), preview_data, large_fields, encode_json(analysis_result), timestamp, row_id, dataset_id),
         )
         latest = _latest_task_row_for_scheme(conn, dataset_id, row_id, scheme_id) if scheme_id else conn.execute(
             """
@@ -785,11 +787,14 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
         ).fetchone()
         raw_data = decode_json(row["raw_data"], {})
         raw_data.update(model_result)
+        preview_data, large_fields = build_row_preview_payload(raw_data)
         _ensure_dataset_columns(conn, dataset, model_result.keys())
         conn.execute(
             f"""
             UPDATE {table_name}
             SET raw_data=?,
+                preview_data=?,
+                large_fields=?,
                 annotation_status=?,
                 annotation_task_id=?,
                 model_result=?,
@@ -799,6 +804,8 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
             """,
             (
                 encode_json(raw_data),
+                preview_data,
+                large_fields,
                 status,
                 task_id,
                 encode_json(model_result),
