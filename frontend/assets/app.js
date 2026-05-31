@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260530-preview-load";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260530-preview-load";
+import { renderManagePage } from "/pages/manage.js?v=20260531-manage-studio-v2";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260531-mapped-answer-compact";
 import { initComponents } from "/assets/components.js";
 
 export const state = {

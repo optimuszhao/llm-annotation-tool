@@ -3,7 +3,6 @@ import { api, loadSceneResources, state, toast } from "/assets/app.js";
 let table = null;
 let tableBuildKey = "";
 let refreshToken = 0;
-let searchTimer = 0;
 let pendingSource = { sceneId: "", datasetId: "", schemeId: "" };
 let pendingResources = { datasets: [], schemes: [] };
 let documentMenusBound = false;
@@ -31,6 +30,7 @@ let drawerAnnotationHistoryRequest = 0;
 let drawerResizeCleanup = null;
 let drawerAnalysisSplitCleanup = null;
 let statusFilters = new Set();
+let columnFilter = { column: "", value: "" };
 let availableDatasetColumns = [];
 let latestFieldMapping = null;
 let tableFontSize = normalizeTableFontSize(localStorage.getItem("llm-table-font-size") || "medium");
@@ -132,26 +132,6 @@ export function renderWorkbenchPage() {
         </div>
         <div class="toolbar-right">
           <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新列表</button>
-          <button class="btn table-focus-button" type="button" id="tableFocusButton">全屏表格</button>
-          <label class="column-search">
-            <select id="tableSearchColumn" aria-label="选择搜索字段">
-              <option value="">全部字段</option>
-            </select>
-            <span aria-hidden="true"></span>
-            <input type="search" id="tableSearch" placeholder="搜索当前数据集内容" aria-label="搜索当前数据集内容">
-          </label>
-          <div class="dropdown-wrap">
-            <button class="btn" type="button" id="filterButton" aria-expanded="false">筛选</button>
-            <div class="dropdown-menu status-filter-menu" id="statusFilterMenu" hidden>
-              ${statusOptions.map((status) => `
-                <label><input type="checkbox" value="${status}"><span>${status}</span></label>
-              `).join("")}
-              <div class="filter-actions">
-                <button type="button" data-filter-action="apply">应用</button>
-                <button type="button" data-filter-action="clear">清空</button>
-              </div>
-            </div>
-          </div>
           <div class="dropdown-wrap">
             <button class="btn" type="button" id="globalMoreButton" aria-expanded="false">更多</button>
             <div class="dropdown-menu" id="globalMoreMenu" hidden>
@@ -162,52 +142,50 @@ export function renderWorkbenchPage() {
               <button type="button" data-global-action="stop">停止未完成标注</button>
             </div>
           </div>
+          <button class="icon-btn table-focus-button" type="button" id="tableFocusButton" aria-label="全屏表格" title="全屏表格">
+            <span class="focus-icon focus-enter" aria-hidden="true"></span>
+            <span class="focus-icon focus-exit" aria-hidden="true"></span>
+          </button>
         </div>
       </div>
 
       <div class="table-shell"><div id="workbenchTable"></div></div>
+      <div class="column-filter-popover" id="columnFilterPopover" hidden>
+        <strong id="columnFilterTitle">列筛选</strong>
+        <input class="input" type="search" id="columnFilterInput" placeholder="输入关键词">
+        <div class="filter-actions">
+          <button type="button" data-column-filter-action="clear">清空</button>
+          <button type="button" data-column-filter-action="apply">应用</button>
+        </div>
+      </div>
     </div>
 
     <div class="modal-backdrop" id="sourceModalBackdrop">
       <section class="modal source-modal source-modal-v2" role="dialog" aria-modal="true" aria-labelledby="sourceModalTitle">
         <header class="modal-head">
-          <div>
-            <p class="eyebrow">切换数据源与方案</p>
-            <h2 id="sourceModalTitle">当前数据上下文</h2>
-            <p class="card-meta" id="sourceCurrentTitle">按场景、数据源、方案的顺序选择，应用后刷新工作台。</p>
+          <div class="source-modal-title-row">
+            <p class="eyebrow" id="sourceModalTitle">切换数据源与方案</p>
           </div>
           <button class="icon-btn" type="button" id="sourceModalClose" aria-label="关闭切换弹窗">×</button>
         </header>
         <div class="source-modal-body">
+          <div class="source-flow-bar" aria-label="选择流程">
+            <span>选择场景</span>
+            <i>→</i>
+            <span>选择数据源</span>
+            <i>→</i>
+            <span>选择方案</span>
+            <i>→</i>
+            <span>刷新表格数据</span>
+          </div>
           <div class="source-step-grid">
             <section class="source-step-card">
-              <div class="source-step-title">
-                <span>1</span>
-                <div>
-                  <strong>选择场景</strong>
-                  <em>场景决定资源隔离范围</em>
-                </div>
-              </div>
               <div class="source-option-list" id="sourceSceneList"></div>
             </section>
             <section class="source-step-card">
-              <div class="source-step-title">
-                <span>2</span>
-                <div>
-                  <strong>选择数据源</strong>
-                  <em>选择要展示和标注的数据集</em>
-                </div>
-              </div>
               <div class="source-option-list" id="sourceDatasetList"></div>
             </section>
             <section class="source-step-card">
-              <div class="source-step-title">
-                <span>3</span>
-                <div>
-                  <strong>选择方案</strong>
-                  <em>方案决定 Prompt、方法和并发</em>
-                </div>
-              </div>
               <div class="source-option-list" id="sourceSchemeList"></div>
             </section>
           </div>
@@ -496,13 +474,13 @@ function bindWorkbenchEvents() {
   document.querySelector("#batchAnalysisStatusBox").addEventListener("click", handleBatchAnalysisStatusActions);
   document.querySelector("#batchAnalysisStart").addEventListener("click", startBatchAnalysis);
   document.querySelector("#sourceModalBackdrop").addEventListener("click", handleSourceModalClick);
-  document.querySelector("#tableSearch").addEventListener("input", () => {
-    window.clearTimeout(searchTimer);
-    searchTimer = window.setTimeout(() => refreshWorkbench(), 260);
-  });
-  document.querySelector("#tableSearchColumn").addEventListener("change", () => refreshWorkbench());
   document.querySelector("#refreshTableButton").addEventListener("click", refreshTableData);
   document.querySelector("#tableFocusButton").addEventListener("click", toggleTableFocusMode);
+  document.querySelector("#columnFilterPopover").addEventListener("click", handleColumnFilterPopoverClick);
+  document.querySelector("#columnFilterInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") applyColumnFilter();
+    if (event.key === "Escape") closeMenus();
+  });
   document.querySelector("#selectCurrentPage").addEventListener("change", (event) => {
     selectVisibleRows(event.target.checked);
   });
@@ -514,22 +492,6 @@ function bindWorkbenchEvents() {
   });
   document.querySelector("#globalMoreButton").addEventListener("click", (event) => {
     toggleGlobalMenu(event.currentTarget);
-  });
-  document.querySelector("#filterButton").addEventListener("click", (event) => {
-    toggleStatusFilterMenu(event.currentTarget);
-  });
-  document.querySelector("#statusFilterMenu").addEventListener("click", async (event) => {
-    const action = event.target.closest("[data-filter-action]")?.dataset.filterAction;
-    if (!action) return;
-    if (action === "clear") {
-      statusFilters = new Set();
-      syncStatusFilterMenu();
-    } else {
-      const checked = [...document.querySelectorAll("#statusFilterMenu input:checked")].map((input) => input.value);
-      statusFilters = new Set(checked);
-    }
-    closeMenus();
-    await refreshWorkbench();
   });
   document.querySelector("#globalMoreMenu").addEventListener("click", (event) => {
     const action = event.target.closest("[data-global-action]")?.dataset.globalAction;
@@ -595,6 +557,7 @@ function bindWorkbenchEvents() {
     document.addEventListener("pointerdown", stopRowActionPropagation, true);
     document.addEventListener("click", handleRowActionClick, true);
     document.addEventListener("click", handleMoreMenu);
+    document.addEventListener("click", handleColumnFilterClick);
     documentMenusBound = true;
   }
 }
@@ -651,6 +614,7 @@ export async function refreshWorkbench() {
     state.activeSchemeId,
     visibleColumns.join("\u001f"),
     fixedMappingColumns(availableDatasetColumns).join("\u001f"),
+    `${columnFilter.column}\u001f${columnFilter.value}`,
   ].join("\u001e");
   if (table && tableBuildKey === nextBuildKey) {
     const tableReady = waitForNextTableAjax();
@@ -805,6 +769,7 @@ function buildColumns(columns, sampleRows = []) {
     {
       title: "状态",
       field: "状态",
+      titleFormatter: () => columnHeaderHtml("状态", "状态"),
       width: 88,
       minWidth: 88,
       maxWidth: 88,
@@ -846,8 +811,8 @@ function buildRowsQuery(page, pageSize) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("page_size", String(pageSize));
-  params.set("search", document.querySelector("#tableSearch")?.value || "");
-  params.set("search_column", document.querySelector("#tableSearchColumn")?.value || "");
+  params.set("search", columnFilter.value || "");
+  params.set("search_column", columnFilter.column || "");
   if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
   statusFilters.forEach((status) => params.append("statuses", status));
   return params.toString();
@@ -858,15 +823,9 @@ function schemeQuery(prefix = "?") {
 }
 
 function fillSearchColumnOptions(columns) {
-  const select = document.querySelector("#tableSearchColumn");
-  if (!select) return;
-  const current = select.value;
-  const allColumns = ["状态", ...columns.filter((column) => column !== "状态")];
-  select.innerHTML = [
-    `<option value="">全部字段</option>`,
-    ...allColumns.map((column) => `<option value="${escapeHtml(column)}">${escapeHtml(column)}</option>`),
-  ].join("");
-  select.value = allColumns.includes(current) ? current : "";
+  if (columnFilter.column && !["状态", ...columns].includes(columnFilter.column)) {
+    columnFilter = { column: "", value: "" };
+  }
 }
 
 async function resolveVisibleColumns(columns) {
@@ -1013,16 +972,14 @@ function fillSourceModalOptions() {
 
 function sourceOptionListHtml(type, items, selectedId, emptyText) {
   if (!items.length) return `<div class="empty source-empty">${emptyText}</div>`;
-  return items.map((item, index) => {
+  return items.map((item) => {
     const selected = item.id === selectedId;
     return `
       <button class="source-option-card ${selected ? "active" : ""}" type="button" data-source-type="${type}" data-source-id="${escapeHtml(item.id)}">
-        <span class="source-option-index">${index + 1}</span>
         <span class="source-option-copy">
           <strong>${escapeHtml(item.name || item.id)}</strong>
           <em>${escapeHtml(sourceOptionMeta(type, item))}</em>
         </span>
-        <i>${selected ? "已选" : "选择"}</i>
       </button>
     `;
   }).join("");
@@ -1043,16 +1000,8 @@ function sourceOptionMeta(type, item) {
 }
 
 function updateSourcePreview() {
-  const currentScene = state.scenes.find((item) => item.id === pendingSource.sceneId);
-  const currentDataset = pendingResources.datasets.find((item) => item.id === pendingSource.datasetId);
-  const currentScheme = pendingResources.schemes.find((item) => item.id === pendingSource.schemeId);
-  const currentTitle = [
-    currentScene?.name || "未选择场景",
-    currentDataset?.name || "未选择数据集",
-    currentScheme?.name || "未选择方案",
-  ].join(" · ");
-  document.querySelector("#sourceModalTitle").textContent = currentTitle;
-  document.querySelector("#sourceCurrentTitle").textContent = "按场景、数据源、方案的顺序选择，应用后刷新工作台。";
+  const title = document.querySelector("#sourceModalTitle");
+  if (title) title.textContent = "切换数据源与方案";
 }
 
 async function applySourceModal() {
@@ -1083,10 +1032,7 @@ async function applySourceModal() {
 
 function resetWorkbenchQueryState() {
   statusFilters = new Set();
-  const search = document.querySelector("#tableSearch");
-  if (search) search.value = "";
-  const searchColumn = document.querySelector("#tableSearchColumn");
-  if (searchColumn) searchColumn.value = "";
+  columnFilter = { column: "", value: "" };
   const selectCurrentPage = document.querySelector("#selectCurrentPage");
   if (selectCurrentPage) selectCurrentPage.checked = false;
   tableBuildKey = "";
@@ -1186,10 +1132,12 @@ function applyTableFocusMode() {
   const root = document.querySelector(".workbench-pro");
   if (!root) return;
   root.classList.toggle("table-focus-mode", tableFocusMode);
+  document.body.classList.toggle("table-focus-active", tableFocusMode);
   const button = document.querySelector("#tableFocusButton");
   if (button) {
-    button.textContent = tableFocusMode ? "退出全屏" : "全屏表格";
     button.classList.toggle("primary", tableFocusMode);
+    button.setAttribute("aria-label", tableFocusMode ? "退出全屏" : "全屏表格");
+    button.setAttribute("title", tableFocusMode ? "退出全屏" : "全屏表格");
   }
 }
 
@@ -1210,32 +1158,80 @@ function toggleGlobalMenu(button) {
   button.setAttribute("aria-expanded", String(shouldOpen));
 }
 
-function toggleStatusFilterMenu(button) {
-  const menu = document.querySelector("#statusFilterMenu");
-  const shouldOpen = menu.hidden;
-  closeMenus();
-  syncStatusFilterMenu();
-  menu.hidden = !shouldOpen;
-  button.setAttribute("aria-expanded", String(shouldOpen));
-}
-
 function syncStatusFilterMenu() {
-  document.querySelectorAll("#statusFilterMenu input").forEach((input) => {
-    input.checked = statusFilters.has(input.value);
-  });
-  const button = document.querySelector("#filterButton");
-  if (button) {
-    button.textContent = statusFilters.size ? `筛选 ${statusFilters.size}` : "筛选";
-  }
 }
 
 function closeMenus() {
   document.querySelector("#globalMoreMenu")?.setAttribute("hidden", "");
-  document.querySelector("#statusFilterMenu")?.setAttribute("hidden", "");
+  document.querySelector("#columnFilterPopover")?.setAttribute("hidden", "");
   document.querySelector("#rowMoreMenu")?.classList.remove("open");
   document.querySelectorAll('[aria-expanded="true"]').forEach((button) => {
     button.setAttribute("aria-expanded", "false");
   });
+}
+
+function handleColumnFilterClick(event) {
+  const button = event.target.closest("[data-column-filter]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openColumnFilterPopover(button);
+}
+
+function openColumnFilterPopover(button) {
+  const popover = document.querySelector("#columnFilterPopover");
+  const input = document.querySelector("#columnFilterInput");
+  const title = document.querySelector("#columnFilterTitle");
+  if (!popover || !input || !title) return;
+  const column = button.dataset.columnFilter || "";
+  const rect = button.getBoundingClientRect();
+  closeMenus();
+  popover.dataset.column = column;
+  title.textContent = `筛选：${column}`;
+  input.value = columnFilter.column === column ? columnFilter.value : "";
+  popover.hidden = false;
+  const width = 220;
+  popover.style.left = `${Math.min(Math.max(rect.left - width + rect.width, 12), window.innerWidth - width - 12)}px`;
+  popover.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 150)}px`;
+  button.setAttribute("aria-expanded", "true");
+  window.setTimeout(() => input.focus(), 0);
+}
+
+function handleColumnFilterPopoverClick(event) {
+  const action = event.target.closest("[data-column-filter-action]")?.dataset.columnFilterAction;
+  if (!action) return;
+  event.preventDefault();
+  if (action === "clear") {
+    clearColumnFilter();
+  } else {
+    applyColumnFilter();
+  }
+}
+
+async function applyColumnFilter() {
+  const popover = document.querySelector("#columnFilterPopover");
+  const input = document.querySelector("#columnFilterInput");
+  const column = popover?.dataset.column || "";
+  columnFilter = { column, value: input?.value.trim() || "" };
+  if (!columnFilter.value) columnFilter = { column: "", value: "" };
+  closeMenus();
+  try {
+    await refreshWorkbench();
+  } finally {
+    closeMenus();
+  }
+}
+
+async function clearColumnFilter() {
+  columnFilter = { column: "", value: "" };
+  const input = document.querySelector("#columnFilterInput");
+  if (input) input.value = "";
+  closeMenus();
+  try {
+    await refreshWorkbench();
+  } finally {
+    closeMenus();
+  }
 }
 
 function stopRowActionPropagation(event) {
@@ -1277,7 +1273,7 @@ function handleMoreMenu(event) {
     menu.classList.remove("open");
     return;
   }
-  if (event.target.closest("#filterButton") || event.target.closest("#statusFilterMenu")) {
+  if (event.target.closest("[data-column-filter]") || event.target.closest("#columnFilterPopover")) {
     return;
   }
   if (!event.target.closest("#globalMoreButton") && !event.target.closest("#globalMoreMenu")) {
@@ -2651,23 +2647,38 @@ function scheduleMetricsRefresh(delay = 220) {
 
 function dataColumnDef(column, sampleRows = []) {
   const mappedAnswer = fixedMappingColumns().includes(column);
+  const title = mappedAnswerTitle(column) || column;
   return {
-    title: mappedAnswerTitle(column) || column,
+    title,
+    titleFormatter: () => columnHeaderHtml(title, column),
     field: column,
-    minWidth: mappedAnswer ? 68 : 72,
-    width: mappedAnswer ? 74 : estimateColumnWidth(column, sampleRows),
-    maxWidth: mappedAnswer ? 82 : (previewColumn(column) ? 320 : 220),
+    minWidth: mappedAnswer ? 96 : 104,
+    width: mappedAnswer ? 96 : estimateColumnWidth(column, sampleRows),
+    maxWidth: mappedAnswer ? 108 : (previewColumn(column) ? 320 : 220),
     widthGrow: 0,
     widthShrink: 0,
     frozen: mappedAnswer,
+    headerSort: !mappedAnswer,
     formatter: mappedAnswer ? answerValueFormatter : (previewColumn(column) ? textPreviewFormatter : undefined),
     cssClass: [mappedAnswer ? "answer-cell" : "", previewColumn(column) ? "cell-preview" : ""].filter(Boolean).join(" "),
+    headerCssClass: mappedAnswer ? "mapped-answer-header" : "",
   };
 }
 
+function columnHeaderHtml(title, column) {
+  const active = columnFilter.column === column && columnFilter.value;
+  const mappedAnswer = fixedMappingColumns().includes(column);
+  return `
+    <span class="column-title-wrap">
+      <span class="column-title-text" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+      ${mappedAnswer ? "" : `<button class="column-filter-button ${active ? "active" : ""}" type="button" data-column-filter="${escapeHtml(column)}" aria-label="筛选 ${escapeHtml(title)}" aria-expanded="false"></button>`}
+    </span>
+  `;
+}
+
 function mappedAnswerTitle(column) {
-  if (column && column === latestFieldMapping?.human_answer_column) return "人工";
-  if (column && column === latestFieldMapping?.model_answer_column) return "标注";
+  if (column && column === latestFieldMapping?.human_answer_column) return "人工答案";
+  if (column && column === latestFieldMapping?.model_answer_column) return "标注答案";
   return "";
 }
 
@@ -2695,10 +2706,11 @@ function estimateColumnWidth(column, sampleRows = []) {
     measureTextUnits(column),
     ...sampleRows.slice(0, 20).map((row) => measureTextUnits(row?.[column])),
   );
-  const rawWidth = Math.ceil(maxContentUnits * 7.4 + 28);
+  const headerWidth = Math.ceil(measureTextUnits(mappedAnswerTitle(column) || column) * 7.4 + 112);
+  const rawWidth = Math.ceil(maxContentUnits * 7.4 + 78);
   const maxWidth = previewColumn(column) ? 320 : 220;
-  const minWidth = compactColumn(column) ? 78 : 92;
-  return Math.max(minWidth, Math.min(rawWidth, maxWidth));
+  const minWidth = compactColumn(column) ? 104 : 116;
+  return Math.max(minWidth, Math.min(Math.max(rawWidth, headerWidth), maxWidth));
 }
 
 function measureTextUnits(value) {
