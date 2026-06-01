@@ -358,6 +358,84 @@ def start_batch_analysis(payload: dict) -> dict:
     }
 
 
+def clear_batch_analysis_data(payload: dict) -> dict:
+    dataset_id = payload.get("dataset_id") or ""
+    scheme_id = payload.get("scheme_id") or ""
+    scope = payload.get("scope") or "all"
+    statuses = _normalize_status_values(payload.get("statuses") or [])
+    if not dataset_id:
+        raise HTTPException(status_code=400, detail="请选择数据集")
+    if scope == "statuses" and not statuses:
+        raise HTTPException(status_code=400, detail="请选择要删除分析数据的状态")
+
+    timestamp = now_iso()
+    with get_db() as conn:
+        dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+        if not scene:
+            raise HTTPException(status_code=404, detail="场景不存在")
+        table_name = scene["data_table_name"]
+        row_ids = _select_batch_analysis_row_ids(conn, dataset_id, scheme_id, scope, statuses)
+        if not row_ids:
+            raise HTTPException(status_code=400, detail="没有符合条件的数据行")
+
+        placeholders = ", ".join(["?"] * len(row_ids))
+        rows = conn.execute(
+            f"SELECT id, raw_data FROM {table_name} WHERE dataset_id=? AND id IN ({placeholders})",
+            (dataset_id, *row_ids),
+        ).fetchall()
+        for row in rows:
+            raw_data = decode_json(row["raw_data"], {})
+            raw_data.pop("分析数据", None)
+            preview_data, large_fields = build_row_preview_payload(raw_data)
+            conn.execute(
+                f"""
+                UPDATE {table_name}
+                SET raw_data=?, preview_data=?, large_fields=?, analysis_data='{{}}', updated_at=?
+                WHERE id=? AND dataset_id=?
+                """,
+                (encode_json(raw_data), preview_data, large_fields, timestamp, row["id"], dataset_id),
+            )
+
+        conn.execute(
+            f"DELETE FROM row_analysis_history WHERE dataset_id=? AND row_id IN ({placeholders})",
+            (dataset_id, *row_ids),
+        )
+        if scheme_id:
+            task_rows = conn.execute(
+                f"""
+                SELECT task_row.id
+                FROM annotation_task_rows task_row
+                JOIN annotation_tasks task ON task.id=task_row.task_id
+                WHERE task.dataset_id=? AND task.scheme_id=? AND task_row.row_id IN ({placeholders})
+                """,
+                (dataset_id, scheme_id, *row_ids),
+            ).fetchall()
+            task_row_ids = [row["id"] for row in task_rows]
+            if task_row_ids:
+                task_placeholders = ", ".join(["?"] * len(task_row_ids))
+                conn.execute(
+                    f"UPDATE annotation_task_rows SET analysis_data='{{}}', updated_at=? WHERE id IN ({task_placeholders})",
+                    (timestamp, *task_row_ids),
+                )
+        else:
+            conn.execute(
+                f"UPDATE annotation_task_rows SET analysis_data='{{}}', updated_at=? WHERE row_id IN ({placeholders})",
+                (timestamp, *row_ids),
+            )
+
+    return {
+        "dataset_id": dataset_id,
+        "scheme_id": scheme_id,
+        "scope": scope,
+        "statuses": statuses,
+        "row_ids": row_ids,
+        "deleted_count": len(row_ids),
+    }
+
+
 def _run_batch_analysis(batch_id: str, dataset_id: str, scheme_id: str, method_name: str, row_ids: list[str]) -> None:
     for row_id in row_ids:
         try:

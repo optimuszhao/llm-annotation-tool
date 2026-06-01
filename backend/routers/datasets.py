@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, File, Form, Query, UploadFile
 
 from backend.services.annotation_service import (
     analyze_dataset_row,
+    clear_batch_analysis_data,
     get_dataset_metrics,
     list_row_analysis_history,
     list_row_annotation_history,
@@ -93,6 +94,11 @@ def post_row_analysis(dataset_id: str, row_id: str, scheme_id: str = "", method_
 @router.post("/{dataset_id}/analysis-batch")
 def post_batch_analysis(dataset_id: str, payload: dict = Body(...)):
     return start_batch_analysis({**payload, "dataset_id": dataset_id})
+
+
+@router.post("/{dataset_id}/analysis-batch/delete")
+def post_delete_batch_analysis(dataset_id: str, payload: dict = Body(...)):
+    return clear_batch_analysis_data({**payload, "dataset_id": dataset_id})
 
 
 @router.get("/{dataset_id}/rows/{row_id}/analysis-history")

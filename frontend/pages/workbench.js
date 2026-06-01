@@ -136,10 +136,13 @@ export function renderWorkbenchPage() {
             <button class="btn" type="button" id="globalMoreButton" aria-expanded="false">更多</button>
             <div class="dropdown-menu" id="globalMoreMenu" hidden>
               <button type="button" data-global-action="batch-analysis">批量分析</button>
-              <button type="button" data-global-action="export">导出</button>
+              <button type="button" data-global-action="delete-analysis">批量删除分析数据</button>
+              <hr>
               <button type="button" data-global-action="columns">列设置</button>
-              <button type="button" data-global-action="delete">删除数据</button>
               <button type="button" data-global-action="stop">停止未完成标注</button>
+              <hr>
+              <button type="button" data-global-action="export">导出</button>
+              <button type="button" data-global-action="delete">删除数据</button>
             </div>
           </div>
           <button class="icon-btn table-focus-button" type="button" id="tableFocusButton" aria-label="全屏表格" title="全屏表格">
@@ -293,8 +296,8 @@ export function renderWorkbenchPage() {
           <div class="drawer-tabs" aria-label="行详情模式">
             <button type="button" data-drawer-mode="view">查看</button>
             <button type="button" data-drawer-mode="result">标注结果</button>
-            <button type="button" data-drawer-mode="edit">编辑</button>
             <button type="button" data-drawer-mode="analysis">分析</button>
+            <button type="button" data-drawer-mode="edit">编辑</button>
           </div>
           <div class="drawer-actions" id="drawerEditActions" hidden>
             <button class="btn" type="button" id="drawerExitEdit" hidden>退出编辑</button>
@@ -500,6 +503,8 @@ function bindWorkbenchEvents() {
       stopCurrentTask();
     } else if (action === "batch-analysis") {
       openBatchAnalysisModal();
+    } else if (action === "delete-analysis") {
+      deleteBatchAnalysisData();
     } else if (action === "delete") {
       deleteSelectedRows();
     } else if (action === "export") {
@@ -769,13 +774,15 @@ function buildColumns(columns, sampleRows = []) {
     {
       title: "状态",
       field: "状态",
-      titleFormatter: () => columnHeaderHtml("状态", "状态"),
+      titleFormatter: () => `<span class="fixed-header-title">状态</span>`,
       width: 88,
       minWidth: 88,
       maxWidth: 88,
       resizable: false,
       widthGrow: 0,
       widthShrink: 0,
+      frozen: true,
+      headerSort: false,
       formatter: (cell) => {
         const value = cell.getValue() || "未标注";
         return formatStatusPill(value);
@@ -791,6 +798,7 @@ function buildColumns(columns, sampleRows = []) {
       widthGrow: 0,
       widthShrink: 0,
       headerSort: false,
+      frozen: true,
       formatter: (cell) => {
         const rowData = cell.getData();
         const rowId = rowData.row_id || "";
@@ -1108,6 +1116,40 @@ async function startBatchAnalysis() {
   } finally {
     button.disabled = false;
     button.textContent = "开始批量分析";
+  }
+}
+
+async function deleteBatchAnalysisData() {
+  if (!state.activeDatasetId) {
+    toast("请先选择数据集");
+    return;
+  }
+  const scope = statusFilters.size ? "statuses" : "all";
+  const hint = scope === "statuses"
+    ? `当前状态筛选：${[...statusFilters].join("、")}`
+    : "当前数据集全部行";
+  if (!window.confirm(`确认删除分析数据？\n范围：${hint}\n会清空行详情中的分析结果和分析历史。`)) return;
+  try {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/analysis-batch/delete`, {
+      method: "POST",
+      body: JSON.stringify({
+        scheme_id: state.activeSchemeId || "",
+        scope,
+        statuses: [...statusFilters],
+      }),
+    });
+    for (const rowId of result.row_ids || []) {
+      updateVisibleRow(rowId, { "分析数据": {}, analysis_data: {} });
+    }
+    if (drawerRow && result.row_ids?.includes(drawerRow.row_id)) {
+      drawerRow = { ...drawerRow, analysis_data: {}, "分析数据": {} };
+      if (drawerMode === "analysis") renderDrawerAnalysisHistory();
+      if (drawerMode === "edit") renderDrawerEditAnalysis();
+    }
+    await refreshTableData({ keepPage: true });
+    toast(`已删除 ${result.deleted_count || 0} 行分析数据`);
+  } catch (error) {
+    toast(error.message);
   }
 }
 

@@ -1361,14 +1361,16 @@ button { cursor: pointer; }
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 54px;
-  height: 26px;
-  padding: 0 9px;
+  min-width: 46px;
+  height: 24px;
+  padding: 0 11px;
   border-radius: 999px;
-  font-size: 13px;
-  font-weight: 700;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  font-size: 12px;
+  font-weight: 850;
   background: var(--surface-2);
   color: var(--muted);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.62);
 }
 .status-pill.tp { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); }
 .status-pill.tn { color: var(--info); background: color-mix(in srgb, var(--info) 14%, transparent); }
@@ -2607,7 +2609,11 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
-  z-index: 10000;
+  z-index: 23050;
+}
+.modal-backdrop.open,
+.detail-drawer-layer.open {
+  z-index: 23000;
 }
 .floating-menu.open { display: grid; gap: 4px; }
 .floating-menu button {
@@ -4851,7 +4857,7 @@ body.table-focus-active .page.active {
   right: 0;
   z-index: 40;
   display: grid;
-  min-width: 132px;
+  min-width: 168px;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -4868,10 +4874,18 @@ body.table-focus-active .page.active {
   background: transparent;
   color: var(--text);
   text-align: left;
+  white-space: nowrap;
 }
 .dropdown-menu button:hover {
   background: var(--primary-soft);
   color: var(--primary-strong);
+}
+.dropdown-menu hr {
+  width: 100%;
+  height: 1px;
+  margin: 5px 0;
+  border: 0;
+  background: var(--line);
 }
 .status-filter-menu {
   min-width: 192px;
@@ -5086,18 +5100,20 @@ body.table-focus-active .page.active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: min(54px, 100%);
+  width: min(48px, 100%);
   height: 24px;
-  padding: 0 8px;
+  padding: 0 10px;
   overflow: hidden;
   border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
   background: var(--draft);
   color: var(--muted);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 850;
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.62);
 }
 .answer-pill.yes {
   background: color-mix(in srgb, var(--success) 14%, transparent);
@@ -5133,8 +5149,6 @@ body.table-focus-active .page.active {
   width: 88px !important;
   max-width: 88px !important;
   min-width: 88px !important;
-  position: sticky !important;
-  right: 176px !important;
   z-index: 8;
 }
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"],
@@ -5142,8 +5156,6 @@ body.table-focus-active .page.active {
   width: 176px !important;
   max-width: 176px !important;
   min-width: 176px !important;
-  position: sticky !important;
-  right: 0 !important;
   z-index: 9;
 }
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"] {
@@ -5155,7 +5167,7 @@ body.table-focus-active .page.active {
 }
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="状态"],
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
-  background: inherit !important;
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-2)) !important;
   box-shadow: -8px 0 14px rgba(20, 33, 61, .06);
 }
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
@@ -5166,9 +5178,22 @@ body.table-focus-active .page.active {
   padding-right: 6px;
   padding-left: 6px;
 }
+.fixed-header-title {
+  display: block;
+  width: 100%;
+  color: color-mix(in srgb, var(--muted) 84%, var(--text));
+  font-weight: 850;
+  text-align: center;
+}
 .workbench-pro .tabulator-row .tabulator-cell.tabulator-frozen {
-  background: inherit;
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-2));
   box-shadow: -6px 0 12px rgba(20, 33, 61, .035);
+}
+.workbench-pro .tabulator-row.tabulator-row-even .tabulator-cell.tabulator-frozen {
+  background: color-mix(in srgb, var(--primary-soft) 18%, var(--surface-2));
+}
+.workbench-pro .tabulator-row.tabulator-row-odd .tabulator-cell.tabulator-frozen {
+  background: var(--surface);
 }
 .workbench-pro .tabulator .tabulator-row.tabulator-row-even {
   background: color-mix(in srgb, var(--primary-soft) 18%, var(--surface-2));

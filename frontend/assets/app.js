@@ -1,5 +1,5 @@
 import { renderManagePage } from "/pages/manage.js?v=20260531-manage-studio-v2";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260601-preview-columns";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260601-focus-menu-layer";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
