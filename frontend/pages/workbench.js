@@ -88,25 +88,25 @@ export function renderWorkbenchPage() {
 
       <div class="metric-strip" aria-label="数据指标">
         <section class="metric-group metric-group-volume" aria-label="数据量">
-          <div><span>总数</span><strong id="metricTotal">0</strong></div>
-          <div><span>未标注</span><strong id="metricUnannotated">0</strong></div>
-          <div><span>已标注</span><strong id="metricDone">0</strong></div>
-          <div><span>排队中</span><strong id="metricQueued">0</strong></div>
-          <div><span>标注中</span><strong id="metricRunning">0</strong></div>
+          <div title="当前数据集总行数。"><span>总数</span><strong id="metricTotal">0</strong></div>
+          <div title="当前方案下尚未产生标注结果的行数。"><span>未标注</span><strong id="metricUnannotated">0</strong></div>
+          <div title="已完成评估的行数，计算公式：TP + TN + FP + FN。"><span>已标注</span><strong id="metricDone">0</strong></div>
+          <div title="已创建任务、等待执行的行数。"><span>排队中</span><strong id="metricQueued">0</strong></div>
+          <div title="当前正在调用标注方法的行数。"><span>标注中</span><strong id="metricRunning">0</strong></div>
         </section>
         <section class="metric-group metric-group-confusion" aria-label="混淆矩阵">
-          <div><span>TP</span><strong id="metricTp">0</strong></div>
-          <div><span>TN</span><strong id="metricTn">0</strong></div>
-          <div><span>FP</span><strong id="metricFp">0</strong></div>
-          <div><span>FN</span><strong id="metricFn">0</strong></div>
+          <div title="TP：人工答案为是，模型标注为是。"><span>TP</span><strong id="metricTp">0</strong></div>
+          <div title="TN：人工答案为否，模型标注为否。"><span>TN</span><strong id="metricTn">0</strong></div>
+          <div title="FP：人工答案为否，模型标注为是。"><span>FP</span><strong id="metricFp">0</strong></div>
+          <div title="FN：人工答案为是，模型标注为否。"><span>FN</span><strong id="metricFn">0</strong></div>
         </section>
         <section class="metric-group metric-group-rate" aria-label="评估率">
-          <div><span>算法准确率</span><strong id="metricAccuracy">--</strong></div>
-          <div><span>正确查全率</span><strong id="metricRecall">--</strong></div>
-          <div><span>正确查准率</span><strong id="metricPrecision">--</strong></div>
-          <div><span>错误查准率</span><strong id="metricSpecificity">--</strong></div>
-          <div><span>F1 score</span><strong id="metricF1">--</strong></div>
-          <div><span>业务准确率</span><strong id="metricFpr">--</strong></div>
+          <div title="算法准确率：整体判断正确比例。公式：(TP + TN) / (TP + TN + FP + FN)。"><span>算法准确率</span><strong id="metricAccuracy">--</strong></div>
+          <div title="正确查全率：人工为是的数据中，被模型标为是的比例。公式：TP / (TP + FN)。"><span>正确查全率</span><strong id="metricRecall">--</strong></div>
+          <div title="正确查准率：模型标为是的数据中，人工也为是的比例。公式：TP / (TP + FP)。"><span>正确查准率</span><strong id="metricPrecision">--</strong></div>
+          <div title="错误查准率：模型标为否的数据中，人工也为否的比例。公式：TN / (TN + FN)。"><span>错误查准率</span><strong id="metricSpecificity">--</strong></div>
+          <div title="F1 score：正确查准率和正确查全率的综合指标。公式：(2 × TP) / (2 × TP + FP + FN)。"><span>F1 score</span><strong id="metricF1">--</strong></div>
+          <div title="业务准确率：模型标为是的占比。公式：(TP + FP) / (TP + TN + FP + FN)。"><span>业务准确率</span><strong id="metricFpr">--</strong></div>
         </section>
       </div>
 
@@ -2391,7 +2391,17 @@ function applyTableFontSize() {
 }
 
 function previewColumn(column) {
-  return /API Part|API Order|Summary|标注数据|分析数据|模型说明|raw_output/.test(column);
+  const text = String(column || "");
+  const compact = text.toLowerCase().replace(/[\s_-]+/g, "");
+  return (
+    /API Part|API Order|Summary|标注数据|分析数据|模型说明|raw_output|抽检人/.test(text)
+    || compact.includes("apiorder")
+    || compact.includes("apiorderinfo")
+    || /^api数据part[1-7]$/.test(compact)
+    || /^apidata(part)?[1-7]$/.test(compact)
+    || compact.includes("rootcause")
+    || compact.includes("jbreport")
+  );
 }
 
 function textPreviewFormatter(cell) {
@@ -2566,7 +2576,7 @@ async function refreshMetrics() {
 }
 
 function setMetrics(metrics) {
-  const done = (metrics.tp || 0) + (metrics.fp || 0);
+  const done = (metrics.tp || 0) + (metrics.tn || 0) + (metrics.fp || 0) + (metrics.fn || 0);
   document.querySelector("#metricTotal").textContent = formatNumber(metrics.total);
   document.querySelector("#metricUnannotated").textContent = formatNumber(metrics.unannotated);
   document.querySelector("#metricDone").textContent = formatNumber(done);

@@ -21,7 +21,9 @@ ROW_STATUS_RUNNING = "标注中"
 ROW_STATUS_CANCELLED = "取消"
 ROW_STATUS_FAILED = "失败"
 ROW_STATUS_TP = "TP"
+ROW_STATUS_TN = "TN"
 ROW_STATUS_FP = "FP"
+ROW_STATUS_FN = "FN"
 
 _global_semaphore = threading.Semaphore(GLOBAL_CONCURRENCY_LIMIT)
 _subscriber_lock = threading.Lock()
@@ -409,7 +411,7 @@ def _select_batch_analysis_row_ids(
     where = "d.dataset_id=?"
     params: list = [dataset_id]
     if scope == "statuses":
-        status_expr = "COALESCE(latest.scheme_status, d.annotation_status, '未标注')" if scheme_id else "COALESCE(d.annotation_status, '未标注')"
+        status_expr = "COALESCE(latest.scheme_status, '未标注')" if scheme_id else "COALESCE(d.annotation_status, '未标注')"
         where += _status_filter_sql(status_expr, statuses, params)
 
     if scheme_id:
@@ -588,11 +590,11 @@ def get_dataset_metrics(dataset_id: str, scheme_id: str = "") -> dict:
                   )
                   WHERE rn=1
                 )
-                SELECT COALESCE(latest.annotation_status, data_row.annotation_status, '未标注') AS annotation_status, COUNT(*) AS count
+                SELECT COALESCE(latest.annotation_status, '未标注') AS annotation_status, COUNT(*) AS count
                 FROM {table_name} data_row
                 LEFT JOIN latest_scheme_rows latest ON latest.row_id=data_row.id
                 WHERE data_row.dataset_id=?
-                GROUP BY COALESCE(latest.annotation_status, data_row.annotation_status, '未标注')
+                GROUP BY COALESCE(latest.annotation_status, '未标注')
                 """,
                 (dataset_id, scheme_id, dataset_id),
             ).fetchall()
@@ -608,9 +610,9 @@ def get_dataset_metrics(dataset_id: str, scheme_id: str = "") -> dict:
             ).fetchall()
     counts = {row["annotation_status"] or "未标注": row["count"] for row in rows}
     tp = counts.get(ROW_STATUS_TP, 0)
-    tn = counts.get("TN", 0)
+    tn = counts.get(ROW_STATUS_TN, 0)
     fp = counts.get(ROW_STATUS_FP, 0)
-    fn = counts.get("FN", 0)
+    fn = counts.get(ROW_STATUS_FN, 0)
     evaluated = tp + tn + fp + fn
     algorithm_accuracy = round((tp + tn) / evaluated, 4) if evaluated else None
     correct_recall = round(tp / (tp + fn), 4) if tp + fn else None
@@ -771,9 +773,7 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
     if not human_answer_column or _is_blank(row_data.get(human_answer_column)):
         raise ValueError(f"人工答案列为空或未配置：{human_answer_column or '未配置'}")
 
-    human_value = _normalize_answer(row_data.get(human_answer_column))
-    model_value = _normalize_answer(model_result.get(model_answer_column))
-    status = ROW_STATUS_TP if human_value == model_value else ROW_STATUS_FP
+    status = _judge_confusion_status(row_data.get(human_answer_column), model_result.get(model_answer_column))
     timestamp = now_iso()
 
     with get_db() as conn:
@@ -1189,7 +1189,12 @@ def _refresh_task_counts(conn, task_id: str, timestamp: str) -> dict:
     running = counts.get(ROW_STATUS_RUNNING, 0)
     failed = counts.get(ROW_STATUS_FAILED, 0)
     cancelled = counts.get(ROW_STATUS_CANCELLED, 0)
-    done = counts.get(ROW_STATUS_TP, 0) + counts.get(ROW_STATUS_FP, 0)
+    done = (
+        counts.get(ROW_STATUS_TP, 0)
+        + counts.get(ROW_STATUS_TN, 0)
+        + counts.get(ROW_STATUS_FP, 0)
+        + counts.get(ROW_STATUS_FN, 0)
+    )
     status = "running" if queued or running else "done"
     if not queued and not running and cancelled:
         status = "stopped"
@@ -1227,4 +1232,33 @@ def _is_blank(value: Any) -> bool:
 
 
 def _normalize_answer(value: Any) -> str:
-    return str(value).strip()
+    text = str(value or "").strip().lower()
+    if text.startswith("mock_"):
+        text = text[5:]
+    return "".join(text.split())
+
+
+def _answer_polarity(value: Any) -> Optional[bool]:
+    normalized = _normalize_answer(value)
+    positive_values = {"1", "true", "yes", "y", "positive", "pos", "是", "有", "正", "正例", "阳性", "命中"}
+    negative_values = {"0", "false", "no", "n", "negative", "neg", "否", "无", "负", "负例", "阴性", "未命中"}
+    if normalized in positive_values:
+        return True
+    if normalized in negative_values:
+        return False
+    return None
+
+
+def _judge_confusion_status(human_value: Any, model_value: Any) -> str:
+    human_positive = _answer_polarity(human_value)
+    model_positive = _answer_polarity(model_value)
+    if human_positive is not None and model_positive is not None:
+        if human_positive and model_positive:
+            return ROW_STATUS_TP
+        if not human_positive and not model_positive:
+            return ROW_STATUS_TN
+        if not human_positive and model_positive:
+            return ROW_STATUS_FP
+        return ROW_STATUS_FN
+
+    return ROW_STATUS_TP if _normalize_answer(human_value) == _normalize_answer(model_value) else ROW_STATUS_FP
