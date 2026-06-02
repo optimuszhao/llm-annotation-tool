@@ -823,9 +823,9 @@ function buildColumns(columns, sampleRows = []) {
     {
       title: "操作",
       field: "row_id",
-      width: 176,
-      minWidth: 176,
-      maxWidth: 176,
+      width: 204,
+      minWidth: 204,
+      maxWidth: 204,
       resizable: false,
       widthGrow: 0,
       widthShrink: 0,

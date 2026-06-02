@@ -1412,12 +1412,13 @@ button { cursor: pointer; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
 }
 .action-mini {
   height: 30px;
-  padding: 0 10px;
+  min-width: 48px;
+  padding: 0 11px;
   border: 1px solid color-mix(in srgb, var(--primary) 12%, var(--line));
   border-radius: 7px;
   background: color-mix(in srgb, var(--surface) 92%, var(--surface-2));
@@ -1440,11 +1441,13 @@ button { cursor: pointer; }
   box-shadow: 0 8px 18px color-mix(in srgb, var(--primary) 22%, transparent), inset 0 1px 0 rgba(255,255,255,.22);
 }
 .action-mini.reannotate {
+  min-width: 72px;
   border-color: color-mix(in srgb, #7c3aed 26%, var(--line));
   background: color-mix(in srgb, #ede9fe 76%, var(--surface));
   color: #5b21b6;
 }
 .action-mini.info {
+  min-width: 48px;
   border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
   background: color-mix(in srgb, var(--accent-soft) 74%, var(--surface));
   color: var(--accent);
@@ -1455,7 +1458,7 @@ button { cursor: pointer; }
   color: var(--warning);
 }
 .action-mini.more {
-  min-width: 46px;
+  min-width: 48px;
   border-color: color-mix(in srgb, var(--muted) 18%, var(--line));
   background: color-mix(in srgb, var(--surface) 94%, var(--surface-2));
   color: var(--muted);
