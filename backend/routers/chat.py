@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 
-from user_hooks import hooks
+from user_hooks.llm_chat import llm_dialog_stream_function
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -12,28 +13,21 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 class ChatPayload(BaseModel):
     message: str
     model_key: str = "demo"
+    history: list[dict] = []
 
 
-@router.post("")
-def chat_with_model(payload: ChatPayload):
+@router.post("/stream")
+def stream_chat_with_model(payload: ChatPayload):
     message = payload.message.strip()
     if not message:
-        return {"result": {}, "reply": "请输入要发送给大模型的内容。"}
+        return StreamingResponse(iter(["请输入要发送给大模型的内容。"]), media_type="text/plain; charset=utf-8")
 
-    prompt = {
-        "name": "对话大模型",
-        "role_name": "用户",
-        "content": message,
+    stream_payload = {
+        "message": message,
+        "history": payload.history,
+        "model_key": payload.model_key or "demo",
     }
-    context = {
-        "source": "chat_page",
-        "field_mapping": {
-            "model_answer_column": "GPT4_标注",
-        },
-    }
-    result = hooks.call_model(payload.model_key or "demo", {"用户": prompt}, context)
-    reply = result.get("模型说明") or result.get("GPT4_标注") or ""
-    return {
-        "result": result,
-        "reply": str(reply),
-    }
+    return StreamingResponse(
+        llm_dialog_stream_function(stream_payload),
+        media_type="text/plain; charset=utf-8",
+    )

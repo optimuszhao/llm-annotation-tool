@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
 
 
 def llm_chat_function(prompt: dict) -> dict:
@@ -45,3 +46,33 @@ def llm_chat_function(prompt: dict) -> dict:
             ensure_ascii=False,
         )[:500],
     }
+
+
+def llm_dialog_stream_function(payload: dict) -> Iterator[str]:
+    """对话大模型流式调用入口。
+
+    这个方法专门给“对话大模型”页面使用，和标注用的 `llm_chat_function` 分开。
+
+    入参：
+    - `payload["message"]`：用户本次输入。
+    - `payload["history"]`：历史对话列表，元素格式为 {"role": "user" | "assistant", "content": "..."}。
+    - `payload["model_key"]`：模型标识，默认 demo。
+
+    返回：
+    - 逐段 yield 字符串。
+    - 正式接入流式模型时，把模型返回的 delta/content 持续 yield 出来即可。
+
+    正式接入示例：
+    for chunk in your_llm_client.chat_stream(payload["message"], history=payload["history"]):
+        yield chunk
+    """
+    message = payload.get("message", "")
+    chunks = [
+        "这是对话页面的 Mock 流式回复。\n",
+        "当前输入：",
+        str(message),
+        "\n\n正式环境请在 user_hooks/llm_chat.py 的 llm_dialog_stream_function 中接入你的对话大模型。",
+    ]
+    for chunk in chunks:
+        time.sleep(0.25)
+        yield chunk
