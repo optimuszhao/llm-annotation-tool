@@ -30,6 +30,7 @@ let drawerAnnotationHistoryRequest = 0;
 let drawerResizeCleanup = null;
 let drawerAnalysisSplitCleanup = null;
 let statusFilters = new Set();
+let favoriteOnlyFilter = false;
 let columnFilter = { column: "", value: "" };
 let availableDatasetColumns = [];
 let latestFieldMapping = null;
@@ -132,6 +133,7 @@ export function renderWorkbenchPage() {
         </div>
         <div class="toolbar-right">
           <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新列表</button>
+          <button class="btn favorite-filter-button" type="button" id="favoriteFilterButton">只看收藏</button>
           <div class="dropdown-wrap">
             <button class="btn status-filter-button" type="button" id="statusFilterButton" aria-expanded="false">状态筛选</button>
             <div class="dropdown-menu status-filter-menu" id="statusFilterMenu" hidden>
@@ -155,6 +157,7 @@ export function renderWorkbenchPage() {
             <div class="dropdown-menu" id="globalMoreMenu" hidden>
               <button type="button" data-global-action="batch-analysis">批量分析</button>
               <button type="button" data-global-action="delete-analysis">批量删除分析数据</button>
+              <button type="button" data-global-action="clear-favorite">批量取消收藏</button>
               <hr>
               <button type="button" data-global-action="columns">列设置</button>
               <button type="button" data-global-action="stop">停止未完成标注</button>
@@ -328,6 +331,7 @@ export function renderWorkbenchPage() {
                 ${renderAnalysisMethodOptions()}
               </select>
             </label>
+            <button class="btn drawer-favorite-button" type="button" id="drawerFavoriteButton" hidden>收藏</button>
             <button class="btn primary" type="button" id="drawerReanalyze" hidden>重新分析</button>
           </div>
         </div>
@@ -496,6 +500,7 @@ function bindWorkbenchEvents() {
   document.querySelector("#batchAnalysisStart").addEventListener("click", startBatchAnalysis);
   document.querySelector("#sourceModalBackdrop").addEventListener("click", handleSourceModalClick);
   document.querySelector("#refreshTableButton").addEventListener("click", refreshTableData);
+  document.querySelector("#favoriteFilterButton").addEventListener("click", toggleFavoriteFilter);
   document.querySelector("#tableFocusButton").addEventListener("click", toggleTableFocusMode);
   document.querySelector("#columnFilterPopover").addEventListener("click", handleColumnFilterPopoverClick);
   document.querySelector("#columnFilterInput").addEventListener("keydown", (event) => {
@@ -527,6 +532,8 @@ function bindWorkbenchEvents() {
       openBatchAnalysisModal();
     } else if (action === "delete-analysis") {
       deleteBatchAnalysisData();
+    } else if (action === "clear-favorite") {
+      clearFavoriteRows();
     } else if (action === "delete") {
       deleteSelectedRows();
     } else if (action === "export") {
@@ -561,6 +568,7 @@ function bindWorkbenchEvents() {
   document.querySelector("#drawerSave").addEventListener("click", saveDrawerEdit);
   document.querySelector("#drawerExitEdit").addEventListener("click", () => setDrawerMode("view"));
   document.querySelector("#drawerReanalyze").addEventListener("click", analyzeDrawerRow);
+  document.querySelector("#drawerFavoriteButton").addEventListener("click", toggleDrawerFavorite);
   document.querySelector("#drawerEditor").addEventListener("input", markDrawerDirty);
   document.querySelector("#drawerFieldFilterButton").addEventListener("click", toggleDrawerFieldPopover);
   document.querySelector("#drawerFieldPopover").addEventListener("click", handleDrawerFieldPopoverClick);
@@ -650,6 +658,7 @@ export async function refreshWorkbench() {
     if (token !== refreshToken) return;
     await refreshMetrics();
     syncStatusFilterMenu();
+    syncFavoriteFilterButton();
     setBatchButtonState();
     await loadLatestTask();
     return;
@@ -729,6 +738,7 @@ export async function refreshWorkbench() {
   tableReadyForRealtime = true;
   await refreshMetrics();
   syncStatusFilterMenu();
+  syncFavoriteFilterButton();
   setBatchButtonState();
   await loadLatestTask();
 }
@@ -845,6 +855,7 @@ function buildRowsQuery(page, pageSize) {
   params.set("search_column", columnFilter.column || "");
   if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
   statusFilters.forEach((status) => params.append("statuses", status));
+  if (favoriteOnlyFilter) params.set("favorite", "true");
   return params.toString();
 }
 
@@ -1062,7 +1073,9 @@ async function applySourceModal() {
 
 function resetWorkbenchQueryState() {
   statusFilters = new Set();
+  favoriteOnlyFilter = false;
   columnFilter = { column: "", value: "" };
+  syncFavoriteFilterButton();
   const selectCurrentPage = document.querySelector("#selectCurrentPage");
   if (selectCurrentPage) selectCurrentPage.checked = false;
   tableBuildKey = "";
@@ -1170,6 +1183,49 @@ async function deleteBatchAnalysisData() {
     }
     await refreshTableData({ keepPage: true });
     toast(`已删除 ${result.deleted_count || 0} 行分析数据`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function syncFavoriteFilterButton() {
+  const button = document.querySelector("#favoriteFilterButton");
+  if (!button) return;
+  button.classList.toggle("active", favoriteOnlyFilter);
+  button.textContent = favoriteOnlyFilter ? "已筛收藏" : "只看收藏";
+}
+
+async function toggleFavoriteFilter() {
+  favoriteOnlyFilter = !favoriteOnlyFilter;
+  syncFavoriteFilterButton();
+  await refreshWorkbench();
+}
+
+async function clearFavoriteRows() {
+  if (!state.activeDatasetId) {
+    toast("请先选择数据集");
+    return;
+  }
+  const selectedIds = table?.getSelectedRows?.().map((row) => row.getData().row_id).filter(Boolean) || [];
+  const scopeText = selectedIds.length ? `当前选中的 ${selectedIds.length} 行` : (favoriteOnlyFilter ? "当前收藏筛选结果" : "当前数据集全部收藏行");
+  if (!window.confirm(`确认取消收藏？\n范围：${scopeText}`)) return;
+  try {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/favorite/clear`, {
+      method: "POST",
+      body: JSON.stringify({
+        row_ids: selectedIds,
+        favorite_only: true,
+      }),
+    });
+    for (const rowId of result.row_ids || []) {
+      updateVisibleRow(rowId, { is_favorite: false, 收藏: "否" });
+    }
+    if (drawerRow && result.row_ids?.includes(drawerRow.row_id)) {
+      drawerRow = { ...drawerRow, is_favorite: false, 收藏: "否" };
+      syncDrawerFavoriteButton();
+    }
+    if (favoriteOnlyFilter) await refreshTableData({ keepPage: true });
+    toast(`已取消收藏 ${result.updated_count || 0} 行`);
   } catch (error) {
     toast(error.message);
   }
@@ -1657,6 +1713,8 @@ async function setDrawerMode(mode) {
   setDrawerElementVisible("#drawerSave", mode === "edit");
   setDrawerElementVisible("#drawerExitEdit", mode === "edit");
   setDrawerElementVisible("#drawerReanalyze", mode === "analysis");
+  setDrawerElementVisible("#drawerFavoriteButton", mode === "analysis");
+  syncDrawerFavoriteButton();
   document.querySelector("#drawerSave").disabled = true;
   document.querySelector("#drawerFieldPopover")?.setAttribute("hidden", "");
   document.querySelector("#drawerAnalysisResultPopover")?.setAttribute("hidden", "");
@@ -1774,6 +1832,38 @@ async function analyzeDrawerRow() {
       }
     }
     toast(error.message);
+  }
+}
+
+function syncDrawerFavoriteButton() {
+  const button = document.querySelector("#drawerFavoriteButton");
+  if (!button || !drawerRow) return;
+  const isFavorite = Boolean(drawerRow.is_favorite);
+  button.classList.toggle("active", isFavorite);
+  button.textContent = isFavorite ? "已收藏" : "收藏";
+  button.title = isFavorite ? "点击取消收藏" : "点击收藏这条数据";
+}
+
+async function toggleDrawerFavorite() {
+  if (!drawerRow?.row_id || !state.activeDatasetId) return;
+  const nextFavorite = !Boolean(drawerRow.is_favorite);
+  const button = document.querySelector("#drawerFavoriteButton");
+  if (button) button.disabled = true;
+  try {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}/favorite`, {
+      method: "POST",
+      body: JSON.stringify({ is_favorite: nextFavorite }),
+    });
+    drawerRow = { ...drawerRow, ...result };
+    currentDetailRow = drawerRow;
+    updateVisibleRow(drawerRow.row_id, result);
+    syncDrawerFavoriteButton();
+    toast(nextFavorite ? "已收藏这条数据" : "已取消收藏");
+    if (favoriteOnlyFilter && !nextFavorite) await refreshTableData({ keepPage: true });
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 

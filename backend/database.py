@@ -75,6 +75,7 @@ def create_scene_data_table(conn: sqlite3.Connection, table_name: str) -> None:
             model_result TEXT NOT NULL DEFAULT '{{}}',
             analysis_data TEXT NOT NULL DEFAULT '{{}}',
             rendered_prompt TEXT NOT NULL DEFAULT '',
+            is_favorite INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT
         )
         """
@@ -86,12 +87,16 @@ def create_scene_data_table(conn: sqlite3.Connection, table_name: str) -> None:
     ensure_column(conn, table_name, "model_result", "TEXT NOT NULL DEFAULT '{}'")
     ensure_column(conn, table_name, "analysis_data", "TEXT NOT NULL DEFAULT '{}'")
     ensure_column(conn, table_name, "rendered_prompt", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, table_name, "is_favorite", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, table_name, "updated_at", "TEXT")
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS idx_{table_name}_dataset ON {table_name}(dataset_id)"
     )
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS idx_{table_name}_annotation_status ON {table_name}(annotation_status)"
+    )
+    conn.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_{table_name}_favorite ON {table_name}(is_favorite)"
     )
 
 

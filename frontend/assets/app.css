@@ -1262,6 +1262,16 @@ button { cursor: pointer; }
   color: var(--primary-strong);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 16%, transparent);
 }
+.favorite-filter-button.active,
+.drawer-favorite-button.active {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--line));
+  background: color-mix(in srgb, var(--warning-soft) 70%, var(--surface));
+  color: var(--warning);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 14%, transparent);
+}
+.drawer-favorite-button {
+  min-width: 74px;
+}
 .refresh-table-button {
   height: 36px;
   border-radius: 8px;
@@ -1402,51 +1412,59 @@ button { cursor: pointer; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   width: 100%;
 }
 .action-mini {
   height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--surface-2));
-  color: var(--text);
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 12%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--surface-2));
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
-  box-shadow: 0 8px 16px rgba(20, 33, 61, .06);
-  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.64);
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease, color .16s ease;
 }
 .action-mini:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(20, 33, 61, .10);
-  filter: saturate(1.08);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--line));
+  box-shadow: 0 8px 18px rgba(20, 33, 61, .08), inset 0 1px 0 rgba(255,255,255,.7);
 }
 .action-mini.primary {
-  border-color: color-mix(in srgb, var(--primary) 78%, var(--line));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 86%, #fff), var(--primary));
+  border-color: color-mix(in srgb, var(--primary) 72%, var(--line));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 88%, #fff), var(--primary));
   color: #fff;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--primary) 22%, transparent), inset 0 1px 0 rgba(255,255,255,.22);
 }
 .action-mini.reannotate {
-  border-color: color-mix(in srgb, #7c3aed 72%, var(--line));
-  background: linear-gradient(180deg, color-mix(in srgb, #7c3aed 84%, #fff), #7c3aed);
-  color: #fff;
+  border-color: color-mix(in srgb, #7c3aed 26%, var(--line));
+  background: color-mix(in srgb, #ede9fe 76%, var(--surface));
+  color: #5b21b6;
 }
 .action-mini.info {
-  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 84%, #fff), var(--accent));
-  color: #fff;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 74%, var(--surface));
+  color: var(--accent);
 }
 .action-mini.warning {
-  border-color: color-mix(in srgb, var(--warning) 72%, var(--line));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 84%, #fff), var(--warning));
-  color: #fff;
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--line));
+  background: color-mix(in srgb, var(--warning-soft) 72%, var(--surface));
+  color: var(--warning);
 }
 .action-mini.more {
-  border-color: color-mix(in srgb, var(--warning) 72%, var(--line));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 84%, #fff), var(--warning));
-  color: #fff;
+  min-width: 46px;
+  border-color: color-mix(in srgb, var(--muted) 18%, var(--line));
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-2));
+  color: var(--muted);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.68);
+}
+.action-mini.more:hover {
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--line));
+  background: color-mix(in srgb, var(--primary-soft) 42%, var(--surface));
+  color: var(--primary-strong);
 }
 
 .task-strip {

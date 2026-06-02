@@ -1,5 +1,5 @@
 import { renderManagePage } from "/pages/manage.js?v=20260531-manage-studio-v2";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260602-status-filter";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260602-favorite-rows";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 

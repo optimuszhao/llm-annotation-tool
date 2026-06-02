@@ -389,6 +389,7 @@ def get_dataset_rows(
     search_column: str = "",
     scheme_id: str = "",
     statuses: Optional[list[str]] = None,
+    favorite_only: bool = False,
 ) -> dict:
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
@@ -446,6 +447,8 @@ def get_dataset_rows(
                 clauses.append(f"{status_expr} IN ({placeholders})")
                 params.extend(concrete_statuses)
             where += f" AND ({' OR '.join(clauses)})"
+        if favorite_only:
+            where += f" AND {base_alias + '.' if base_alias else ''}is_favorite=1"
 
         if scheme_view:
             latest_cte = _latest_scheme_rows_cte()
@@ -468,6 +471,7 @@ def get_dataset_rows(
                     d.row_index,
                     COALESCE(NULLIF(d.preview_data, '{{}}'), d.raw_data) AS preview_data,
                     d.large_fields,
+                    d.is_favorite,
                     d.annotation_status,
                     d.model_result,
                     d.analysis_data,
@@ -496,6 +500,7 @@ def get_dataset_rows(
                     row_index,
                     COALESCE(NULLIF(preview_data, '{{}}'), raw_data) AS preview_data,
                     large_fields,
+                    is_favorite,
                     annotation_status
                 FROM {table_name}
                 WHERE {where}
@@ -569,6 +574,7 @@ def _load_dataset_row(conn, dataset_id: str, row_id: str, scheme_id: str = "") -
                 d.raw_data,
                 d.preview_data,
                 d.large_fields,
+                d.is_favorite,
                 d.annotation_status,
                 d.model_result,
                 d.analysis_data,
@@ -586,7 +592,7 @@ def _load_dataset_row(conn, dataset_id: str, row_id: str, scheme_id: str = "") -
     else:
         row = conn.execute(
             f"""
-            SELECT id, row_index, raw_data, preview_data, large_fields, annotation_status, model_result, analysis_data, rendered_prompt
+            SELECT id, row_index, raw_data, preview_data, large_fields, is_favorite, annotation_status, model_result, analysis_data, rendered_prompt
             FROM {scene['data_table_name']}
             WHERE id=? AND dataset_id=?
             """,
@@ -618,6 +624,8 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
         "row_id": row["id"],
         "row_index": row["row_index"],
         "状态": status,
+        "is_favorite": bool(row.get("is_favorite")),
+        "收藏": "是" if row.get("is_favorite") else "否",
     }
     infer_large_fields = preview and not large_fields
     for column in columns:
@@ -635,6 +643,54 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
         if analysis_data and "分析数据" not in item:
             item["分析数据"] = analysis_data
     return item
+
+
+def update_dataset_row_favorite(dataset_id: str, row_id: str, is_favorite: bool) -> dict:
+    with get_db() as conn:
+        dataset, scene, row = _load_dataset_row(conn, dataset_id, row_id)
+        timestamp = now_iso()
+        conn.execute(
+            f"UPDATE {scene['data_table_name']} SET is_favorite=?, updated_at=? WHERE id=? AND dataset_id=?",
+            (1 if is_favorite else 0, timestamp, row_id, dataset_id),
+        )
+    return {
+        "row_id": row_id,
+        "is_favorite": bool(is_favorite),
+        "收藏": "是" if is_favorite else "否",
+    }
+
+
+def clear_dataset_rows_favorite(dataset_id: str, payload: dict) -> dict:
+    row_ids = [str(row_id) for row_id in payload.get("row_ids") or [] if row_id]
+    favorite_only = bool(payload.get("favorite_only", True))
+    with get_db() as conn:
+        dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+        if not scene:
+            raise HTTPException(status_code=404, detail="场景不存在")
+        table_name = scene["data_table_name"]
+        where = "dataset_id=?"
+        params: list[Any] = [dataset_id]
+        if row_ids:
+            placeholders = ", ".join(["?"] * len(row_ids))
+            where += f" AND id IN ({placeholders})"
+            params.extend(row_ids)
+        if favorite_only:
+            where += " AND is_favorite=1"
+        rows = conn.execute(f"SELECT id FROM {table_name} WHERE {where}", params).fetchall()
+        target_ids = [row["id"] for row in rows]
+        if target_ids:
+            placeholders = ", ".join(["?"] * len(target_ids))
+            conn.execute(
+                f"UPDATE {table_name} SET is_favorite=0, updated_at=? WHERE id IN ({placeholders})",
+                [now_iso(), *target_ids],
+            )
+    return {
+        "updated_count": len(target_ids),
+        "row_ids": target_ids,
+    }
 
 
 def _latest_scheme_rows_cte() -> str:

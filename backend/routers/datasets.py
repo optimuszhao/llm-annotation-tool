@@ -13,6 +13,7 @@ from backend.services.annotation_service import (
     start_batch_analysis,
 )
 from backend.services.dataset_service import (
+    clear_dataset_rows_favorite,
     delete_dataset,
     delete_dataset_row,
     delete_dataset_rows,
@@ -22,6 +23,7 @@ from backend.services.dataset_service import (
     get_dataset_rows,
     import_excel_files,
     list_datasets,
+    update_dataset_row_favorite,
     update_dataset_row,
 )
 
@@ -52,8 +54,9 @@ def get_rows(
     search_column: str = "",
     scheme_id: str = "",
     statuses: list[str] = Query(default=[]),
+    favorite: bool = False,
 ):
-    return get_dataset_rows(dataset_id, page, page_size, search, search_column, scheme_id, statuses)
+    return get_dataset_rows(dataset_id, page, page_size, search, search_column, scheme_id, statuses, favorite)
 
 
 @router.get("/{dataset_id}/export")
@@ -84,6 +87,16 @@ def remove_row(dataset_id: str, row_id: str):
 @router.post("/{dataset_id}/rows/delete")
 def remove_rows(dataset_id: str, payload: dict = Body(...)):
     return delete_dataset_rows(dataset_id, payload.get("row_ids") or [])
+
+
+@router.post("/{dataset_id}/rows/{row_id}/favorite")
+def set_row_favorite(dataset_id: str, row_id: str, payload: dict = Body(...)):
+    return update_dataset_row_favorite(dataset_id, row_id, bool(payload.get("is_favorite")))
+
+
+@router.post("/{dataset_id}/rows/favorite/clear")
+def clear_rows_favorite(dataset_id: str, payload: dict = Body(...)):
+    return clear_dataset_rows_favorite(dataset_id, payload)
 
 
 @router.post("/{dataset_id}/rows/{row_id}/analysis")
