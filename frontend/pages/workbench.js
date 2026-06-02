@@ -133,6 +133,24 @@ export function renderWorkbenchPage() {
         <div class="toolbar-right">
           <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新列表</button>
           <div class="dropdown-wrap">
+            <button class="btn status-filter-button" type="button" id="statusFilterButton" aria-expanded="false">状态筛选</button>
+            <div class="dropdown-menu status-filter-menu" id="statusFilterMenu" hidden>
+              <div class="status-filter-list">
+                ${statusOptions.map((status) => `
+                  <label>
+                    <input type="checkbox" value="${status}">
+                    <span>${status}</span>
+                  </label>
+                `).join("")}
+              </div>
+              <div class="filter-actions">
+                <button type="button" data-status-filter-action="all">全选</button>
+                <button type="button" data-status-filter-action="clear">清空</button>
+                <button type="button" data-status-filter-action="apply">应用</button>
+              </div>
+            </div>
+          </div>
+          <div class="dropdown-wrap">
             <button class="btn" type="button" id="globalMoreButton" aria-expanded="false">更多</button>
             <div class="dropdown-menu" id="globalMoreMenu" hidden>
               <button type="button" data-global-action="batch-analysis">批量分析</button>
@@ -484,6 +502,10 @@ function bindWorkbenchEvents() {
     if (event.key === "Enter") applyColumnFilter();
     if (event.key === "Escape") closeMenus();
   });
+  document.querySelector("#statusFilterButton").addEventListener("click", (event) => {
+    toggleStatusFilterMenu(event.currentTarget);
+  });
+  document.querySelector("#statusFilterMenu").addEventListener("click", handleStatusFilterMenuClick);
   document.querySelector("#selectCurrentPage").addEventListener("change", (event) => {
     selectVisibleRows(event.target.checked);
   });
@@ -1201,10 +1223,65 @@ function toggleGlobalMenu(button) {
 }
 
 function syncStatusFilterMenu() {
+  const button = document.querySelector("#statusFilterButton");
+  const menu = document.querySelector("#statusFilterMenu");
+  if (!button || !menu) return;
+  menu.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.checked = statusFilters.has(input.value);
+  });
+  const count = statusFilters.size;
+  button.textContent = count ? `状态筛选 ${count}` : "状态筛选";
+  button.classList.toggle("active", count > 0);
+}
+
+function toggleStatusFilterMenu(button) {
+  const menu = document.querySelector("#statusFilterMenu");
+  if (!menu) return;
+  const shouldOpen = menu.hidden;
+  closeMenus();
+  if (!shouldOpen) return;
+  syncStatusFilterMenu();
+  menu.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+}
+
+function setStatusFilterMenuValues(values) {
+  const selected = new Set(values);
+  document.querySelectorAll('#statusFilterMenu input[type="checkbox"]').forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+}
+
+function handleStatusFilterMenuClick(event) {
+  const action = event.target.closest("[data-status-filter-action]")?.dataset.statusFilterAction;
+  if (!action) return;
+  event.preventDefault();
+  if (action === "all") {
+    setStatusFilterMenuValues(statusOptions);
+    return;
+  }
+  if (action === "clear") {
+    setStatusFilterMenuValues([]);
+    return;
+  }
+  applyStatusFilters();
+}
+
+async function applyStatusFilters() {
+  const checked = [...document.querySelectorAll('#statusFilterMenu input[type="checkbox"]:checked')].map((input) => input.value);
+  statusFilters = new Set(checked);
+  closeMenus();
+  try {
+    await refreshWorkbench();
+  } finally {
+    syncStatusFilterMenu();
+    closeMenus();
+  }
 }
 
 function closeMenus() {
   document.querySelector("#globalMoreMenu")?.setAttribute("hidden", "");
+  document.querySelector("#statusFilterMenu")?.setAttribute("hidden", "");
   document.querySelector("#columnFilterPopover")?.setAttribute("hidden", "");
   document.querySelector("#rowMoreMenu")?.classList.remove("open");
   document.querySelectorAll('[aria-expanded="true"]').forEach((button) => {
@@ -1316,6 +1393,9 @@ function handleMoreMenu(event) {
     return;
   }
   if (event.target.closest("[data-column-filter]") || event.target.closest("#columnFilterPopover")) {
+    return;
+  }
+  if (event.target.closest("#statusFilterButton") || event.target.closest("#statusFilterMenu")) {
     return;
   }
   if (!event.target.closest("#globalMoreButton") && !event.target.closest("#globalMoreMenu")) {
