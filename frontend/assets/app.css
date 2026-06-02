@@ -5133,7 +5133,10 @@ body.table-focus-active .page.active {
 }
 .dropdown-menu[hidden] { display: none; }
 .dropdown-menu button {
+  display: inline-flex;
+  align-items: center;
   justify-content: flex-start;
+  gap: 8px;
   height: 32px;
   padding: 0 10px;
   border: 0;
@@ -5142,6 +5145,37 @@ body.table-focus-active .page.active {
   color: var(--text);
   text-align: left;
   white-space: nowrap;
+}
+#globalMoreMenu button[data-global-action]::before {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  content: "";
+  background: currentColor;
+  opacity: .82;
+  -webkit-mask: var(--menu-icon) center / 16px 16px no-repeat;
+  mask: var(--menu-icon) center / 16px 16px no-repeat;
+}
+#globalMoreMenu button[data-global-action="batch-analysis"] {
+  --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='m7 15 4-4 3 3 5-7'/%3E%3C/svg%3E");
+}
+#globalMoreMenu button[data-global-action="delete-analysis"] {
+  --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m16 3 5 5-11 11H5v-5L16 3Z'/%3E%3Cpath d='m15 5 4 4'/%3E%3Cpath d='M3 21h8'/%3E%3C/svg%3E");
+}
+#globalMoreMenu button[data-global-action="clear-favorite"] {
+  --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2 7.5 14 3 9.6l6.2-.9L12 3Z'/%3E%3Cpath d='M4 4l16 16'/%3E%3C/svg%3E");
+}
+#globalMoreMenu button[data-global-action="columns"] {
+  --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='2'/%3E%3Cpath d='M9 4v16'/%3E%3Cpath d='M15 4v16'/%3E%3C/svg%3E");
+}
+#globalMoreMenu button[data-global-action="stop"] {
+  --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='5' width='14' height='14' rx='2'/%3E%3Cpath d='M9 9h6v6H9z'/%3E%3C/svg%3E");
+}
+#globalMoreMenu button[data-global-action="export"] {
+  --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v12'/%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3Cpath d='M5 21h14'/%3E%3C/svg%3E");
+}
+#globalMoreMenu button[data-global-action="delete"] {
+  --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M8 6V4h8v2'/%3E%3Cpath d='M6 6l1 18h10l1-18'/%3E%3Cpath d='M10 11v6'/%3E%3Cpath d='M14 11v6'/%3E%3C/svg%3E");
 }
 .dropdown-menu button:hover {
   background: var(--primary-soft);
@@ -5434,13 +5468,13 @@ body.table-focus-active .page.active {
 }
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"],
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
-  width: 176px !important;
-  max-width: 176px !important;
-  min-width: 176px !important;
+  width: 204px !important;
+  max-width: 204px !important;
+  min-width: 204px !important;
   z-index: 9;
 }
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"] {
-  flex: 0 0 176px !important;
+  flex: 0 0 204px !important;
 }
 .workbench-pro .tabulator .tabulator-col[tabulator-field="状态"],
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"] {
@@ -5452,7 +5486,14 @@ body.table-focus-active .page.active {
   box-shadow: -8px 0 14px rgba(20, 33, 61, .06);
 }
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
-  overflow: visible;
+  overflow: hidden;
+}
+.workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] .row-actions {
+  position: relative;
+  z-index: 2;
+  min-width: 184px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--surface-2));
 }
 .workbench-pro .tabulator .tabulator-header .tabulator-col[tabulator-field="状态"] .tabulator-col-content,
 .workbench-pro .tabulator .tabulator-header .tabulator-col[tabulator-field="row_id"] .tabulator-col-content {
