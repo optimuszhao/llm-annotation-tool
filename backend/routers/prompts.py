@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter
 
 from backend.schemas import PromptCreate
-from backend.services.resource_service import create_prompt, delete_prompt, list_prompts, update_prompt
+from backend.services.resource_service import create_prompt, delete_prompt, export_prompts, list_prompts, update_prompt
 
 router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 
@@ -13,6 +13,11 @@ router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 @router.get("")
 def get_prompts(scene_id: Optional[str] = None):
     return list_prompts(scene_id)
+
+
+@router.get("/export")
+def get_prompts_export(scene_id: Optional[str] = None):
+    return export_prompts(scene_id)
 
 
 @router.post("")

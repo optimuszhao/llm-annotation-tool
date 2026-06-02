@@ -1,5 +1,6 @@
 backend/data/*.db
 backend/data/*.db-*
+exports/
 __pycache__/
 .DS_Store
 .idea/

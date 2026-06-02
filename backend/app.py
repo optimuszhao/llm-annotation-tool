@@ -7,7 +7,19 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.database import init_db
-from backend.routers import annotation_tasks, chat, datasets, error_sets, field_mappings, knowledge, maintenance, prompts, scenes, schemes
+from backend.routers import (
+    annotation_tasks,
+    chat,
+    datasets,
+    error_sets,
+    export_packages,
+    field_mappings,
+    knowledge,
+    maintenance,
+    prompts,
+    scenes,
+    schemes,
+)
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -22,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(prompts.router)
     app.include_router(knowledge.router)
     app.include_router(error_sets.router)
+    app.include_router(export_packages.router)
     app.include_router(schemes.router)
     app.include_router(field_mappings.router)
     app.include_router(annotation_tasks.router)

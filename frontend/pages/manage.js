@@ -20,6 +20,7 @@ export function renderManagePage() {
           <h2>数据集与方案管理</h2>
           <p>场景驱动资源沉淀，组合 Prompt、知识库、错题集和数据集后形成标注方案。</p>
         </div>
+        ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button">导出算法包</button>` : ""}
       </section>
       <div class="ref-scene-tabs" role="tablist" aria-label="场景列表">
         <div class="ref-scene-tab-main">
@@ -111,6 +112,95 @@ function resourceUnit(key) {
   return { datasets: "个文件", prompts: "条", knowledge: "条", errorSets: "个集合", fieldMapping: "个字段" }[key] || "项";
 }
 
+function safeExportFilePart(value) {
+  return String(value || "export")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 80);
+}
+
+function downloadJsonFile(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportSceneResource(type) {
+  if (!state.activeSceneId) {
+    toast("请先选择场景");
+    return;
+  }
+  const endpoint = type === "knowledge" ? "/api/knowledge/export" : "/api/prompts/export";
+  const payload = await api(`${endpoint}?scene_id=${encodeURIComponent(state.activeSceneId)}`);
+  const sceneName = payload.scene?.name || getActiveScene()?.name || "scene";
+  const date = new Date().toISOString().slice(0, 10);
+  downloadJsonFile(`${type}_${safeExportFilePart(sceneName)}_${date}.json`, payload);
+  toast(`已导出 ${payload.count || 0} 条${type === "knowledge" ? "知识" : " Prompt"}`);
+}
+
+function filenameFromDisposition(disposition, fallback) {
+  const match = disposition?.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+  if (!match) return fallback;
+  try {
+    return decodeURIComponent(match[1].replace(/"/g, ""));
+  } catch {
+    return match[1].replace(/"/g, "") || fallback;
+  }
+}
+
+async function exportAlgorithmPackage() {
+  if (!state.activeSceneId) {
+    toast("请先选择场景");
+    return;
+  }
+  const button = document.querySelector("#exportAlgorithmPackageButton");
+  const oldText = button?.textContent || "导出算法包";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "导出中...";
+  }
+  try {
+    const response = await fetch(`/api/export-packages/algorithm?scene_id=${encodeURIComponent(state.activeSceneId)}`);
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload.detail || detail;
+      } catch {
+        detail = await response.text();
+      }
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    const filename = filenameFromDisposition(
+      response.headers.get("content-disposition"),
+      `algorithm_package_${safeExportFilePart(getActiveScene()?.name || "scene")}.zip`
+    );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast("算法包已导出");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = oldText;
+    }
+  }
+}
+
 function columnOptions() {
   const columns = new Set();
   state.datasets.forEach((dataset) => {
@@ -153,6 +243,7 @@ function bindManageEvents() {
   });
   document.querySelector("#addSceneButton")?.addEventListener("click", openSceneModal);
   document.querySelector("#deleteSceneButton")?.addEventListener("click", deleteActiveScene);
+  document.querySelector("#exportAlgorithmPackageButton")?.addEventListener("click", exportAlgorithmPackage);
   document.querySelectorAll("[data-resource-card]").forEach((card) => {
     const open = () => {
       if (!state.activeSceneId) {
@@ -516,7 +607,10 @@ function openPromptModal() {
             <strong>已添加 Prompt</strong>
             <span>${state.prompts.length} 条 · 点击名称可编辑</span>
           </div>
-          <button class="ghost-button" type="button" id="newPromptButton">新增</button>
+          <div class="resource-head-actions">
+            <button class="ghost-button" type="button" id="exportPromptButton">导出</button>
+            <button class="ghost-button" type="button" id="newPromptButton">新增</button>
+          </div>
         </div>
         <div class="prompt-menu-list">
           ${state.prompts.map((item) => `
@@ -563,7 +657,10 @@ function openKnowledgeModal() {
             <strong>已添加知识</strong>
             <span>${state.knowledge.length} 条 · 点击名称可编辑</span>
           </div>
-          <button class="ghost-button" type="button" id="newKnowledgeButton">新增</button>
+          <div class="resource-head-actions">
+            <button class="ghost-button" type="button" id="exportKnowledgeButton">导出</button>
+            <button class="ghost-button" type="button" id="newKnowledgeButton">新增</button>
+          </div>
         </div>
         <div class="prompt-menu-list">
           ${state.knowledge.map((item) => `
@@ -720,6 +817,7 @@ function bindPromptEditor() {
   const metaNode = formNode.querySelector("#promptFormMeta");
   const submitButton = formNode.querySelector("#promptSubmitButton");
   const newButton = document.querySelector("#newPromptButton");
+  const exportButton = document.querySelector("#exportPromptButton");
   const menuCards = [...document.querySelectorAll("[data-prompt-id]")];
 
   const updatePlaceholderWarning = () => {
@@ -748,6 +846,7 @@ function bindPromptEditor() {
 
   contentInput.addEventListener("input", updatePlaceholderWarning);
   newButton?.addEventListener("click", () => setMode());
+  exportButton?.addEventListener("click", () => exportSceneResource("prompts"));
   menuCards.forEach((card) => {
     card.addEventListener("click", () => {
       const item = state.prompts.find((prompt) => prompt.id === card.dataset.promptId);
@@ -808,6 +907,7 @@ function bindKnowledgeEditor() {
   const metaNode = formNode.querySelector("#knowledgeFormMeta");
   const submitButton = formNode.querySelector("#knowledgeSubmitButton");
   const newButton = document.querySelector("#newKnowledgeButton");
+  const exportButton = document.querySelector("#exportKnowledgeButton");
   const menuCards = [...document.querySelectorAll("[data-knowledge-id]")];
 
   const setMode = (item = null) => {
@@ -823,6 +923,7 @@ function bindKnowledgeEditor() {
   };
 
   newButton?.addEventListener("click", () => setMode());
+  exportButton?.addEventListener("click", () => exportSceneResource("knowledge"));
   menuCards.forEach((card) => {
     card.addEventListener("click", () => {
       const item = state.knowledge.find((knowledge) => knowledge.id === card.dataset.knowledgeId);

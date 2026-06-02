@@ -1036,6 +1036,12 @@ button { cursor: pointer; }
   color: var(--muted);
   font-size: 12px;
 }
+.resource-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
 .prompt-menu-list {
   display: grid;
   align-content: start;
@@ -3350,6 +3356,13 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   margin: 0;
   color: var(--muted);
   line-height: 1.65;
+}
+.package-export-button {
+  flex: 0 0 auto;
+  min-width: 128px;
+  height: 40px;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 .ref-scene-tabs {
   display: grid;
