@@ -6,7 +6,7 @@
   <title>LLM 标注工具</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/vendor/tabulator.min.css">
-  <link rel="stylesheet" href="/assets/app.css?v=20260602-status-filter">
+  <link rel="stylesheet" href="/assets/app.css?v=20260602-chat-page">
   <link rel="stylesheet" href="/assets/components.css">
 </head>
 <body>
@@ -22,6 +22,8 @@
       <button class="workflow-tab" data-page="manage"><span>1</span>数据集与方案管理</button>
       <i class="workflow-arrow">›</i>
       <button class="workflow-tab active" data-page="workbench"><span>2</span>标注工作台</button>
+      <i class="workflow-arrow">›</i>
+      <button class="workflow-tab" data-page="chat"><span>3</span>对话大模型</button>
     </nav>
     <div class="theme-tools">
       <button class="icon-btn" id="modeToggle" type="button" title="切换明暗模式" onclick="window.__toggleMode?.()">◐</button>
@@ -42,6 +44,7 @@
   <main class="app-main">
     <section class="page" id="page-manage"></section>
     <section class="page active" id="page-workbench"></section>
+    <section class="page" id="page-chat"></section>
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -128,6 +131,6 @@
   </script>
   <script src="/vendor/gsap.min.js"></script>
   <script src="/vendor/tabulator.min.js"></script>
-  <script type="module" src="/assets/app.js?v=20260601-focus-menu-layer"></script>
+  <script type="module" src="/assets/app.js?v=20260602-chat-page"></script>
 </body>
 </html>

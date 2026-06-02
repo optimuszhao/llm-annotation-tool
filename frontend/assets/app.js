@@ -1,5 +1,6 @@
 import { renderManagePage } from "/pages/manage.js?v=20260531-manage-studio-v2";
 import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260602-status-filter";
+import { renderChatPage } from "/pages/chat.js?v=20260602-chat-page";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
@@ -84,6 +85,7 @@ function showPage(name) {
     page.classList.toggle("active", page.id === `page-${name}`);
   });
   if (name === "workbench") refreshWorkbench();
+  if (name === "chat") renderChatPage();
 }
 
 function setupShell() {
@@ -268,11 +270,13 @@ async function boot() {
   initComponents();
   renderManagePage();
   renderWorkbenchPage();
+  renderChatPage();
   showPage(defaultPage);
   try {
     await loadState();
     renderManagePage();
     renderWorkbenchPage();
+    renderChatPage();
     showPage(defaultPage);
   } catch (error) {
     toast(error.message);

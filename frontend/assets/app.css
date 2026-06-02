@@ -1889,6 +1889,188 @@ button { cursor: pointer; }
 .lag-helper-error {
   color: var(--danger) !important;
 }
+
+.chat-page {
+  min-height: calc(100vh - 72px);
+  display: grid;
+  place-items: stretch center;
+  padding: 18px 22px 22px;
+}
+
+.chat-shell {
+  width: min(1080px, 100%);
+  min-height: calc(100vh - 112px);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--line));
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 96%, transparent), color-mix(in srgb, var(--primary-soft) 34%, var(--surface))),
+    var(--surface);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.72);
+}
+
+.chat-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.chat-head h1 {
+  margin: 4px 0 6px;
+  color: var(--text);
+  font-size: 24px;
+  letter-spacing: 0;
+}
+
+.chat-head span,
+.chat-method-card span,
+.chat-method-card em {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chat-method-card {
+  min-width: 210px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--primary-soft));
+}
+
+.chat-method-card strong {
+  color: var(--primary-strong);
+  font-size: 15px;
+}
+
+.chat-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 22px 24px;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.chat-message {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  max-width: 860px;
+}
+
+.chat-message.user {
+  justify-self: end;
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.chat-message.user .chat-avatar {
+  grid-column: 2;
+}
+
+.chat-message.user .chat-bubble {
+  grid-column: 1;
+  grid-row: 1;
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--line));
+}
+
+.chat-avatar {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.chat-bubble {
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+}
+
+.chat-message-text {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.chat-result {
+  margin: 12px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 78%, var(--surface));
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.chat-input-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--soft-line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.chat-input-bar textarea {
+  width: 100%;
+  min-height: 48px;
+  max-height: 180px;
+  resize: none;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--line));
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.55;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.72);
+}
+
+.chat-input-bar textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  border-color: var(--primary);
+}
+
+.chat-send-button {
+  min-width: 88px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+@media (max-width: 760px) {
+  .chat-head {
+    display: grid;
+  }
+  .chat-method-card {
+    min-width: 0;
+  }
+  .chat-input-bar {
+    grid-template-columns: 1fr;
+  }
+}
 .detail-drawer-layer {
   position: fixed;
   inset: 0;
