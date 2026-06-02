@@ -2366,6 +2366,43 @@ body.is-resizing-drawer-split {
   max-width: 100%;
   overflow: hidden;
 }
+.drawer-kv-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--primary-strong);
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 8px 18px rgba(20,33,61,.1), inset 0 1px 0 rgba(255,255,255,.68);
+  transition: opacity .14s ease, transform .14s ease, border-color .14s ease;
+  transform: translateY(-2px);
+}
+.drawer-kv-row:hover .drawer-kv-copy,
+.drawer-kv-value-wrap:hover .drawer-kv-copy,
+.drawer-kv-copy:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.drawer-kv-copy:hover {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.drawer-kv-copy:disabled {
+  cursor: wait;
+  opacity: .55;
+}
 .drawer-kv-row.is-collapsed .drawer-kv-value {
   max-height: 132px;
   overflow: hidden;

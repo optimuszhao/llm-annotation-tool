@@ -1490,11 +1490,15 @@ async function copyCellDetailContent() {
     toast("暂无可复制内容");
     return;
   }
+  await copyTextToClipboard(content, "已复制单元格内容");
+}
+
+async function copyTextToClipboard(content, message = "已复制内容") {
   try {
     await navigator.clipboard.writeText(content);
-    toast("已复制单元格内容");
+    toast(message);
   } catch {
-    fallbackCopyText(content);
+    fallbackCopyText(content, message);
   }
 }
 
@@ -1575,7 +1579,7 @@ function highlightJsonText(text) {
   return result;
 }
 
-function fallbackCopyText(content) {
+function fallbackCopyText(content, message = "已复制单元格内容") {
   const textarea = document.createElement("textarea");
   textarea.value = content;
   textarea.setAttribute("readonly", "");
@@ -1585,7 +1589,7 @@ function fallbackCopyText(content) {
   textarea.select();
   document.execCommand("copy");
   textarea.remove();
-  toast("已复制单元格内容");
+  toast(message);
 }
 
 async function openRowDrawer(rowData, mode = "view") {
@@ -2041,6 +2045,7 @@ function drawerKeyValueRowsHtml(payload, emptyText = "暂无数据") {
       </div>
       <div class="drawer-kv-value-wrap">
         <div class="drawer-kv-value ${display.isJson ? "json-highlight" : ""}">${display.html}</div>
+        <button class="drawer-kv-copy" type="button" data-drawer-kv-copy title="复制值" aria-label="复制值">⧉</button>
       </div>
     </article>
   `;
@@ -2070,6 +2075,11 @@ function shouldCollapseDrawerValue(text) {
 }
 
 async function handleDrawerKvToggle(event) {
+  const copyButton = event.target.closest("[data-drawer-kv-copy]");
+  if (copyButton) {
+    await handleDrawerKvCopy(copyButton);
+    return;
+  }
   const button = event.target.closest("[data-drawer-kv-toggle]");
   if (!button) return;
   const row = button.closest(".drawer-kv-row");
@@ -2098,6 +2108,37 @@ async function handleDrawerKvToggle(event) {
   }
   const collapsed = row.classList.toggle("is-collapsed");
   button.textContent = collapsed ? "展开" : "收起";
+}
+
+async function handleDrawerKvCopy(button) {
+  const row = button.closest(".drawer-kv-row");
+  if (!row) return;
+  const key = row.dataset.drawerField || "";
+  const valueNode = row.querySelector(".drawer-kv-value");
+  try {
+    if (drawerFieldNeedsFullLoad(key)) {
+      button.disabled = true;
+      await loadDrawerFieldValue(key);
+      const display = formatDisplayPayload(drawerRow?.[key]);
+      if (valueNode) {
+        valueNode.classList.toggle("json-highlight", display.isJson);
+        valueNode.innerHTML = display.html;
+      }
+      row.classList.remove("is-collapsed");
+      const toggle = row.querySelector("[data-drawer-kv-toggle]");
+      if (toggle) toggle.textContent = "收起";
+    }
+    const content = valueNode?.textContent || "";
+    if (!content.trim()) {
+      toast("暂无可复制内容");
+      return;
+    }
+    await copyTextToClipboard(content, "已复制内容");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function startDrawerResize(event) {
