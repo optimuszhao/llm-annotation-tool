@@ -52,11 +52,12 @@ def get_rows(
     page_size: int = Query(default=50, ge=1),
     search: str = "",
     search_column: str = "",
+    empty: bool = False,
     scheme_id: str = "",
     statuses: list[str] = Query(default=[]),
     favorite: bool = False,
 ):
-    return get_dataset_rows(dataset_id, page, page_size, search, search_column, scheme_id, statuses, favorite)
+    return get_dataset_rows(dataset_id, page, page_size, search, search_column, empty, scheme_id, statuses, favorite)
 
 
 @router.get("/{dataset_id}/export")

@@ -387,6 +387,7 @@ def get_dataset_rows(
     page_size: int = 50,
     search: str = "",
     search_column: str = "",
+    search_empty: bool = False,
     scheme_id: str = "",
     statuses: Optional[list[str]] = None,
     favorite_only: bool = False,
@@ -412,23 +413,67 @@ def get_dataset_rows(
         if search_text and search_column == "状态":
             where += f" AND {status_expr} LIKE ?"
             params.append(f"%{search_text}%")
-        elif search_text and search_column and search_column in columns:
-            if scheme_view:
-                where += """
-                    AND (
-                      COALESCE(CAST(json_extract(d.raw_data, ?) AS TEXT), '') LIKE ?
-                      OR COALESCE(CAST(json_extract(latest.scheme_model_result, ?) AS TEXT), '') LIKE ?
+        elif search_empty and search_column == "状态":
+            where += f" AND ({status_expr} IS NULL OR TRIM(COALESCE(CAST({status_expr} AS TEXT), ''))='')"
+        elif (search_text or search_empty) and search_column and search_column in columns:
+            clauses: list[str] = []
+            if search_text:
+                if scheme_view:
+                    clauses.append(
+                        """
+                        (
+                          COALESCE(CAST(json_extract(d.raw_data, ?) AS TEXT), '') LIKE ?
+                          OR COALESCE(CAST(json_extract(latest.scheme_model_result, ?) AS TEXT), '') LIKE ?
+                        )
+                        """
                     )
-                """
-                params.extend([
-                    _json_column_path(search_column),
-                    f"%{search_text}%",
-                    _json_column_path(search_column),
-                    f"%{search_text}%",
-                ])
-            else:
-                where += " AND COALESCE(CAST(json_extract(raw_data, ?) AS TEXT), '') LIKE ?"
-                params.extend([_json_column_path(search_column), f"%{search_text}%"])
+                    params.extend([
+                        _json_column_path(search_column),
+                        f"%{search_text}%",
+                        _json_column_path(search_column),
+                        f"%{search_text}%",
+                    ])
+                else:
+                    clauses.append("COALESCE(CAST(json_extract(raw_data, ?) AS TEXT), '') LIKE ?")
+                    params.extend([_json_column_path(search_column), f"%{search_text}%"])
+            if search_empty:
+                if scheme_view:
+                    clauses.append(
+                        """
+                        (
+                          (
+                            json_type(latest.scheme_model_result, ?) IS NOT NULL
+                            AND TRIM(COALESCE(CAST(json_extract(latest.scheme_model_result, ?) AS TEXT), ''))=''
+                          )
+                          OR
+                          (
+                            json_type(latest.scheme_model_result, ?) IS NULL
+                            AND (
+                              json_type(d.raw_data, ?) IS NULL
+                              OR TRIM(COALESCE(CAST(json_extract(d.raw_data, ?) AS TEXT), ''))=''
+                            )
+                          )
+                        )
+                        """
+                    )
+                    params.extend([
+                        _json_column_path(search_column),
+                        _json_column_path(search_column),
+                        _json_column_path(search_column),
+                        _json_column_path(search_column),
+                        _json_column_path(search_column),
+                    ])
+                else:
+                    clauses.append(
+                        """
+                        (
+                          json_type(raw_data, ?) IS NULL
+                          OR TRIM(COALESCE(CAST(json_extract(raw_data, ?) AS TEXT), ''))=''
+                        )
+                        """
+                    )
+                    params.extend([_json_column_path(search_column), _json_column_path(search_column)])
+            where += f" AND ({' OR '.join(clauses)})"
         elif search_text:
             if scheme_view:
                 where += " AND (d.raw_data LIKE ? OR COALESCE(latest.scheme_model_result, '') LIKE ?)"

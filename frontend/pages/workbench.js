@@ -16,6 +16,8 @@ let currentDetailMode = "view";
 let currentDetailKind = "row";
 let currentCellRawValue = null;
 let currentCellContent = "";
+let currentCellField = "";
+let currentCellRowId = "";
 let detailEditDirty = false;
 let drawerRow = null;
 let drawerMode = "view";
@@ -31,7 +33,7 @@ let drawerResizeCleanup = null;
 let drawerAnalysisSplitCleanup = null;
 let statusFilters = new Set();
 let favoriteOnlyFilter = false;
-let columnFilter = { column: "", value: "" };
+let columnFilter = { column: "", value: "", empty: false };
 let availableDatasetColumns = [];
 let latestFieldMapping = null;
 let tableFontSize = normalizeTableFontSize(localStorage.getItem("llm-table-font-size") || "medium");
@@ -173,10 +175,22 @@ export function renderWorkbenchPage() {
         </div>
       </div>
 
-      <div class="table-shell"><div id="workbenchTable"></div></div>
+      <div class="table-shell">
+        <div id="workbenchTable"></div>
+        <div class="table-loading-mask" id="tableLoadingMask" hidden>
+          <div class="table-loading-card">
+            <span class="table-loading-spinner" aria-hidden="true"></span>
+            <strong id="tableLoadingText">正在刷新列表...</strong>
+          </div>
+        </div>
+      </div>
       <div class="column-filter-popover" id="columnFilterPopover" hidden>
         <strong id="columnFilterTitle">列筛选</strong>
         <input class="input" type="search" id="columnFilterInput" placeholder="输入关键词">
+        <label class="column-empty-filter">
+          <input type="checkbox" id="columnFilterEmpty">
+          <span>筛选空值</span>
+        </label>
         <div class="filter-actions">
           <button type="button" data-column-filter-action="clear">清空</button>
           <button type="button" data-column-filter-action="apply">应用</button>
@@ -292,11 +306,13 @@ export function renderWorkbenchPage() {
           <div class="cell-detail-head-actions">
             <button class="btn" type="button" id="cellFormatButton">格式化 JSON</button>
             <button class="btn primary" type="button" id="cellCopyButton">复制内容</button>
+            <button class="btn primary" type="button" id="cellSaveButton">保存修改</button>
             <button class="icon-btn" id="closeRowDetail">×</button>
           </div>
         </div>
         <div class="modal-body cell-detail-body">
           <pre class="json-view cell-detail-view" id="rowDetailJson">{}</pre>
+          <textarea class="textarea cell-detail-editor" id="cellDetailEditor" spellcheck="false"></textarea>
         </div>
       </div>
     </div>
@@ -548,6 +564,7 @@ function bindWorkbenchEvents() {
   document.querySelector("#closeRowDetail").addEventListener("click", closeRowDetail);
   document.querySelector("#cellFormatButton").addEventListener("click", formatCellJsonContent);
   document.querySelector("#cellCopyButton").addEventListener("click", copyCellDetailContent);
+  document.querySelector("#cellSaveButton").addEventListener("click", saveCellDetailValue);
   document.querySelector("#rowDetailModal").addEventListener("click", (event) => {
     if (event.target.id === "rowDetailModal") closeRowDetail();
   });
@@ -619,6 +636,15 @@ async function refreshTableData() {
 
 export async function refreshWorkbench() {
   const token = ++refreshToken;
+  showTableLoading("正在刷新列表...");
+  try {
+    await refreshWorkbenchInner(token);
+  } finally {
+    if (token === refreshToken) hideTableLoading();
+  }
+}
+
+async function refreshWorkbenchInner(token) {
   const container = document.querySelector("#workbenchTable");
   if (!container) return;
   updateWorkbenchTitle();
@@ -649,7 +675,7 @@ export async function refreshWorkbench() {
     state.activeSchemeId,
     visibleColumns.join("\u001f"),
     fixedMappingColumns(availableDatasetColumns).join("\u001f"),
-    `${columnFilter.column}\u001f${columnFilter.value}`,
+    `${columnFilter.column}\u001f${columnFilter.value}\u001f${columnFilter.empty ? "empty" : ""}`,
   ].join("\u001e");
   if (table && tableBuildKey === nextBuildKey) {
     const tableReady = waitForNextTableAjax();
@@ -741,6 +767,24 @@ export async function refreshWorkbench() {
   syncFavoriteFilterButton();
   setBatchButtonState();
   await loadLatestTask();
+}
+
+function showTableLoading(message = "正在刷新列表...") {
+  const mask = document.querySelector("#tableLoadingMask");
+  const text = document.querySelector("#tableLoadingText");
+  if (!mask) return;
+  if (text) text.textContent = message;
+  mask.hidden = false;
+  window.requestAnimationFrame(() => mask.classList.add("open"));
+}
+
+function hideTableLoading() {
+  const mask = document.querySelector("#tableLoadingMask");
+  if (!mask) return;
+  mask.classList.remove("open");
+  window.setTimeout(() => {
+    if (!mask.classList.contains("open")) mask.hidden = true;
+  }, 160);
 }
 
 async function reloadCurrentTableData() {
@@ -853,6 +897,7 @@ function buildRowsQuery(page, pageSize) {
   params.set("page_size", String(pageSize));
   params.set("search", columnFilter.value || "");
   params.set("search_column", columnFilter.column || "");
+  if (columnFilter.empty) params.set("empty", "true");
   if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
   statusFilters.forEach((status) => params.append("statuses", status));
   if (favoriteOnlyFilter) params.set("favorite", "true");
@@ -865,7 +910,7 @@ function schemeQuery(prefix = "?") {
 
 function fillSearchColumnOptions(columns) {
   if (columnFilter.column && !["状态", ...columns].includes(columnFilter.column)) {
-    columnFilter = { column: "", value: "" };
+    columnFilter = { column: "", value: "", empty: false };
   }
 }
 
@@ -1074,7 +1119,7 @@ async function applySourceModal() {
 function resetWorkbenchQueryState() {
   statusFilters = new Set();
   favoriteOnlyFilter = false;
-  columnFilter = { column: "", value: "" };
+  columnFilter = { column: "", value: "", empty: false };
   syncFavoriteFilterButton();
   const selectCurrentPage = document.querySelector("#selectCurrentPage");
   if (selectCurrentPage) selectCurrentPage.checked = false;
@@ -1356,14 +1401,16 @@ function handleColumnFilterClick(event) {
 function openColumnFilterPopover(button) {
   const popover = document.querySelector("#columnFilterPopover");
   const input = document.querySelector("#columnFilterInput");
+  const emptyInput = document.querySelector("#columnFilterEmpty");
   const title = document.querySelector("#columnFilterTitle");
-  if (!popover || !input || !title) return;
+  if (!popover || !input || !emptyInput || !title) return;
   const column = button.dataset.columnFilter || "";
   const rect = button.getBoundingClientRect();
   closeMenus();
   popover.dataset.column = column;
   title.textContent = `筛选：${column}`;
   input.value = columnFilter.column === column ? columnFilter.value : "";
+  emptyInput.checked = columnFilter.column === column ? Boolean(columnFilter.empty) : false;
   popover.hidden = false;
   const width = 220;
   popover.style.left = `${Math.min(Math.max(rect.left - width + rect.width, 12), window.innerWidth - width - 12)}px`;
@@ -1386,9 +1433,10 @@ function handleColumnFilterPopoverClick(event) {
 async function applyColumnFilter() {
   const popover = document.querySelector("#columnFilterPopover");
   const input = document.querySelector("#columnFilterInput");
+  const emptyInput = document.querySelector("#columnFilterEmpty");
   const column = popover?.dataset.column || "";
-  columnFilter = { column, value: input?.value.trim() || "" };
-  if (!columnFilter.value) columnFilter = { column: "", value: "" };
+  columnFilter = { column, value: input?.value.trim() || "", empty: Boolean(emptyInput?.checked) };
+  if (!columnFilter.value && !columnFilter.empty) columnFilter = { column: "", value: "", empty: false };
   closeMenus();
   try {
     await refreshWorkbench();
@@ -1398,9 +1446,11 @@ async function applyColumnFilter() {
 }
 
 async function clearColumnFilter() {
-  columnFilter = { column: "", value: "" };
+  columnFilter = { column: "", value: "", empty: false };
   const input = document.querySelector("#columnFilterInput");
+  const emptyInput = document.querySelector("#columnFilterEmpty");
   if (input) input.value = "";
+  if (emptyInput) emptyInput.checked = false;
   closeMenus();
   try {
     await refreshWorkbench();
@@ -1512,9 +1562,11 @@ function handleTableCellDoubleClick(event) {
 async function openCellValue(field, value, rowId = "") {
   currentDetailKind = "cell";
   currentDetailRow = null;
+  currentCellField = field;
+  currentCellRowId = rowId;
   document.querySelector("#rowDetailTitle").textContent = `单元格内容 · ${field}`;
-  document.querySelector("#rowDetailJson").hidden = false;
   document.querySelector("#cellFormatButton").disabled = false;
+  document.querySelector("#cellSaveButton").disabled = !rowId || !state.activeDatasetId;
   setCellDetailValue(value);
   document.querySelector("#rowDetailModal").classList.add("open");
   if (rowId && state.activeDatasetId) {
@@ -1532,7 +1584,9 @@ function setCellDetailValue(value) {
   currentCellRawValue = value;
   const parsed = parseJsonLike(value);
   currentCellContent = parsed.ok ? JSON.stringify(parsed.value, null, 2) : formatCellRawValue(value);
-  document.querySelector("#rowDetailMeta").textContent = parsed.ok ? "JSON 已格式化并高亮显示，支持一键复制。" : "按纯文本展示，支持一键复制。";
+  document.querySelector("#rowDetailMeta").textContent = parsed.ok
+    ? "JSON 已格式化，可直接编辑后保存。"
+    : "按纯文本展示，可直接编辑后保存。";
   renderCellDetailContent(parsed.ok);
 }
 
@@ -1541,7 +1595,7 @@ function closeRowDetail() {
 }
 
 async function copyCellDetailContent() {
-  const content = currentCellContent || document.querySelector("#rowDetailJson")?.textContent || "";
+  const content = document.querySelector("#cellDetailEditor")?.value || currentCellContent || "";
   if (!content) {
     toast("暂无可复制内容");
     return;
@@ -1559,22 +1613,23 @@ async function copyTextToClipboard(content, message = "已复制内容") {
 }
 
 function formatCellJsonContent() {
-  let parsed = parseJsonLike(currentCellRawValue);
-  if (!parsed.ok) parsed = parseJsonLike(currentCellContent);
+  const editor = document.querySelector("#cellDetailEditor");
+  let parsed = parseJsonLike(editor?.value ?? currentCellContent);
   if (!parsed.ok) {
-    currentCellContent = formatCellRawValue(currentCellRawValue ?? currentCellContent);
+    currentCellContent = formatCellRawValue(editor?.value ?? currentCellRawValue ?? currentCellContent);
     renderCellDetailContent(false);
     toast("当前内容按纯文本换行展示");
     return;
   }
   currentCellContent = JSON.stringify(parsed.value, null, 2);
   renderCellDetailContent(true);
-  document.querySelector("#rowDetailMeta").textContent = "JSON 已格式化并高亮显示。";
+  document.querySelector("#rowDetailMeta").textContent = "JSON 已格式化，可继续编辑后保存。";
   toast("JSON 已格式化");
 }
 
 function renderCellDetailContent(highlightJson = false) {
   const viewer = document.querySelector("#rowDetailJson");
+  const editor = document.querySelector("#cellDetailEditor");
   if (!viewer) return;
   viewer.scrollTop = 0;
   if (highlightJson) {
@@ -1582,6 +1637,63 @@ function renderCellDetailContent(highlightJson = false) {
   } else {
     viewer.textContent = currentCellContent;
   }
+  viewer.hidden = true;
+  if (editor) {
+    editor.hidden = false;
+    editor.value = currentCellContent;
+    window.requestAnimationFrame(() => editor.focus());
+  }
+}
+
+async function saveCellDetailValue() {
+  if (!state.activeDatasetId || !currentCellRowId || !currentCellField) {
+    toast("当前单元格缺少保存上下文");
+    return;
+  }
+  const editor = document.querySelector("#cellDetailEditor");
+  const saveButton = document.querySelector("#cellSaveButton");
+  const nextText = editor?.value ?? "";
+  const nextValue = parseEditedCellValue(nextText);
+  const oldText = saveButton?.textContent || "保存修改";
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = "保存中...";
+  }
+  try {
+    const fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentCellRowId}`);
+    const rawData = editableDetailDataFrom(fullRow || {});
+    rawData[currentCellField] = nextValue;
+    const updated = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentCellRowId}`, {
+      method: "PUT",
+      body: JSON.stringify({ raw_data: rawData }),
+    });
+    currentCellRawValue = nextValue;
+    currentCellContent = nextText;
+    await ensureDynamicResultColumns(updated);
+    updateVisibleRow(updated.row_id, updated);
+    scheduleMetricsRefresh();
+    toast("单元格已保存");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = oldText;
+    }
+  }
+}
+
+function parseEditedCellValue(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return "";
+  if (/^[{\[]/.test(trimmed)) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return text;
+    }
+  }
+  return text;
 }
 
 function parseJsonLike(value) {
@@ -2929,7 +3041,7 @@ function dataColumnDef(column, sampleRows = []) {
 }
 
 function columnHeaderHtml(title, column) {
-  const active = columnFilter.column === column && columnFilter.value;
+  const active = columnFilter.column === column && (columnFilter.value || columnFilter.empty);
   const mappedAnswer = fixedMappingColumns().includes(column);
   return `
     <span class="column-title-wrap">
