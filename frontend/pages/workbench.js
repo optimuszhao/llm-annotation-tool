@@ -159,6 +159,7 @@ export function renderWorkbenchPage() {
             <div class="dropdown-menu" id="globalMoreMenu" hidden>
               <button type="button" data-global-action="batch-analysis">批量分析</button>
               <button type="button" data-global-action="delete-analysis">批量删除分析数据</button>
+              <button type="button" data-global-action="favorite">批量添加收藏</button>
               <button type="button" data-global-action="clear-favorite">批量取消收藏</button>
               <hr>
               <button type="button" data-global-action="columns">列设置</button>
@@ -548,8 +549,10 @@ function bindWorkbenchEvents() {
       openBatchAnalysisModal();
     } else if (action === "delete-analysis") {
       deleteBatchAnalysisData();
+    } else if (action === "favorite") {
+      favoriteRows(true);
     } else if (action === "clear-favorite") {
-      clearFavoriteRows();
+      favoriteRows(false);
     } else if (action === "delete") {
       deleteSelectedRows();
     } else if (action === "export") {
@@ -607,9 +610,10 @@ function bindWorkbenchEvents() {
   applyTableFocusMode();
   if (!documentMenusBound) {
     document.addEventListener("pointerdown", stopRowActionPropagation, true);
+    document.addEventListener("pointerdown", stopColumnFilterHeaderEvents, true);
     document.addEventListener("click", handleRowActionClick, true);
     document.addEventListener("click", handleMoreMenu);
-    document.addEventListener("click", handleColumnFilterClick);
+    document.addEventListener("click", handleColumnFilterClick, true);
     documentMenusBound = true;
   }
 }
@@ -636,15 +640,16 @@ async function refreshTableData() {
 
 export async function refreshWorkbench() {
   const token = ++refreshToken;
+  const horizontalScroll = getTableHorizontalScroll();
   showTableLoading("正在刷新列表...");
   try {
-    await refreshWorkbenchInner(token);
+    await refreshWorkbenchInner(token, horizontalScroll);
   } finally {
     if (token === refreshToken) hideTableLoading();
   }
 }
 
-async function refreshWorkbenchInner(token) {
+async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   const container = document.querySelector("#workbenchTable");
   if (!container) return;
   updateWorkbenchTitle();
@@ -682,6 +687,7 @@ async function refreshWorkbenchInner(token) {
     await reloadCurrentTableData();
     await tableReady;
     if (token !== refreshToken) return;
+    restoreTableHorizontalScroll(horizontalScroll);
     await refreshMetrics();
     syncStatusFilterMenu();
     syncFavoriteFilterButton();
@@ -727,7 +733,7 @@ async function refreshWorkbenchInner(token) {
     },
     paginationSize: 20,
     paginationSizeSelector: [20, 50, 100, 200],
-    selectableRows: true,
+    selectableRows: "highlight",
     index: "row_id",
     rowHeight: 42,
     columnDefaults: {
@@ -761,6 +767,7 @@ async function refreshWorkbenchInner(token) {
   document.querySelector("#workbenchTable").ondblclick = handleTableCellDoubleClick;
   await tableReady;
   if (token !== refreshToken) return;
+  restoreTableHorizontalScroll(horizontalScroll);
   tableReadyForRealtime = true;
   await refreshMetrics();
   syncStatusFilterMenu();
@@ -785,6 +792,24 @@ function hideTableLoading() {
   window.setTimeout(() => {
     if (!mask.classList.contains("open")) mask.hidden = true;
   }, 160);
+}
+
+function getTableHolder() {
+  return document.querySelector("#workbenchTable .tabulator-tableholder");
+}
+
+function getTableHorizontalScroll() {
+  return getTableHolder()?.scrollLeft || 0;
+}
+
+function restoreTableHorizontalScroll(scrollLeft = 0) {
+  if (!scrollLeft) return;
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      const holder = getTableHolder();
+      if (holder) holder.scrollLeft = scrollLeft;
+    });
+  });
 }
 
 async function reloadCurrentTableData() {
@@ -879,11 +904,13 @@ function buildColumns(columns, sampleRows = []) {
         const rowData = cell.getData();
         const rowId = rowData.row_id || "";
         const annotateButton = annotationButtonMeta(rowData["状态"]);
+        const favoriteButton = favoriteButtonMeta(rowData);
         return `
           <div class="row-actions">
             <button class="action-mini ${annotateButton.className}" data-row-action="annotate" data-row-id="${rowId}">${annotateButton.label}</button>
             <button class="action-mini info" data-row-action="view" data-row-id="${rowId}">查看</button>
-            <button class="action-mini more" data-row-more data-row-id="${rowId}" aria-expanded="false">更多</button>
+            <button class="action-mini ${favoriteButton.className}" data-row-action="favorite" data-row-id="${rowId}">${favoriteButton.label}</button>
+            <button class="action-mini more" data-row-more data-row-id="${rowId}" aria-label="更多操作" aria-expanded="false">⋯</button>
           </div>
         `;
       },
@@ -1247,30 +1274,60 @@ async function toggleFavoriteFilter() {
 }
 
 async function clearFavoriteRows() {
+  return favoriteRows(false);
+}
+
+async function favoriteRows(isFavorite) {
   if (!state.activeDatasetId) {
     toast("请先选择数据集");
     return;
   }
   const selectedIds = table?.getSelectedRows?.().map((row) => row.getData().row_id).filter(Boolean) || [];
-  const scopeText = selectedIds.length ? `当前选中的 ${selectedIds.length} 行` : (favoriteOnlyFilter ? "当前收藏筛选结果" : "当前数据集全部收藏行");
-  if (!window.confirm(`确认取消收藏？\n范围：${scopeText}`)) return;
+  const actionText = isFavorite ? "添加收藏" : "取消收藏";
+  const scopeText = selectedIds.length
+    ? `当前选中的 ${selectedIds.length} 行`
+    : (isFavorite ? "当前数据集全部行" : (favoriteOnlyFilter ? "当前收藏筛选结果" : "当前数据集全部收藏行"));
+  if (!window.confirm(`确认${actionText}？\n范围：${scopeText}`)) return;
   try {
-    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/favorite/clear`, {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/favorite/batch`, {
       method: "POST",
       body: JSON.stringify({
         row_ids: selectedIds,
-        favorite_only: true,
+        is_favorite: isFavorite,
+        favorite_only: !isFavorite,
       }),
     });
-    for (const rowId of result.row_ids || []) {
-      updateVisibleRow(rowId, { is_favorite: false, 收藏: "否" });
-    }
-    if (drawerRow && result.row_ids?.includes(drawerRow.row_id)) {
-      drawerRow = { ...drawerRow, is_favorite: false, 收藏: "否" };
-      syncDrawerFavoriteButton();
-    }
-    if (favoriteOnlyFilter) await refreshTableData({ keepPage: true });
-    toast(`已取消收藏 ${result.updated_count || 0} 行`);
+    applyFavoritePatch(result.row_ids || [], isFavorite);
+    if (favoriteOnlyFilter && !isFavorite) await refreshTableData({ keepPage: true });
+    toast(`已${actionText} ${result.updated_count || 0} 行`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function applyFavoritePatch(rowIds, isFavorite) {
+  const favoriteText = isFavorite ? "是" : "否";
+  for (const rowId of rowIds || []) {
+    updateVisibleRow(rowId, { is_favorite: isFavorite, 收藏: favoriteText });
+  }
+  if (drawerRow && rowIds?.includes(drawerRow.row_id)) {
+    drawerRow = { ...drawerRow, is_favorite: isFavorite, 收藏: favoriteText };
+    syncDrawerFavoriteButton();
+  }
+}
+
+async function toggleRowFavorite(rowId) {
+  if (!state.activeDatasetId || !rowId) return;
+  const rowData = getVisibleRowData(rowId);
+  const nextFavorite = !(Boolean(rowData?.is_favorite) || rowData?.收藏 === "是");
+  try {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/favorite`, {
+      method: "POST",
+      body: JSON.stringify({ is_favorite: nextFavorite }),
+    });
+    applyFavoritePatch([rowId], result.is_favorite);
+    if (favoriteOnlyFilter && !result.is_favorite) await refreshTableData({ keepPage: true });
+    toast(result.is_favorite ? "已收藏这条数据" : "已取消收藏");
   } catch (error) {
     toast(error.message);
   }
@@ -1394,8 +1451,14 @@ function handleColumnFilterClick(event) {
   const button = event.target.closest("[data-column-filter]");
   if (!button) return;
   event.preventDefault();
-  event.stopPropagation();
+  event.stopImmediatePropagation();
   openColumnFilterPopover(button);
+}
+
+function stopColumnFilterHeaderEvents(event) {
+  if (!event.target.closest("[data-column-filter]")) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
 }
 
 function openColumnFilterPopover(button) {
@@ -1512,11 +1575,17 @@ function handleMoreMenu(event) {
 function openRowMoreMenu(more) {
   const menu = document.querySelector("#rowMoreMenu");
   if (!menu || !more) return;
+  const rowId = more.dataset.rowId || "";
+  const isSameMenuOpen = menu.classList.contains("open") && menu.dataset.rowId === rowId;
+  if (isSameMenuOpen) {
+    closeMenus();
+    return;
+  }
   const rect = more.getBoundingClientRect();
   closeMenus();
   menu.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 116)}px`;
   menu.style.left = `${Math.min(rect.right - 108, window.innerWidth - 120)}px`;
-  menu.dataset.rowId = more.dataset.rowId || "";
+  menu.dataset.rowId = rowId;
   menu.classList.add("open");
   more.setAttribute("aria-expanded", "true");
 }
@@ -1542,7 +1611,7 @@ async function openRowDetail(rowData, mode = "view") {
 
 function openCellDetail(cell) {
   const field = cell.getColumn?.().getField?.();
-  if (!field || field === "row_id") return;
+  if (!isEditableCellField(field)) return;
   const rowId = cell.getData?.()?.row_id || "";
   openCellValue(field, cell.getValue(), rowId);
 }
@@ -1552,11 +1621,18 @@ function handleTableCellDoubleClick(event) {
   const cellElement = event.target.closest(".tabulator-cell");
   const rowElement = event.target.closest(".tabulator-row");
   const field = cellElement?.getAttribute("tabulator-field");
-  if (!cellElement || !rowElement || !field || field === "row_id") return;
+  if (!cellElement || !rowElement || !isEditableCellField(field)) return;
   const row = table.getRows("visible").find((item) => item.getElement() === rowElement);
   if (!row) return;
   const rowData = row.getData();
   openCellValue(field, rowData[field], rowData.row_id);
+}
+
+function isEditableCellField(field) {
+  if (!field) return false;
+  if (["row_id", "__spacer", "状态"].includes(field)) return false;
+  if (field === latestFieldMapping?.model_answer_column) return false;
+  return true;
 }
 
 async function openCellValue(field, value, rowId = "") {
@@ -1663,7 +1739,7 @@ async function saveCellDetailValue() {
     const fullRow = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentCellRowId}`);
     const rawData = editableDetailDataFrom(fullRow || {});
     rawData[currentCellField] = nextValue;
-    const updated = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentCellRowId}`, {
+    const updated = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentCellRowId}${schemeQuery()}`, {
       method: "PUT",
       body: JSON.stringify({ raw_data: rawData }),
     });
@@ -1671,7 +1747,7 @@ async function saveCellDetailValue() {
     currentCellContent = nextText;
     await ensureDynamicResultColumns(updated);
     updateVisibleRow(updated.row_id, updated);
-    scheduleMetricsRefresh();
+    await refreshMetrics();
     toast("单元格已保存");
   } catch (error) {
     toast(error.message);
@@ -1891,7 +1967,7 @@ async function saveDrawerEdit() {
     return;
   }
   try {
-    const updated = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}`, {
+    const updated = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}${schemeQuery()}`, {
       method: "PUT",
       body: JSON.stringify({ raw_data: rawData }),
     });
@@ -1903,7 +1979,7 @@ async function saveDrawerEdit() {
     initializeDrawerColumns();
     renderDrawerPayload();
     setDrawerMode("view");
-    scheduleMetricsRefresh();
+    await refreshMetrics();
     toast("行数据已保存");
   } catch (error) {
     toast(error.message);
@@ -2516,7 +2592,7 @@ async function saveDetailEdit() {
     return;
   }
   try {
-    const updated = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentDetailRow.row_id}`, {
+    const updated = await api(`/api/datasets/${state.activeDatasetId}/rows/${currentDetailRow.row_id}${schemeQuery()}`, {
       method: "PUT",
       body: JSON.stringify({ raw_data: rawData }),
     });
@@ -2525,7 +2601,7 @@ async function saveDetailEdit() {
     updateVisibleRow(updated.row_id, updated);
     renderDetailPayload();
     setDetailMode("view");
-    scheduleMetricsRefresh();
+    await refreshMetrics();
     toast("行数据已保存");
   } catch (error) {
     toast(error.message);
@@ -2806,6 +2882,13 @@ function annotationButtonMeta(status) {
     return { label: "标注", className: "primary" };
   }
   return { label: "重新标注", className: "reannotate" };
+}
+
+function favoriteButtonMeta(rowData) {
+  const isFavorite = Boolean(rowData?.is_favorite) || rowData?.收藏 === "是";
+  return isFavorite
+    ? { label: "已藏", className: "favorite active" }
+    : { label: "收藏", className: "favorite" };
 }
 
 async function startAnnotationTask(mode, rowIds = []) {
@@ -3289,6 +3372,10 @@ async function handleRowAction(action, rowId) {
   }
   if (action === "delete") {
     await deleteRow(rowId);
+    return;
+  }
+  if (action === "favorite") {
+    await toggleRowFavorite(rowId);
     return;
   }
   if (action === "annotate") {

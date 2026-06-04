@@ -23,6 +23,7 @@ from backend.services.dataset_service import (
     get_dataset_rows,
     import_excel_files,
     list_datasets,
+    update_dataset_rows_favorite,
     update_dataset_row_favorite,
     update_dataset_row,
 )
@@ -76,8 +77,8 @@ def get_row(dataset_id: str, row_id: str, scheme_id: str = ""):
 
 
 @router.put("/{dataset_id}/rows/{row_id}")
-def put_row(dataset_id: str, row_id: str, payload: dict = Body(...)):
-    return update_dataset_row(dataset_id, row_id, payload)
+def put_row(dataset_id: str, row_id: str, scheme_id: str = "", payload: dict = Body(...)):
+    return update_dataset_row(dataset_id, row_id, payload, scheme_id)
 
 
 @router.delete("/{dataset_id}/rows/{row_id}")
@@ -93,6 +94,11 @@ def remove_rows(dataset_id: str, payload: dict = Body(...)):
 @router.post("/{dataset_id}/rows/{row_id}/favorite")
 def set_row_favorite(dataset_id: str, row_id: str, payload: dict = Body(...)):
     return update_dataset_row_favorite(dataset_id, row_id, bool(payload.get("is_favorite")))
+
+
+@router.post("/{dataset_id}/rows/favorite/batch")
+def set_rows_favorite(dataset_id: str, payload: dict = Body(...)):
+    return update_dataset_rows_favorite(dataset_id, payload)
 
 
 @router.post("/{dataset_id}/rows/favorite/clear")

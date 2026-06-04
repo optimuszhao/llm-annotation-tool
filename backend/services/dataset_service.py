@@ -255,7 +255,7 @@ def get_dataset_row_field(dataset_id: str, row_id: str, column: str, scheme_id: 
     }
 
 
-def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
+def update_dataset_row(dataset_id: str, row_id: str, payload: dict, scheme_id: str = "") -> dict:
     raw_data = payload.get("raw_data") if isinstance(payload, dict) else None
     if raw_data is None:
         raw_data = payload
@@ -271,6 +271,10 @@ def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
     with get_db() as conn:
         dataset, scene, row = _load_dataset_row(conn, dataset_id, row_id)
         table_name = scene["data_table_name"]
+        field_mapping = conn.execute(
+            "SELECT human_answer_column, model_answer_column FROM field_mappings WHERE scene_id=?",
+            (scene["id"],),
+        ).fetchone()
         model_result = decode_json(row.get("model_result"), {})
         analysis_data = decode_json(row.get("analysis_data"), {})
         for key, value in model_result.items():
@@ -282,6 +286,7 @@ def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
             if key not in columns:
                 columns.append(key)
         preview_data, large_fields = build_row_preview_payload(raw_data)
+        annotation_status = _infer_import_status(raw_data, field_mapping)
         conn.execute(
             "UPDATE datasets SET column_schema=? WHERE id=?",
             (encode_json(columns), dataset_id),
@@ -289,16 +294,45 @@ def update_dataset_row(dataset_id: str, row_id: str, payload: dict) -> dict:
         conn.execute(
             f"""
             UPDATE {table_name}
-            SET raw_data=?, preview_data=?, large_fields=?, updated_at=?
+            SET raw_data=?, preview_data=?, large_fields=?, annotation_status=?, updated_at=?
             WHERE id=? AND dataset_id=?
             """,
-            (encode_json(raw_data), preview_data, large_fields, timestamp, row_id, dataset_id),
+            (encode_json(raw_data), preview_data, large_fields, annotation_status, timestamp, row_id, dataset_id),
         )
-        row = conn.execute(
-            f"SELECT id, row_index, raw_data, annotation_status FROM {table_name} WHERE id=? AND dataset_id=?",
-            (row_id, dataset_id),
-        ).fetchone()
-    return _format_row(row, columns, preview=False)
+        if scheme_id:
+            _update_latest_scheme_row_status(conn, dataset_id, row_id, scheme_id, raw_data, field_mapping, timestamp)
+        dataset, _scene, row = _load_dataset_row(conn, dataset_id, row_id, scheme_id)
+    return _format_row(row, columns, preview=False, scheme_view=bool(scheme_id))
+
+
+def _update_latest_scheme_row_status(
+    conn,
+    dataset_id: str,
+    row_id: str,
+    scheme_id: str,
+    raw_data: dict,
+    field_mapping: Optional[dict],
+    timestamp: str,
+) -> None:
+    latest = conn.execute(
+        """
+        SELECT task_row.id, task_row.model_result
+        FROM annotation_task_rows task_row
+        JOIN annotation_tasks task ON task.id=task_row.task_id
+        WHERE task.dataset_id=? AND task.scheme_id=? AND task_row.row_id=?
+        ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
+        LIMIT 1
+        """,
+        (dataset_id, scheme_id, row_id),
+    ).fetchone()
+    if not latest:
+        return
+    scheme_result = decode_json(latest.get("model_result"), {})
+    status = _infer_import_status({**raw_data, **scheme_result}, field_mapping)
+    conn.execute(
+        "UPDATE annotation_task_rows SET status=?, updated_at=? WHERE id=?",
+        (status, timestamp, latest["id"]),
+    )
 
 
 def _excel_column_mappings(header_row: tuple[Any, ...]) -> tuple[list[tuple[int, str]], list[str]]:
@@ -701,6 +735,42 @@ def update_dataset_row_favorite(dataset_id: str, row_id: str, is_favorite: bool)
     return {
         "row_id": row_id,
         "is_favorite": bool(is_favorite),
+        "收藏": "是" if is_favorite else "否",
+    }
+
+
+def update_dataset_rows_favorite(dataset_id: str, payload: dict) -> dict:
+    row_ids = [str(row_id) for row_id in payload.get("row_ids") or [] if row_id]
+    is_favorite = bool(payload.get("is_favorite"))
+    favorite_only = bool(payload.get("favorite_only", False))
+    with get_db() as conn:
+        dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+        if not scene:
+            raise HTTPException(status_code=404, detail="场景不存在")
+        table_name = scene["data_table_name"]
+        where = "dataset_id=?"
+        params: list[Any] = [dataset_id]
+        if row_ids:
+            placeholders = ", ".join(["?"] * len(row_ids))
+            where += f" AND id IN ({placeholders})"
+            params.extend(row_ids)
+        if favorite_only:
+            where += " AND is_favorite=1"
+        rows = conn.execute(f"SELECT id FROM {table_name} WHERE {where}", params).fetchall()
+        target_ids = [row["id"] for row in rows]
+        if target_ids:
+            placeholders = ", ".join(["?"] * len(target_ids))
+            conn.execute(
+                f"UPDATE {table_name} SET is_favorite=?, updated_at=? WHERE id IN ({placeholders})",
+                [1 if is_favorite else 0, now_iso(), *target_ids],
+            )
+    return {
+        "updated_count": len(target_ids),
+        "row_ids": target_ids,
+        "is_favorite": is_favorite,
         "收藏": "是" if is_favorite else "否",
     }
 
