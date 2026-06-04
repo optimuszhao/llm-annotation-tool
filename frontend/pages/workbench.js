@@ -1316,10 +1316,16 @@ function applyFavoritePatch(rowIds, isFavorite) {
   }
 }
 
+function isFavoriteValue(value) {
+  if (value === true || value === 1) return true;
+  const text = String(value ?? "").trim().toLowerCase();
+  return ["true", "1", "yes", "y", "是", "已收藏", "已藏"].includes(text);
+}
+
 async function toggleRowFavorite(rowId) {
   if (!state.activeDatasetId || !rowId) return;
   const rowData = getVisibleRowData(rowId);
-  const nextFavorite = !(Boolean(rowData?.is_favorite) || rowData?.收藏 === "是");
+  const nextFavorite = !(isFavoriteValue(rowData?.is_favorite) || isFavoriteValue(rowData?.收藏));
   try {
     const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}/favorite`, {
       method: "POST",
@@ -2026,7 +2032,7 @@ async function analyzeDrawerRow() {
 function syncDrawerFavoriteButton() {
   const button = document.querySelector("#drawerFavoriteButton");
   if (!button || !drawerRow) return;
-  const isFavorite = Boolean(drawerRow.is_favorite);
+  const isFavorite = isFavoriteValue(drawerRow.is_favorite) || isFavoriteValue(drawerRow["收藏"]);
   button.classList.toggle("active", isFavorite);
   button.textContent = isFavorite ? "已收藏" : "收藏";
   button.title = isFavorite ? "点击取消收藏" : "点击收藏这条数据";
@@ -2034,7 +2040,7 @@ function syncDrawerFavoriteButton() {
 
 async function toggleDrawerFavorite() {
   if (!drawerRow?.row_id || !state.activeDatasetId) return;
-  const nextFavorite = !Boolean(drawerRow.is_favorite);
+  const nextFavorite = !(isFavoriteValue(drawerRow.is_favorite) || isFavoriteValue(drawerRow["收藏"]));
   const button = document.querySelector("#drawerFavoriteButton");
   if (button) button.disabled = true;
   try {
@@ -2885,7 +2891,7 @@ function annotationButtonMeta(status) {
 }
 
 function favoriteButtonMeta(rowData) {
-  const isFavorite = Boolean(rowData?.is_favorite) || rowData?.收藏 === "是";
+  const isFavorite = isFavoriteValue(rowData?.is_favorite) || isFavoriteValue(rowData?.收藏);
   return isFavorite
     ? { label: "已藏", className: "favorite active" }
     : { label: "收藏", className: "favorite" };

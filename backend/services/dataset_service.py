@@ -712,6 +712,8 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
         if infer_large_fields and (column in PREVIEW_FIELDS or _is_large_value(value)):
             large_fields.add(column)
         item[column] = _preview(value) if preview else value
+    item["is_favorite"] = bool(row.get("is_favorite"))
+    item["收藏"] = "是" if row.get("is_favorite") else "否"
     if preview:
         item["__large_fields"] = sorted(large_fields)
     if not preview:
