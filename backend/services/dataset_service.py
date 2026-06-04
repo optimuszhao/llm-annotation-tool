@@ -26,6 +26,7 @@ PREVIEW_FIELDS = {
     "raw_output",
 }
 PREVIEW_LIMIT = 120
+ANALYSIS_RESULT_COLUMN_PREFIX = "分析结果｜"
 
 
 def _cell_value(value: Any) -> Any:
@@ -37,7 +38,7 @@ def _cell_value(value: Any) -> Any:
 def _preview(value: Any, limit: int = PREVIEW_LIMIT) -> Any:
     if value is None:
         return ""
-    text = str(value)
+    text = encode_json(value) if isinstance(value, (dict, list)) else str(value)
     return text if len(text) <= limit else f"{text[:limit]}..."
 
 
@@ -425,6 +426,8 @@ def get_dataset_rows(
     scheme_id: str = "",
     statuses: Optional[list[str]] = None,
     favorite_only: bool = False,
+    sort_field: str = "",
+    sort_dir: str = "asc",
 ) -> dict:
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
@@ -437,9 +440,14 @@ def get_dataset_rows(
         scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
         table_name = scene["data_table_name"]
         columns = decode_json(dataset["column_schema"], [])
+        analysis_columns = _analysis_result_columns(conn, dataset_id)
+        analysis_method_by_column = _analysis_method_by_column(analysis_columns)
+        all_columns = [*columns, *[item["column"] for item in analysis_columns]]
         scheme_view = bool(scheme_id)
         base_alias = "d" if scheme_view else ""
         status_expr = "COALESCE(latest.scheme_status, '未标注')" if scheme_view else "annotation_status"
+        sort_field = sort_field.strip()
+        sort_dir = "DESC" if str(sort_dir).lower() == "desc" else "ASC"
         where = f"{base_alias + '.' if base_alias else ''}dataset_id=?"
         params: list[Any] = [dataset_id]
         search_text = search.strip()
@@ -449,6 +457,14 @@ def get_dataset_rows(
             params.append(f"%{search_text}%")
         elif search_empty and search_column == "状态":
             where += f" AND ({status_expr} IS NULL OR TRIM(COALESCE(CAST({status_expr} AS TEXT), ''))='')"
+        elif (search_text or search_empty) and search_column and search_column in analysis_method_by_column:
+            analysis_expr = _latest_analysis_expr(base_alias)
+            if search_text:
+                where += f" AND COALESCE(CAST({analysis_expr} AS TEXT), '') LIKE ?"
+                params.extend([dataset_id, analysis_method_by_column[search_column], f"%{search_text}%"])
+            if search_empty:
+                where += f" AND TRIM(COALESCE(CAST({analysis_expr} AS TEXT), ''))=''"
+                params.extend([dataset_id, analysis_method_by_column[search_column]])
         elif (search_text or search_empty) and search_column and search_column in columns:
             clauses: list[str] = []
             if search_text:
@@ -528,6 +544,27 @@ def get_dataset_rows(
             where += f" AND ({' OR '.join(clauses)})"
         if favorite_only:
             where += f" AND {base_alias + '.' if base_alias else ''}is_favorite=1"
+        order_params: list[Any] = []
+        if sort_field == "状态":
+            order_by = f"{status_expr} {sort_dir}, {base_alias + '.' if base_alias else ''}row_index ASC"
+        elif sort_field in analysis_method_by_column:
+            order_by = f"COALESCE(CAST({_latest_analysis_expr(base_alias)} AS TEXT), '') {sort_dir}, {base_alias + '.' if base_alias else ''}row_index ASC"
+            order_params.extend([dataset_id, analysis_method_by_column[sort_field]])
+        elif sort_field in columns:
+            prefix = "d." if scheme_view else ""
+            if scheme_view:
+                order_by = (
+                    "COALESCE("
+                    "CAST(json_extract(latest.scheme_model_result, ?) AS TEXT), "
+                    "CAST(json_extract(d.raw_data, ?) AS TEXT), "
+                    f"'' ) {sort_dir}, d.row_index ASC"
+                )
+                order_params.extend([_json_column_path(sort_field), _json_column_path(sort_field)])
+            else:
+                order_by = f"COALESCE(CAST(json_extract({prefix}raw_data, ?) AS TEXT), '') {sort_dir}, {prefix}row_index ASC"
+                order_params.append(_json_column_path(sort_field))
+        else:
+            order_by = f"{base_alias + '.' if base_alias else ''}row_index ASC"
 
         if scheme_view:
             latest_cte = _latest_scheme_rows_cte()
@@ -562,10 +599,10 @@ def get_dataset_rows(
                 FROM {table_name} d
                 LEFT JOIN latest_scheme_rows latest ON latest.row_id=d.id
                 WHERE {where}
-                ORDER BY d.row_index ASC
+                ORDER BY {order_by}
                 LIMIT ? OFFSET ?
                 """,
-                [*latest_params, *params, page_size, offset],
+                [*latest_params, *params, *order_params, page_size, offset],
             ).fetchall()
         else:
             total = conn.execute(
@@ -583,13 +620,14 @@ def get_dataset_rows(
                     annotation_status
                 FROM {table_name}
                 WHERE {where}
-                ORDER BY row_index ASC
+                ORDER BY {order_by}
                 LIMIT ? OFFSET ?
                 """,
-                [*params, page_size, offset],
+                [*params, *order_params, page_size, offset],
             ).fetchall()
 
-    data = [_format_row(row, columns, preview=True, scheme_view=bool(scheme_id)) for row in rows]
+        data = [_format_row(row, columns, preview=True, scheme_view=bool(scheme_id)) for row in rows]
+        _append_latest_analysis_results(conn, dataset_id, data, analysis_columns)
 
     return {
         "data": data,
@@ -597,7 +635,7 @@ def get_dataset_rows(
         "page": page,
         "page_size": page_size,
         "last_page": max(math.ceil(total / page_size), 1),
-        "columns": columns,
+        "columns": all_columns,
     }
 
 
@@ -687,6 +725,91 @@ def _normalize_status_filters(statuses: Optional[list[str]]) -> list[str]:
     for status in statuses or []:
         values.extend(part.strip() for part in str(status).split(",") if part.strip())
     return list(dict.fromkeys(values))
+
+
+def _analysis_result_columns(conn, dataset_id: str) -> list[dict[str, str]]:
+    rows = conn.execute(
+        """
+        SELECT
+            method_name,
+            COALESCE(NULLIF(method_label, ''), method_name) AS method_label,
+            MAX(created_at) AS latest_at
+        FROM row_analysis_history
+        WHERE dataset_id=?
+          AND TRIM(COALESCE(method_name, ''))!=''
+        GROUP BY method_name
+        ORDER BY latest_at DESC, method_label ASC
+        """,
+        (dataset_id,),
+    ).fetchall()
+    label_counts: dict[str, int] = {}
+    for row in rows:
+        label = row["method_label"] or row["method_name"]
+        label_counts[label] = label_counts.get(label, 0) + 1
+    result = []
+    for row in rows:
+        label = row["method_label"] or row["method_name"]
+        title = label if label_counts.get(label, 0) == 1 else f"{label}（{row['method_name']}）"
+        result.append({
+            "column": f"{ANALYSIS_RESULT_COLUMN_PREFIX}{title}",
+            "method_name": row["method_name"],
+            "method_label": label,
+        })
+    return result
+
+
+def _analysis_method_by_column(analysis_columns: list[dict[str, str]]) -> dict[str, str]:
+    return {item["column"]: item["method_name"] for item in analysis_columns}
+
+
+def _latest_analysis_expr(base_alias: str = "") -> str:
+    row_expr = f"{base_alias}.id" if base_alias else "id"
+    return f"""
+        (
+          SELECT h.analysis_data
+          FROM row_analysis_history h
+          WHERE h.dataset_id=? AND h.row_id={row_expr} AND h.method_name=?
+          ORDER BY h.created_at DESC, h.rowid DESC
+          LIMIT 1
+        )
+    """
+
+
+def _append_latest_analysis_results(conn, dataset_id: str, data: list[dict], analysis_columns: list[dict[str, str]]) -> None:
+    if not data or not analysis_columns:
+        return
+    row_ids = [row["row_id"] for row in data if row.get("row_id")]
+    if not row_ids:
+        return
+    placeholders = ", ".join(["?"] * len(row_ids))
+    rows = conn.execute(
+        f"""
+        SELECT row_id, method_name, analysis_data
+        FROM (
+          SELECT
+            row_id,
+            method_name,
+            analysis_data,
+            ROW_NUMBER() OVER (
+              PARTITION BY row_id, method_name
+              ORDER BY created_at DESC, rowid DESC
+            ) AS rn
+          FROM row_analysis_history
+          WHERE dataset_id=? AND row_id IN ({placeholders})
+        )
+        WHERE rn=1
+        """,
+        [dataset_id, *row_ids],
+    ).fetchall()
+    column_by_method = {item["method_name"]: item["column"] for item in analysis_columns}
+    values_by_row: dict[str, dict[str, str]] = {}
+    for row in rows:
+        column = column_by_method.get(row["method_name"])
+        if not column:
+            continue
+        values_by_row.setdefault(row["row_id"], {})[column] = _preview(decode_json(row.get("analysis_data"), {}))
+    for item in data:
+        item.update(values_by_row.get(item.get("row_id"), {}))
 
 
 def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool = False) -> dict:

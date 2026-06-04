@@ -68,6 +68,7 @@ const defaultColumns = [
 ];
 
 const statusOptions = ["未标注", "排队中", "标注中", "TP", "TN", "FP", "FN", "失败", "取消"];
+const ANALYSIS_RESULT_COLUMN_PREFIX = "分析结果｜";
 
 function renderAnalysisMethodOptions() {
   const entries = Object.entries(state.analysisMethods || {});
@@ -728,6 +729,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     },
     pagination: true,
     paginationMode: "remote",
+    sortMode: "remote",
     paginationCounter(pageSize, currentRow, currentPage, totalRows) {
       return `共 ${Number(totalRows || 0).toLocaleString()} 条`;
     },
@@ -743,7 +745,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     },
     ajaxURL: `/api/datasets/${state.activeDatasetId}/rows`,
     ajaxURLGenerator(url, config, params) {
-      return `${url}?${buildRowsQuery(params.page || 1, params.size || table?.getPageSize?.() || 20)}`;
+      return `${url}?${buildRowsQuery(params.page || 1, params.size || table?.getPageSize?.() || 20, params)}`;
     },
     ajaxResponse(url, params, payload) {
       document.querySelector("#metricTotal").textContent = payload.total.toLocaleString();
@@ -918,7 +920,7 @@ function buildColumns(columns, sampleRows = []) {
   ];
 }
 
-function buildRowsQuery(page, pageSize) {
+function buildRowsQuery(page, pageSize, tableParams = {}) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("page_size", String(pageSize));
@@ -928,6 +930,11 @@ function buildRowsQuery(page, pageSize) {
   if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
   statusFilters.forEach((status) => params.append("statuses", status));
   if (favoriteOnlyFilter) params.set("favorite", "true");
+  const sorter = Array.isArray(tableParams.sort) ? tableParams.sort[0] : null;
+  if (sorter?.field && sorter.field !== "__spacer" && sorter.field !== "row_id") {
+    params.set("sort_field", sorter.field);
+    params.set("sort_dir", sorter.dir || "asc");
+  }
   return params.toString();
 }
 
@@ -1637,8 +1644,13 @@ function handleTableCellDoubleClick(event) {
 function isEditableCellField(field) {
   if (!field) return false;
   if (["row_id", "__spacer", "状态"].includes(field)) return false;
+  if (isAnalysisResultColumn(field)) return false;
   if (field === latestFieldMapping?.model_answer_column) return false;
   return true;
+}
+
+function isAnalysisResultColumn(column) {
+  return String(column || "").startsWith(ANALYSIS_RESULT_COLUMN_PREFIX);
 }
 
 async function openCellValue(field, value, rowId = "") {
@@ -2013,6 +2025,7 @@ async function analyzeDrawerRow() {
     }
     await ensureDynamicResultColumns({ 分析数据: analysisData });
     updateVisibleRow(rowId, { 分析数据: analysisData });
+    await refreshWorkbench();
     if (requestId === drawerAnalysisRequest && drawerRow?.row_id === rowId) {
       document.querySelector("#drawerAnalysisStatus").textContent = `${result.method_label || "分析"}完成`;
       await renderDrawerAnalysisHistory({ selectLatest: true });
@@ -2639,6 +2652,7 @@ async function analyzeCurrentDetailRow() {
     currentDetailRow = { ...currentDetailRow, analysis_data: analysisData, 分析数据: analysisData };
     await ensureDynamicResultColumns({ 分析数据: analysisData });
     updateVisibleRow(currentDetailRow.row_id, { 分析数据: analysisData });
+    await refreshWorkbench();
     document.querySelector("#rowAnalysisStatus").textContent = "分析完成";
     renderHighlightedJson("#rowAnalysisJson", analysisData);
     toast("分析数据已写入");
@@ -2841,7 +2855,8 @@ function previewColumn(column) {
   const text = String(column || "");
   const compact = text.toLowerCase().replace(/[\s_-]+/g, "");
   return (
-    /API Part|API Order|Summary|标注数据|分析数据|模型说明|raw_output|抽检人/.test(text)
+    isAnalysisResultColumn(text)
+    || /API Part|API Order|Summary|标注数据|分析数据|模型说明|raw_output|抽检人/.test(text)
     || compact.includes("apiorder")
     || compact.includes("apiorderinfo")
     || /^api数据part[1-7]$/.test(compact)
@@ -3277,6 +3292,7 @@ async function applyTaskEventToTable(payload) {
   if (payload.type === "row_analyzed") {
     await ensureDynamicResultColumns({ 分析数据: payload.analysis_data || {} });
     updateVisibleRow(payload.row_id, { 分析数据: payload.analysis_data || {} });
+    await refreshWorkbench();
     if (drawerRow?.row_id === payload.row_id) {
       drawerRow = { ...drawerRow, analysis_data: payload.analysis_data || {}, 分析数据: payload.analysis_data || {} };
       if (drawerMode === "analysis") renderDrawerAnalysisHistory();

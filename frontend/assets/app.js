@@ -1,5 +1,5 @@
 import { renderManagePage } from "/pages/manage.js?v=20260603-package-export";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260604-favorite-state";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260604-analysis-columns";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 
