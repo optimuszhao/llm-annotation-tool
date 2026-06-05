@@ -37,6 +37,7 @@ let columnFilter = { column: "", value: "", empty: false };
 let availableDatasetColumns = [];
 let availableModelResultColumns = [];
 let latestFieldMapping = null;
+const ROLE_RESULT_KEY = "角色标注结果";
 let tableFontSize = normalizeTableFontSize(localStorage.getItem("llm-table-font-size") || "medium");
 let columnSettingsOriginalFontSize = tableFontSize;
 let tableFocusMode = false;
@@ -165,6 +166,7 @@ export function renderWorkbenchPage() {
               <button type="button" data-global-action="clear-favorite">批量取消收藏</button>
               <hr>
               <button type="button" data-global-action="columns">列设置</button>
+              <button type="button" data-global-action="reindex">刷新序号</button>
               <button type="button" data-global-action="stop">停止未完成标注</button>
               <hr>
               <button type="button" data-global-action="export">导出</button>
@@ -564,6 +566,8 @@ function bindWorkbenchEvents() {
       exportDataset();
     } else if (action === "columns") {
       openColumnSettings();
+    } else if (action === "reindex") {
+      reindexRows();
     } else {
       toast(`已预留${event.target.textContent}操作`);
     }
@@ -735,8 +739,12 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     pagination: true,
     paginationMode: "remote",
     sortMode: "remote",
-    paginationCounter(pageSize, currentRow, currentPage, totalRows) {
-      return `共 ${Number(totalRows || 0).toLocaleString()} 条`;
+    paginationCounter(pageSize, currentRow, currentPage, totalRows, totalPages) {
+      const safePageSize = Number(pageSize || table?.getPageSize?.() || 20) || 20;
+      const safeTotal = Number(totalRows || 0) || 0;
+      const safePage = Number(currentPage || table?.getPage?.() || 1) || 1;
+      const safePages = Number(totalPages || Math.max(Math.ceil(safeTotal / safePageSize), 1)) || 1;
+      return `第 ${safePage} / ${safePages} 页 · 共 ${safeTotal.toLocaleString()} 条`;
     },
     paginationSize: 20,
     paginationSizeSelector: [20, 50, 100, 200],
@@ -2805,6 +2813,30 @@ async function exportDataset() {
   }
 }
 
+async function reindexRows() {
+  if (!state.activeDatasetId) {
+    toast("请先选择数据集");
+    return;
+  }
+  const datasetName = state.datasets.find((item) => item.id === state.activeDatasetId)?.name || "当前数据集";
+  const ok = window.confirm(`确认刷新“${datasetName}”的序号？\n系统会按当前数据集的入库顺序重新写入序号，从 1 开始连续排列。`);
+  if (!ok) return;
+  showTableLoading("正在刷新序号...");
+  try {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/reindex`, { method: "POST" });
+    document.querySelector("#selectCurrentPage").checked = false;
+    table?.deselectRow?.();
+    setBatchButtonState();
+    await refreshWorkbench();
+    scheduleMetricsRefresh(0);
+    toast(`序号已刷新：共 ${Number(result.row_count || 0).toLocaleString()} 行，更新 ${Number(result.updated_count || 0).toLocaleString()} 行`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    hideTableLoading();
+  }
+}
+
 function downloadJson(payload, fileName) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -3461,9 +3493,10 @@ async function applyTaskEventToTable(payload) {
     updateVisibleRow(payload.row_id, { 状态: payload.status || "标注中" });
     return;
   }
-  if (payload.type === "row_updated") {
-    const result = payload.model_result || {};
-    let status = payload.status || (payload.error ? "失败" : "");
+    if (payload.type === "row_updated") {
+      const result = payload.model_result || {};
+      const flattenedResult = flattenRoleModelResult(result);
+      let status = payload.status || (payload.error ? "失败" : "");
     let fullRow = null;
     if (!status && state.activeDatasetId && payload.row_id) {
       try {
@@ -3474,13 +3507,14 @@ async function applyTaskEventToTable(payload) {
       }
     }
     await ensureDynamicResultColumns(result);
-    updateVisibleRow(payload.row_id, { ...(fullRow || {}), ...result, ...(status ? { 状态: status } : {}) });
+    updateVisibleRow(payload.row_id, { ...(fullRow || {}), ...result, ...flattenedResult, ...(status ? { 状态: status } : {}) });
     if (drawerRow?.row_id === payload.row_id) {
       const latestResult = Object.keys(result).length ? result : fullRow?.model_result || drawerRow.model_result || {};
       drawerRow = {
         ...drawerRow,
         ...(fullRow || {}),
         ...result,
+        ...flattenedResult,
         ...(status ? { 状态: status } : {}),
         model_result: latestResult,
         rendered_prompt: payload.rendered_prompt || fullRow?.rendered_prompt || drawerRow.rendered_prompt || "",
@@ -3542,15 +3576,16 @@ function refreshTableRow(row) {
 
 async function ensureDynamicResultColumns(result) {
   if (!result || typeof result !== "object") return;
-  mergeAvailableDatasetColumns(Object.keys(result));
-  mergeAvailableModelResultColumns(Object.keys(result));
+  const dynamicColumns = modelResultDisplayColumns(result);
+  mergeAvailableDatasetColumns(dynamicColumns);
+  mergeAvailableModelResultColumns(dynamicColumns);
   if (!table || !tableReadyForRealtime) return;
   const existing = new Set(
     table.getColumns?.()
       .map((column) => column.getField?.())
       .filter(Boolean) || [],
   );
-  for (const key of Object.keys(result)) {
+  for (const key of dynamicColumns) {
     if (!key || existing.has(key) || key === "row_id" || key === "状态") continue;
     try {
       await table.addColumn(dataColumnDef(key), true, "状态");
@@ -3559,6 +3594,25 @@ async function ensureDynamicResultColumns(result) {
       // 当前表格实例不支持动态插列时，下一次切换/搜索会从列结构重建。
     }
   }
+}
+
+function modelResultDisplayColumns(result) {
+  const flattened = Object.keys(flattenRoleModelResult(result));
+  if (flattened.length) return flattened;
+  return Object.keys(result || {}).filter((key) => key !== ROLE_RESULT_KEY && key !== "角色标注答案");
+}
+
+function flattenRoleModelResult(result) {
+  const roleResults = result?.[ROLE_RESULT_KEY];
+  if (!roleResults || typeof roleResults !== "object" || Array.isArray(roleResults)) return {};
+  const flattened = {};
+  Object.entries(roleResults).forEach(([roleName, roleResult]) => {
+    if (!roleResult || typeof roleResult !== "object" || Array.isArray(roleResult)) return;
+    Object.entries(roleResult).forEach(([key, value]) => {
+      flattened[`${roleName}.${key}`] = value;
+    });
+  });
+  return flattened;
 }
 
 function updateTaskStrip(task) {

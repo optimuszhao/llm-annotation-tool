@@ -11,7 +11,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from backend.database import decode_json, encode_json, get_db, now_iso
-from backend.services.dataset_service import build_row_preview_payload
+from backend.services.dataset_service import build_row_preview_payload, model_result_display_columns
 from user_hooks import hooks
 
 
@@ -893,9 +893,13 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
             (context["row_id"],),
         ).fetchone()
         raw_data = decode_json(row["raw_data"], {})
-        raw_data.update(model_result)
+        raw_data.update({
+            key: value
+            for key, value in model_result.items()
+            if key not in {"角色标注结果", "角色标注答案"}
+        })
         preview_data, large_fields = build_row_preview_payload(raw_data)
-        _ensure_dataset_columns(conn, dataset, model_result.keys())
+        _ensure_dataset_columns(conn, dataset, model_result_display_columns(model_result))
         conn.execute(
             f"""
             UPDATE {table_name}

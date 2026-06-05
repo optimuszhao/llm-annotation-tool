@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from io import BytesIO
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
@@ -25,6 +25,10 @@ PREVIEW_FIELDS = {
     "模型说明",
     "raw_output",
 }
+ROLE_RESULT_KEY = "角色标注结果"
+ROLE_ANSWER_KEY = "角色标注答案"
+ROLE_RESULT_COLUMN_SEPARATOR = "."
+MODEL_RESULT_INTERNAL_KEYS = {ROLE_RESULT_KEY, ROLE_ANSWER_KEY}
 PREVIEW_LIMIT = 120
 ANALYSIS_RESULT_COLUMN_PREFIX = "分析结果｜"
 
@@ -265,9 +269,11 @@ def get_dataset_row_field(dataset_id: str, row_id: str, column: str, scheme_id: 
             }
     raw_data = decode_json(row["raw_data"], {})
     if scheme_id:
-        raw_data = {**raw_data, **decode_json(row.get("scheme_model_result"), {})}
+        model_result = decode_json(row.get("scheme_model_result"), {})
+        raw_data = {**raw_data, **model_result, **_flatten_role_model_result(model_result)}
     elif column not in raw_data:
-        raw_data = {**raw_data, **decode_json(row.get("model_result"), {})}
+        model_result = decode_json(row.get("model_result"), {})
+        raw_data = {**raw_data, **model_result, **_flatten_role_model_result(model_result)}
     value = raw_data.get(column, "")
     text = value if isinstance(value, str) else encode_json(value)
     return {
@@ -504,7 +510,7 @@ def get_dataset_rows(
                     params.extend([
                         _json_column_path(search_column),
                         f"%{search_text}%",
-                        _json_column_path(search_column),
+                        _model_result_json_path(search_column),
                         f"%{search_text}%",
                     ])
                 else:
@@ -531,9 +537,9 @@ def get_dataset_rows(
                         """
                     )
                     params.extend([
-                        _json_column_path(search_column),
-                        _json_column_path(search_column),
-                        _json_column_path(search_column),
+                        _model_result_json_path(search_column),
+                        _model_result_json_path(search_column),
+                        _model_result_json_path(search_column),
                         _json_column_path(search_column),
                         _json_column_path(search_column),
                     ])
@@ -583,7 +589,7 @@ def get_dataset_rows(
                     "CAST(json_extract(d.raw_data, ?) AS TEXT), "
                     f"'' ) {sort_dir}, d.row_index ASC"
                 )
-                order_params.extend([_json_column_path(sort_field), _json_column_path(sort_field)])
+                order_params.extend([_model_result_json_path(sort_field), _json_column_path(sort_field)])
             else:
                 order_by = f"COALESCE(CAST(json_extract({prefix}raw_data, ?) AS TEXT), '') {sort_dir}, {prefix}row_index ASC"
                 order_params.append(_json_column_path(sort_field))
@@ -669,8 +675,47 @@ def _json_column_path(column: str) -> str:
     return f'$."{escaped}"'
 
 
+def _model_result_json_path(column: str) -> str:
+    role_name, result_key = _split_role_result_column(column)
+    if role_name and result_key:
+        return f'{_json_column_path(ROLE_RESULT_KEY)}."{_escape_json_path_key(role_name)}"."{_escape_json_path_key(result_key)}"'
+    return _json_column_path(column)
+
+
+def _escape_json_path_key(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _split_role_result_column(column: str) -> tuple[str, str]:
+    text = str(column or "")
+    if ROLE_RESULT_COLUMN_SEPARATOR not in text:
+        return "", ""
+    role_name, result_key = text.split(ROLE_RESULT_COLUMN_SEPARATOR, 1)
+    return role_name.strip(), result_key.strip()
+
+
 def _model_result_columns(conn, dataset_id: str) -> list[str]:
-    rows = conn.execute(
+    role_rows = conn.execute(
+        """
+        SELECT DISTINCT role.key AS role_name, field.key AS field_name
+        FROM annotation_task_rows task_row
+        JOIN annotation_tasks task ON task.id=task_row.task_id
+        JOIN json_each(json_extract(CASE WHEN json_valid(task_row.model_result) THEN task_row.model_result ELSE '{}' END, ?)) AS role
+        JOIN json_each(CASE WHEN json_valid(role.value) THEN role.value ELSE '{}' END) AS field
+        WHERE task.dataset_id=?
+          AND json_valid(task_row.model_result)
+          AND TRIM(COALESCE(task_row.model_result, '')) NOT IN ('', '{}')
+          AND json_valid(role.value)
+        ORDER BY role_name ASC, field_name ASC
+        """,
+        (_json_column_path(ROLE_RESULT_KEY), dataset_id),
+    ).fetchall()
+    role_columns = [
+        _role_result_column(row["role_name"], row["field_name"])
+        for row in role_rows
+        if row["role_name"] and row["field_name"]
+    ]
+    top_rows = conn.execute(
         """
         SELECT DISTINCT json_each.key AS column_name
         FROM annotation_task_rows task_row
@@ -683,7 +728,38 @@ def _model_result_columns(conn, dataset_id: str) -> list[str]:
         """,
         (dataset_id,),
     ).fetchall()
-    return [row["column_name"] for row in rows if row["column_name"]]
+    top_columns = [
+        row["column_name"]
+        for row in top_rows
+        if row["column_name"] and row["column_name"] not in MODEL_RESULT_INTERNAL_KEYS
+    ]
+    return _dedupe_columns(role_columns if role_columns else top_columns)
+
+
+def model_result_display_columns(model_result: dict) -> list[str]:
+    flattened_columns = list(_flatten_role_model_result(model_result).keys())
+    if flattened_columns:
+        return flattened_columns
+    return [
+        str(column)
+        for column in (model_result or {}).keys()
+        if column and column not in MODEL_RESULT_INTERNAL_KEYS
+    ]
+
+
+def _role_result_column(role_name: str, field_name: str) -> str:
+    return f"{role_name}{ROLE_RESULT_COLUMN_SEPARATOR}{field_name}"
+
+
+def _dedupe_columns(columns: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for column in columns:
+        if not column or column in seen:
+            continue
+        seen.add(column)
+        result.append(column)
+    return result
 
 
 def _sync_model_result_columns(conn, dataset: dict, model_result_columns: Optional[list[str]] = None) -> list[str]:
@@ -698,6 +774,49 @@ def _sync_model_result_columns(conn, dataset: dict, model_result_columns: Option
             (encode_json(columns), dataset["id"]),
         )
     return columns
+
+
+def reindex_dataset_rows(dataset_id: str) -> dict:
+    with get_db() as conn:
+        dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+        if not scene:
+            raise HTTPException(status_code=404, detail="场景不存在")
+        table_name = scene["data_table_name"]
+        rows = conn.execute(
+            f"""
+            SELECT id, row_index
+            FROM {table_name}
+            WHERE dataset_id=?
+            ORDER BY row_index ASC, id ASC
+            """,
+            (dataset_id,),
+        ).fetchall()
+        timestamp = now_iso()
+        updated_count = 0
+        for index, row in enumerate(rows, start=1):
+            if int(row["row_index"] or 0) == index:
+                continue
+            conn.execute(
+                f"UPDATE {table_name} SET row_index=?, updated_at=? WHERE id=? AND dataset_id=?",
+                (index, timestamp, row["id"], dataset_id),
+            )
+            conn.execute(
+                "UPDATE annotation_task_rows SET row_index=?, updated_at=? WHERE row_id=?",
+                (index, timestamp, row["id"]),
+            )
+            updated_count += 1
+        conn.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(rows), dataset_id))
+    return {
+        "ok": True,
+        "dataset_id": dataset_id,
+        "row_count": len(rows),
+        "updated_count": updated_count,
+        "start_index": 1 if rows else 0,
+        "end_index": len(rows),
+    }
 
 
 def export_dataset_rows(dataset_id: str) -> dict:
@@ -872,7 +991,13 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
     raw_data = decode_json(row.get("preview_data") if preview else row.get("raw_data"), {})
     if scheme_view:
         model_result = decode_json(row.get("scheme_model_result"), {})
-        raw_data = {**raw_data, **{key: _preview(value) if preview else value for key, value in model_result.items()}}
+        flattened_result = _flatten_role_model_result(model_result)
+        display_result = {
+            key: _preview(value) if preview else value
+            for key, value in {**model_result, **flattened_result}.items()
+            if key not in MODEL_RESULT_INTERNAL_KEYS
+        }
+        raw_data = {**raw_data, **display_result}
         status = row.get("scheme_status") or "未标注"
     else:
         model_result = decode_json(row.get("model_result"), {})
@@ -903,6 +1028,19 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
         if analysis_data and "分析数据" not in item:
             item["分析数据"] = analysis_data
     return item
+
+
+def _flatten_role_model_result(model_result: dict) -> dict[str, Any]:
+    role_results = model_result.get(ROLE_RESULT_KEY) if isinstance(model_result, dict) else {}
+    if not isinstance(role_results, dict):
+        return {}
+    flattened: dict[str, Any] = {}
+    for role_name, result in role_results.items():
+        if not isinstance(result, dict):
+            continue
+        for key, value in result.items():
+            flattened[_role_result_column(str(role_name), str(key))] = value
+    return flattened
 
 
 def update_dataset_row_favorite(dataset_id: str, row_id: str, is_favorite: bool) -> dict:

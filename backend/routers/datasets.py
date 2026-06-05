@@ -23,6 +23,7 @@ from backend.services.dataset_service import (
     get_dataset_rows,
     import_excel_files,
     list_datasets,
+    reindex_dataset_rows,
     update_dataset_rows_favorite,
     update_dataset_row_favorite,
     update_dataset_row,
@@ -91,6 +92,11 @@ def remove_row(dataset_id: str, row_id: str):
 @router.post("/{dataset_id}/rows/delete")
 def remove_rows(dataset_id: str, payload: dict = Body(...)):
     return delete_dataset_rows(dataset_id, payload.get("row_ids") or [])
+
+
+@router.post("/{dataset_id}/rows/reindex")
+def reindex_rows(dataset_id: str):
+    return reindex_dataset_rows(dataset_id)
 
 
 @router.post("/{dataset_id}/rows/{row_id}/favorite")

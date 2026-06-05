@@ -1404,12 +1404,24 @@ button { cursor: pointer; }
 .tabulator-row:nth-child(odd) { background: var(--surface); }
 .tabulator-row:hover { background: color-mix(in srgb, var(--primary-soft) 62%, var(--surface)) !important; }
 .tabulator-row .tabulator-cell.tabulator-frozen {
-  background: inherit;
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-2));
   z-index: 4;
+}
+.tabulator-row .tabulator-cell.tabulator-frozen-left {
+  box-shadow: 8px 0 16px -16px rgba(15, 23, 42, .52);
+}
+.tabulator-row .tabulator-cell.tabulator-frozen-right {
+  box-shadow: -8px 0 16px -16px rgba(15, 23, 42, .52);
 }
 .tabulator .tabulator-header .tabulator-frozen {
   background: linear-gradient(180deg, var(--surface), var(--surface-2));
   z-index: 5;
+}
+.tabulator .tabulator-header .tabulator-frozen-left {
+  box-shadow: 8px 0 16px -16px rgba(15, 23, 42, .48);
+}
+.tabulator .tabulator-header .tabulator-frozen-right {
+  box-shadow: -8px 0 16px -16px rgba(15, 23, 42, .48);
 }
 .tabulator .tabulator-footer {
   border-top: 1px solid var(--line);
