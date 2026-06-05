@@ -16,6 +16,7 @@ from backend.routers import (
     field_mappings,
     knowledge,
     maintenance,
+    preferences,
     prompts,
     scenes,
     schemes,
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(field_mappings.router)
     app.include_router(annotation_tasks.router)
     app.include_router(maintenance.router)
+    app.include_router(preferences.router)
     app.include_router(chat.router)
 
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")

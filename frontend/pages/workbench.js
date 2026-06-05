@@ -452,7 +452,7 @@ export function renderWorkbenchPage() {
     </div>
 
     <div class="modal-backdrop" id="columnSettingsModal">
-      <div class="modal modal-wide">
+      <div class="modal modal-wide column-settings-modal">
         <div class="modal-head">
           <div>
             <h2>列设置</h2>
@@ -461,34 +461,35 @@ export function renderWorkbenchPage() {
           <button class="icon-btn" id="closeColumnSettings">×</button>
         </div>
         <div class="modal-body">
-          <div class="mapping-title">
-            <div>
-              <strong>默认渲染列</strong>
-              <span>保存后会同步到字段映射配置。</span>
+          <div class="column-settings-toolbar">
+            <div class="mapping-title">
+              <div>
+                <strong>默认渲染列</strong>
+                <span>保存后同步到字段映射配置。</span>
+              </div>
             </div>
-            <div class="mapping-actions">
-              <button type="button" id="selectAllColumns">全选</button>
-              <button type="button" id="clearAllColumns">全不选</button>
-            </div>
-          </div>
-          <div class="table-font-setting" aria-label="列表字体大小">
-            <div>
-              <strong>列表字体大小</strong>
-              <span>调整工作台表格的阅读密度。</span>
-            </div>
-            <div class="table-font-segment" id="tableFontSizeSegment">
-              <label>
-                <input type="radio" name="tableFontSize" value="small">
-                <span>小</span>
-              </label>
-              <label>
-                <input type="radio" name="tableFontSize" value="medium">
-                <span>中</span>
-              </label>
-              <label>
-                <input type="radio" name="tableFontSize" value="large">
-                <span>大</span>
-              </label>
+            <div class="column-settings-toolbar-actions">
+              <div class="table-font-setting" aria-label="列表字体大小">
+                <strong>列表字体</strong>
+                <div class="table-font-segment" id="tableFontSizeSegment">
+                  <label>
+                    <input type="radio" name="tableFontSize" value="small">
+                    <span>小</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="tableFontSize" value="medium">
+                    <span>中</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="tableFontSize" value="large">
+                    <span>大</span>
+                  </label>
+                </div>
+              </div>
+              <div class="mapping-actions">
+                <button type="button" id="selectAllColumns">全选</button>
+                <button type="button" id="clearAllColumns">全不选</button>
+              </div>
             </div>
           </div>
           <div class="column-chip-grid compact" id="columnSettingsGrid"></div>
@@ -1161,12 +1162,28 @@ async function applySourceModal() {
   await loadSceneResources();
   state.activeDatasetId = validResourceId(state.datasets, nextDatasetId);
   state.activeSchemeId = validResourceId(state.schemes, nextSchemeId);
+  await saveWorkbenchSourcePreference();
   if (changed) resetWorkbenchQueryState();
   closeTaskEvents();
   currentTask = null;
   closeSourceModal();
   await refreshWorkbench();
   toast("数据源与方案已切换");
+}
+
+async function saveWorkbenchSourcePreference() {
+  try {
+    await api("/api/preferences/workbench-source", {
+      method: "PUT",
+      body: JSON.stringify({
+        scene_id: state.activeSceneId,
+        dataset_id: state.activeDatasetId,
+        scheme_id: state.activeSchemeId,
+      }),
+    });
+  } catch (error) {
+    toast(`数据源偏好保存失败：${error.message}`);
+  }
 }
 
 function resetWorkbenchQueryState() {

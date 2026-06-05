@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260605-focus-header";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-focus-header";
+import { renderManagePage } from "/pages/manage.js?v=20260605-column-settings-wide";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-column-settings-wide";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 
@@ -45,13 +45,16 @@ export function toast(message) {
 }
 
 export async function loadState() {
-  const [scenes, analysisMethods] = await Promise.all([
+  const [scenes, analysisMethods, savedSource] = await Promise.all([
     api("/api/scenes"),
     api("/api/schemes/analysis-methods").catch(() => ({})),
+    api("/api/preferences/workbench-source").catch(() => ({})),
   ]);
   state.scenes = scenes;
   state.analysisMethods = analysisMethods;
-  state.activeSceneId ||= state.scenes[0]?.id || "";
+  state.activeSceneId = validStateId(state.scenes, savedSource.scene_id || state.activeSceneId);
+  state.activeDatasetId = savedSource.dataset_id || state.activeDatasetId;
+  state.activeSchemeId = savedSource.scheme_id || state.activeSchemeId;
   await loadSceneResources();
 }
 
@@ -75,6 +78,10 @@ export async function loadSceneResources() {
   if (!state.schemes.some((item) => item.id === state.activeSchemeId)) {
     state.activeSchemeId = state.schemes[0]?.id || "";
   }
+}
+
+function validStateId(items, preferredId) {
+  return preferredId && items.some((item) => item.id === preferredId) ? preferredId : items[0]?.id || "";
 }
 
 function showPage(name) {

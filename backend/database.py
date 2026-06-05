@@ -242,6 +242,12 @@ def init_db(recover_interrupted: bool = False) -> None:
                 FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS app_preferences (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_annotation_tasks_dataset ON annotation_tasks(dataset_id);
             CREATE INDEX IF NOT EXISTS idx_annotation_tasks_status ON annotation_tasks(status);
             CREATE INDEX IF NOT EXISTS idx_annotation_task_rows_task ON annotation_task_rows(task_id);

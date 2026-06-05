@@ -1667,6 +1667,73 @@ button { cursor: pointer; }
 .modal-wide {
   width: min(1040px, 94vw);
 }
+.column-settings-modal {
+  width: min(80vw, 1480px);
+  max-height: min(820px, calc(100dvh - 32px));
+}
+.column-settings-modal .modal-body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  overflow: hidden;
+}
+.column-settings-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--line));
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-soft) 30%, transparent), transparent 62%),
+    color-mix(in srgb, var(--surface) 88%, var(--surface-2));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.62);
+}
+.column-settings-toolbar .mapping-title {
+  min-width: 0;
+  margin-bottom: 0;
+}
+.column-settings-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.column-settings-toolbar .table-font-setting {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.column-settings-toolbar .table-font-setting > strong {
+  white-space: nowrap;
+  font-size: 12px;
+}
+.column-settings-modal #columnSettingsGrid.column-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+}
+.column-settings-modal .column-settings-section {
+  min-width: 0;
+  margin-top: 0;
+}
+.column-settings-modal .column-settings-section .column-chip-grid.compact {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.column-settings-modal .column-settings-section-head {
+  align-items: flex-start;
+}
+.column-settings-modal .column-settings-section-head span {
+  max-width: 300px;
+}
 .modal-xl {
   width: min(1180px, 96vw);
   max-height: min(820px, calc(100dvh - 24px));
@@ -4847,7 +4914,7 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   flex: 0 0 auto;
 }
 .mapping-actions button {
-  height: 28px;
+  height: 26px;
   padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--primary) 26%, var(--line));
   border-radius: 999px;
@@ -4889,7 +4956,7 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   display: inline-flex;
   flex: 0 0 auto;
   gap: 4px;
-  padding: 4px;
+  padding: 3px;
   border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--line));
   border-radius: 999px;
   background: color-mix(in srgb, var(--surface) 78%, var(--surface-2));
@@ -4908,9 +4975,9 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  height: 30px;
-  padding: 0 12px;
+  min-width: 40px;
+  height: 26px;
+  padding: 0 10px;
   border-radius: 999px;
   color: var(--muted);
   font-size: 12px;
@@ -5002,6 +5069,17 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   .ref-manage-grid { grid-template-columns: repeat(5, minmax(170px, 1fr)); gap: 10px; }
   .ref-resource-card { min-height: 196px; padding: 14px; }
   .column-chip-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 980px) {
+  .column-settings-toolbar,
+  .column-settings-toolbar-actions {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .column-settings-modal #columnSettingsGrid.column-chip-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Workbench reference migration. */
