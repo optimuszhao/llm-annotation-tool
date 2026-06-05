@@ -13,6 +13,7 @@ from backend.services.annotation_service import (
     get_annotation_task,
     list_annotation_tasks,
     stop_unfinished,
+    stop_unfinished_by_row,
     subscribe_task_events,
     unsubscribe_task_events,
 )
@@ -39,6 +40,11 @@ def get_annotation_task_detail(task_id: str):
 @router.post("/{task_id}/stop-unfinished")
 def post_stop_unfinished(task_id: str):
     return stop_unfinished(task_id)
+
+
+@router.post("/rows/{row_id}/stop-unfinished")
+def post_stop_unfinished_by_row(row_id: str, dataset_id: str, scheme_id: str = ""):
+    return stop_unfinished_by_row(dataset_id, row_id, scheme_id)
 
 
 @router.get("/{task_id}/events")

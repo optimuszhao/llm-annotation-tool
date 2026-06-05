@@ -77,3 +77,81 @@ def backfill_preview_cache(force: bool = False) -> dict[str, Any]:
         "failed_rows": failed_rows,
         "scenes": scene_results,
     }
+
+
+def prune_annotation_history() -> dict[str, Any]:
+    """删除旧标注历史，每行每方案保留最近一条记录。"""
+    with get_db() as conn:
+        before = conn.execute("SELECT COUNT(*) AS count FROM annotation_task_rows").fetchone()["count"]
+        deleted = conn.execute(
+            """
+            DELETE FROM annotation_task_rows
+            WHERE id IN (
+              SELECT id
+              FROM (
+                SELECT
+                  task_row.id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY task.dataset_id, task.scheme_id, task_row.row_id
+                    ORDER BY
+                      COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC,
+                      task_row.rowid DESC
+                  ) AS rn
+                FROM annotation_task_rows task_row
+                JOIN annotation_tasks task ON task.id = task_row.task_id
+              )
+              WHERE rn > 1
+            )
+            """
+        ).rowcount
+        conn.execute(
+            """
+            DELETE FROM annotation_tasks
+            WHERE id NOT IN (
+              SELECT DISTINCT task_id
+              FROM annotation_task_rows
+            )
+            """
+        )
+        after = conn.execute("SELECT COUNT(*) AS count FROM annotation_task_rows").fetchone()["count"]
+    return {
+        "ok": True,
+        "type": "annotation_history",
+        "before_count": before,
+        "deleted_count": max(deleted, 0),
+        "remaining_count": after,
+        "keep_rule": "每行每方案保留最近一条标注历史",
+    }
+
+
+def prune_analysis_history() -> dict[str, Any]:
+    """删除旧分析历史，每行每分析方法保留最近一条记录。"""
+    with get_db() as conn:
+        before = conn.execute("SELECT COUNT(*) AS count FROM row_analysis_history").fetchone()["count"]
+        deleted = conn.execute(
+            """
+            DELETE FROM row_analysis_history
+            WHERE id IN (
+              SELECT id
+              FROM (
+                SELECT
+                  id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY dataset_id, row_id, method_name
+                    ORDER BY created_at DESC, rowid DESC
+                  ) AS rn
+                FROM row_analysis_history
+              )
+              WHERE rn > 1
+            )
+            """
+        ).rowcount
+        after = conn.execute("SELECT COUNT(*) AS count FROM row_analysis_history").fetchone()["count"]
+    return {
+        "ok": True,
+        "type": "analysis_history",
+        "before_count": before,
+        "deleted_count": max(deleted, 0),
+        "remaining_count": after,
+        "keep_rule": "每行每分析方法保留最近一条分析历史",
+    }

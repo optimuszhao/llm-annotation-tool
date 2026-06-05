@@ -4,7 +4,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Body
 
-from backend.services.maintenance_service import backfill_preview_cache
+from backend.services.maintenance_service import (
+    backfill_preview_cache,
+    prune_analysis_history,
+    prune_annotation_history,
+)
 
 
 router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
@@ -13,3 +17,13 @@ router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
 @router.post("/preview-backfill")
 def post_preview_backfill(payload: Optional[dict] = Body(default=None)):
     return backfill_preview_cache(force=bool((payload or {}).get("force")))
+
+
+@router.post("/annotation-history/prune")
+def post_prune_annotation_history():
+    return prune_annotation_history()
+
+
+@router.post("/analysis-history/prune")
+def post_prune_analysis_history():
+    return prune_analysis_history()

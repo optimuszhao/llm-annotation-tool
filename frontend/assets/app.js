@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260605-result-columns";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-result-columns";
+import { renderManagePage } from "/pages/manage.js?v=20260605-row-stop-task";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-row-stop-task";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 
@@ -176,6 +176,14 @@ function ensureLagHelperModal() {
             <strong>优化内容</strong>
             <span>扫描已有场景数据，基于完整行数据生成短文本预览和大字段标记。原始数据完整保留。</span>
           </div>
+          <div class="lag-helper-note lag-helper-danger-zone">
+            <strong>历史瘦身</strong>
+            <span>删除旧历史记录，并为每行保留最近一条标注历史、每个分析方法保留最近一条分析历史。当前列表最新结果会保留。</span>
+            <div class="lag-helper-clean-actions">
+              <button class="btn danger-soft" id="lagHelperPruneAnnotationButton" type="button">清理历史标注数据</button>
+              <button class="btn danger-soft" id="lagHelperPruneAnalysisButton" type="button">清理历史分析数据</button>
+            </div>
+          </div>
           <div class="lag-helper-result" id="lagHelperResult">
             <span>建议在空闲时执行一次。数据量较大时需要等待一会儿。</span>
           </div>
@@ -194,6 +202,8 @@ function ensureLagHelperModal() {
     }
   });
   backdrop.querySelector("#lagHelperRunButton").addEventListener("click", runLagHelper);
+  backdrop.querySelector("#lagHelperPruneAnnotationButton").addEventListener("click", () => runLagHistoryCleanup("annotation"));
+  backdrop.querySelector("#lagHelperPruneAnalysisButton").addEventListener("click", () => runLagHistoryCleanup("analysis"));
   return backdrop;
 }
 
@@ -252,6 +262,60 @@ async function runLagHelper() {
     runButton.disabled = false;
     runButton.textContent = "再次优化";
   }
+}
+
+async function runLagHistoryCleanup(type) {
+  const config = type === "annotation"
+    ? {
+        button: "#lagHelperPruneAnnotationButton",
+        endpoint: "/api/maintenance/annotation-history/prune",
+        confirmText: "确认清理历史标注数据？系统会保留每行每方案最近一条标注历史，删除更早的历史记录。",
+        runningText: "清理标注中...",
+        doneText: "清理历史标注数据",
+        toastText: "历史标注数据已清理",
+      }
+    : {
+        button: "#lagHelperPruneAnalysisButton",
+        endpoint: "/api/maintenance/analysis-history/prune",
+        confirmText: "确认清理历史分析数据？系统会保留每行每分析方法最近一条分析历史，删除更早的历史记录。",
+        runningText: "清理分析中...",
+        doneText: "清理历史分析数据",
+        toastText: "历史分析数据已清理",
+      };
+  if (!window.confirm(config.confirmText)) return;
+  const button = document.querySelector(config.button);
+  const resultNode = document.querySelector("#lagHelperResult");
+  button.disabled = true;
+  button.textContent = config.runningText;
+  resultNode.innerHTML = `<span class="lag-helper-loading">${escapeHtml(config.runningText)}</span>`;
+  try {
+    const result = await api(config.endpoint, { method: "POST", body: JSON.stringify({}) });
+    renderLagCleanupResult(result);
+    toast(`${config.toastText}：删除 ${result.deleted_count || 0} 条`);
+    if (document.querySelector("#page-workbench.active")) refreshWorkbench();
+  } catch (error) {
+    resultNode.innerHTML = `<span class="lag-helper-error">${escapeHtml(error.message)}</span>`;
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = config.doneText;
+  }
+}
+
+function renderLagCleanupResult(result) {
+  const node = document.querySelector("#lagHelperResult");
+  if (!node) return;
+  node.innerHTML = `
+    <section class="lag-helper-summary">
+      <div><span>清理前</span><strong>${result.before_count || 0}</strong></div>
+      <div><span>已删除</span><strong>${result.deleted_count || 0}</strong></div>
+      <div><span>保留</span><strong>${result.remaining_count || 0}</strong></div>
+      <div><span>规则</span><strong>最新</strong></div>
+    </section>
+    <section class="lag-helper-scenes">
+      <span>${escapeHtml(result.keep_rule || "保留最近一条历史记录")}</span>
+    </section>
+  `;
 }
 
 function escapeHtml(value) {

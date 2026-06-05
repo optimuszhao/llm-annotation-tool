@@ -180,6 +180,35 @@ def stop_unfinished(task_id: str) -> dict:
     return event
 
 
+def stop_unfinished_by_row(dataset_id: str, row_id: str, scheme_id: str = "") -> dict:
+    with get_db() as conn:
+        params: list[Any] = [dataset_id, row_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING]
+        scheme_filter = ""
+        if scheme_id:
+            scheme_filter = "AND task.scheme_id=?"
+            params.append(scheme_id)
+        row = conn.execute(
+            f"""
+            SELECT task.id AS task_id, task_row.status AS row_status
+            FROM annotation_task_rows task_row
+            JOIN annotation_tasks task ON task.id=task_row.task_id
+            WHERE task.dataset_id=?
+              AND task_row.row_id=?
+              AND task_row.status IN (?, ?)
+              {scheme_filter}
+            ORDER BY COALESCE(task_row.started_at, task_row.updated_at, task_row.created_at) DESC, task_row.rowid DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="当前行没有排队中或标注中的任务")
+    result = stop_unfinished(row["task_id"])
+    result["row_id"] = row_id
+    result["row_status"] = row["row_status"]
+    return result
+
+
 def analyze_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "", method_name: str = "") -> dict:
     timestamp = now_iso()
     with get_db() as conn:

@@ -3544,6 +3544,10 @@ async function handleRowAction(action, rowId) {
     await toggleRowFavorite(rowId);
     return;
   }
+  if (action === "stop") {
+    await stopRowTask(rowId);
+    return;
+  }
   if (action === "annotate") {
     if (!canQueueRow(rowData)) {
       toast(`当前行${rowData?.状态 || "正在处理"}，请等待任务完成`);
@@ -3551,6 +3555,25 @@ async function handleRowAction(action, rowId) {
     }
     await startAnnotationTask("selected", [rowId]);
     return;
+  }
+}
+
+async function stopRowTask(rowId) {
+  if (!state.activeDatasetId || !rowId) return;
+  const rowData = getVisibleRowData(rowId);
+  const status = rowData?.["状态"] || "";
+  const ok = window.confirm(`确认停止当前行所属任务的未完成标注？\\n当前行状态：${status || "未知"}\\n排队中的数据会取消，正在标注的数据会自然完成。`);
+  if (!ok) return;
+  try {
+    const params = new URLSearchParams({ dataset_id: state.activeDatasetId });
+    if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
+    const result = await api(`/api/annotation-tasks/rows/${encodeURIComponent(rowId)}/stop-unfinished?${params.toString()}`, { method: "POST" });
+    markRowsCancelled(result.cancelled_row_ids || []);
+    await refreshMetrics();
+    if (currentTask?.id === result.task?.id) updateTaskStrip(result.task);
+    toast(`已停止 ${result.cancelled_count || 0} 条排队任务`);
+  } catch (error) {
+    toast(error.message);
   }
 }
 

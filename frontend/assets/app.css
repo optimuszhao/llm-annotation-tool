@@ -1979,6 +1979,27 @@ button { cursor: pointer; }
   color: var(--text);
   font-size: 14px;
 }
+.lag-helper-danger-zone {
+  border-color: color-mix(in srgb, var(--danger) 18%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--danger-soft) 50%, transparent), transparent 68%),
+    color-mix(in srgb, var(--surface) 90%, var(--surface-2));
+}
+.lag-helper-clean-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.btn.danger-soft {
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+  background: color-mix(in srgb, var(--danger-soft) 68%, var(--surface));
+  color: var(--danger);
+}
+.btn.danger-soft:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger-soft) 36%, var(--surface));
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--danger) 12%, transparent);
+}
 .lag-helper-note span,
 .lag-helper-result span {
   color: var(--muted);
