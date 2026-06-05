@@ -1722,11 +1722,15 @@ button { cursor: pointer; }
   overflow: auto;
 }
 .column-settings-modal .column-settings-section {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   margin-top: 0;
 }
 .column-settings-modal .column-settings-section .column-chip-grid.compact {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-auto-rows: 34px;
+  align-content: start;
 }
 .column-settings-modal .column-settings-section-head {
   align-items: flex-start;
@@ -5035,7 +5039,7 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 34px;
+  height: 34px;
   padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -5043,6 +5047,7 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+  box-sizing: border-box;
 }
 .column-chip input {
   width: 14px;
