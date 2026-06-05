@@ -1112,10 +1112,10 @@ button { cursor: pointer; }
 }
 .prompt-editor-form {
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 14px;
   min-height: 0;
-  overflow: clip;
+  overflow: hidden;
   padding: 16px;
 }
 .prompt-editor-head {
@@ -1187,6 +1187,7 @@ button { cursor: pointer; }
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 7px;
   min-height: 0;
+  overflow: hidden;
 }
 .prompt-content-field > span,
 .prompt-field-grid label > span {
@@ -1195,10 +1196,15 @@ button { cursor: pointer; }
   font-weight: 800;
 }
 .prompt-editor-textarea {
-  min-height: 320px;
+  min-height: 0;
   height: 100%;
   overflow: auto;
   resize: none;
+}
+.prompt-editor-form > .btn.full {
+  align-self: end;
+  min-height: 40px;
+  margin-top: 0;
 }
 .prompt-placeholder-warning {
   min-height: 28px;
@@ -1489,6 +1495,23 @@ button { cursor: pointer; }
   background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 88%, #fff), var(--primary));
   color: #fff;
   box-shadow: 0 8px 18px color-mix(in srgb, var(--primary) 22%, transparent), inset 0 1px 0 rgba(255,255,255,.22);
+}
+.action-mini.queued,
+.action-mini.running,
+.action-mini:disabled {
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.48);
+}
+.action-mini.queued {
+  border-color: color-mix(in srgb, var(--muted) 24%, var(--line));
+  background: color-mix(in srgb, var(--surface-2) 78%, var(--surface));
+  color: var(--muted);
+}
+.action-mini.running {
+  border-color: color-mix(in srgb, var(--info) 26%, var(--line));
+  background: color-mix(in srgb, var(--info-soft) 78%, var(--surface));
+  color: var(--info);
 }
 .action-mini.reannotate {
   min-width: 64px;
@@ -2542,6 +2565,23 @@ body.is-resizing-drawer-split {
   cursor: wait;
   opacity: .55;
 }
+.drawer-copy-block {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.drawer-copy-block .drawer-json-view,
+.drawer-copy-block .drawer-prompt-view {
+  height: 100%;
+  padding-right: 46px;
+}
+.drawer-copy-block:hover .drawer-block-copy,
+.drawer-block-copy:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
 .drawer-kv-row.is-collapsed .drawer-kv-value {
   max-height: 132px;
   overflow: hidden;
@@ -2672,6 +2712,9 @@ body.is-resizing-drawer-split {
   width: 100%;
   margin: 0;
   padding: 14px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
   border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--soft-line));
@@ -2681,6 +2724,56 @@ body.is-resizing-drawer-split {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.drawer-prompt-item {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--soft-line));
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 44%, transparent), transparent 66%),
+    color-mix(in srgb, var(--surface) 88%, var(--surface-2));
+}
+.drawer-prompt-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-family: var(--font);
+}
+.drawer-prompt-item-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawer-prompt-item-head span {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-soft) 42%, var(--surface));
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 800;
+}
+.drawer-prompt-id {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.drawer-prompt-item pre {
+  margin: 0;
+  color: var(--text);
+  font: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

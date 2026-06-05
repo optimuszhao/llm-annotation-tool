@@ -384,14 +384,20 @@ export function renderWorkbenchPage() {
                   <strong>标注结果</strong>
                   <span id="drawerResultStatus">最新模型返回</span>
                 </div>
-                <pre class="drawer-json-view" id="drawerResultJson">{}</pre>
+                <div class="drawer-copy-block">
+                  <pre class="drawer-json-view" id="drawerResultJson">{}</pre>
+                  <button class="drawer-kv-copy drawer-block-copy" type="button" data-drawer-copy-block="#drawerResultJson" title="复制标注结果" aria-label="复制标注结果">⧉</button>
+                </div>
               </section>
               <section class="drawer-result-card">
                 <div class="drawer-section-title">
                   <strong>渲染 Prompt</strong>
-                  <span>本次标注使用的完整 Prompt</span>
+                  <span id="drawerPromptSize">0 KB</span>
                 </div>
-                <pre class="drawer-prompt-view" id="drawerPromptText">暂无 Prompt</pre>
+                <div class="drawer-copy-block">
+                  <div class="drawer-prompt-view" id="drawerPromptText">暂无 Prompt</div>
+                  <button class="drawer-kv-copy drawer-block-copy" type="button" data-drawer-copy-block="#drawerPromptText" title="复制渲染 Prompt" aria-label="复制渲染 Prompt">⧉</button>
+                </div>
               </section>
               <section class="drawer-result-card drawer-history-card">
                 <div class="drawer-section-title">
@@ -907,9 +913,10 @@ function buildColumns(columns, sampleRows = []) {
         const rowId = rowData.row_id || "";
         const annotateButton = annotationButtonMeta(rowData["状态"]);
         const favoriteButton = favoriteButtonMeta(rowData);
+        const annotateDisabled = annotateButton.disabled ? "disabled aria-disabled=\"true\"" : "";
         return `
           <div class="row-actions">
-            <button class="action-mini ${annotateButton.className}" data-row-action="annotate" data-row-id="${rowId}">${annotateButton.label}</button>
+            <button class="action-mini ${annotateButton.className}" data-row-action="annotate" data-row-id="${rowId}" ${annotateDisabled}>${annotateButton.label}</button>
             <button class="action-mini info" data-row-action="view" data-row-id="${rowId}">查看</button>
             <button class="action-mini ${favoriteButton.className}" data-row-action="favorite" data-row-id="${rowId}">${favoriteButton.label}</button>
             <button class="action-mini more" data-row-more data-row-id="${rowId}" aria-label="更多操作" aria-expanded="false">⋯</button>
@@ -1624,7 +1631,7 @@ async function openRowDetail(rowData, mode = "view") {
 
 function openCellDetail(cell) {
   const field = cell.getColumn?.().getField?.();
-  if (!isEditableCellField(field)) return;
+  if (!isOpenableCellField(field)) return;
   const rowId = cell.getData?.()?.row_id || "";
   openCellValue(field, cell.getValue(), rowId);
 }
@@ -1634,11 +1641,17 @@ function handleTableCellDoubleClick(event) {
   const cellElement = event.target.closest(".tabulator-cell");
   const rowElement = event.target.closest(".tabulator-row");
   const field = cellElement?.getAttribute("tabulator-field");
-  if (!cellElement || !rowElement || !isEditableCellField(field)) return;
+  if (!cellElement || !rowElement || !isOpenableCellField(field)) return;
   const row = table.getRows("visible").find((item) => item.getElement() === rowElement);
   if (!row) return;
   const rowData = row.getData();
   openCellValue(field, rowData[field], rowData.row_id);
+}
+
+function isOpenableCellField(field) {
+  if (!field) return false;
+  if (["row_id", "__spacer", "状态"].includes(field)) return false;
+  return true;
 }
 
 function isEditableCellField(field) {
@@ -1658,9 +1671,11 @@ async function openCellValue(field, value, rowId = "") {
   currentDetailRow = null;
   currentCellField = field;
   currentCellRowId = rowId;
+  const editable = isEditableCellField(field);
   document.querySelector("#rowDetailTitle").textContent = `单元格内容 · ${field}`;
   document.querySelector("#cellFormatButton").disabled = false;
-  document.querySelector("#cellSaveButton").disabled = !rowId || !state.activeDatasetId;
+  document.querySelector("#cellSaveButton").hidden = !editable;
+  document.querySelector("#cellSaveButton").disabled = !editable || !rowId || !state.activeDatasetId;
   setCellDetailValue(value);
   document.querySelector("#rowDetailModal").classList.add("open");
   if (rowId && state.activeDatasetId) {
@@ -1678,10 +1693,11 @@ function setCellDetailValue(value) {
   currentCellRawValue = value;
   const parsed = parseJsonLike(value);
   currentCellContent = parsed.ok ? JSON.stringify(parsed.value, null, 2) : formatCellRawValue(value);
-  document.querySelector("#rowDetailMeta").textContent = parsed.ok
-    ? "JSON 已格式化，可直接编辑后保存。"
-    : "按纯文本展示，可直接编辑后保存。";
-  renderCellDetailContent(parsed.ok);
+  const editable = isEditableCellField(currentCellField);
+  document.querySelector("#rowDetailMeta").textContent = editable
+    ? (parsed.ok ? "JSON 已格式化，可直接编辑后保存。" : "按纯文本展示，可直接编辑后保存。")
+    : (parsed.ok ? "JSON 已格式化，只读展示。" : "按纯文本只读展示。");
+  renderCellDetailContent(parsed.ok, editable);
 }
 
 function closeRowDetail() {
@@ -1717,11 +1733,13 @@ function formatCellJsonContent() {
   }
   currentCellContent = JSON.stringify(parsed.value, null, 2);
   renderCellDetailContent(true);
-  document.querySelector("#rowDetailMeta").textContent = "JSON 已格式化，可继续编辑后保存。";
+  document.querySelector("#rowDetailMeta").textContent = isEditableCellField(currentCellField)
+    ? "JSON 已格式化，可继续编辑后保存。"
+    : "JSON 已格式化，只读展示。";
   toast("JSON 已格式化");
 }
 
-function renderCellDetailContent(highlightJson = false) {
+function renderCellDetailContent(highlightJson = false, editable = isEditableCellField(currentCellField)) {
   const viewer = document.querySelector("#rowDetailJson");
   const editor = document.querySelector("#cellDetailEditor");
   if (!viewer) return;
@@ -1731,15 +1749,19 @@ function renderCellDetailContent(highlightJson = false) {
   } else {
     viewer.textContent = currentCellContent;
   }
-  viewer.hidden = true;
+  viewer.hidden = editable;
   if (editor) {
-    editor.hidden = false;
+    editor.hidden = !editable;
     editor.value = currentCellContent;
-    window.requestAnimationFrame(() => editor.focus());
+    if (editable) window.requestAnimationFrame(() => editor.focus());
   }
 }
 
 async function saveCellDetailValue() {
+  if (!isEditableCellField(currentCellField)) {
+    toast("当前单元格为只读内容");
+    return;
+  }
   if (!state.activeDatasetId || !currentCellRowId || !currentCellField) {
     toast("当前单元格缺少保存上下文");
     return;
@@ -2178,29 +2200,76 @@ function renderDrawerResult() {
   const hasResult = result && typeof result === "object" && Object.keys(result).length;
   document.querySelector("#drawerResultStatus").textContent = hasResult ? "最新标注结果" : "暂无标注结果";
   renderHighlightedJson("#drawerResultJson", hasResult ? result : {});
-  document.querySelector("#drawerPromptText").textContent = formatRenderedPrompts(drawerRow?.rendered_prompt);
+  const promptItems = renderedPromptItems(drawerRow?.rendered_prompt);
+  const promptText = formatRenderedPromptItems(promptItems);
+  document.querySelector("#drawerPromptText").innerHTML = promptItems.length
+    ? promptItems.map(renderPromptItemHtml).join("")
+    : `<div class="empty">暂无 Prompt</div>`;
+  document.querySelector("#drawerPromptSize").textContent = promptSizeSummaryLabel(promptItems, promptText);
 }
 
-function formatRenderedPrompts(value) {
-  if (!value) return "暂无 Prompt";
+function renderedPromptItems(value) {
+  if (!value) return [];
   let prompts = value;
   if (typeof value === "string") {
     try {
       prompts = JSON.parse(value);
     } catch {
-      return value;
+      return [{ roleName: "Prompt", name: "原始 Prompt", promptId: "", content: value }];
     }
   }
-  if (!prompts || typeof prompts !== "object") return String(value);
+  if (!prompts || typeof prompts !== "object") {
+    return [{ roleName: "Prompt", name: "原始 Prompt", promptId: "", content: String(value) }];
+  }
   return Object.entries(prompts).map(([roleName, prompt]) => {
-    if (!prompt || typeof prompt !== "object") return `[${roleName}]\n${String(prompt)}`;
-    return [
-      `[${roleName}] ${prompt.name || ""}`.trim(),
-      `prompt_id: ${prompt.prompt_id || ""}`,
-      "",
-      prompt.content || "",
-    ].join("\n");
-  }).join("\n\n---\n\n");
+    if (!prompt || typeof prompt !== "object") {
+      return { roleName, name: "", promptId: "", content: String(prompt) };
+    }
+    return {
+      roleName,
+      name: prompt.name || "",
+      promptId: prompt.prompt_id || "",
+      content: prompt.content || "",
+    };
+  });
+}
+
+function formatRenderedPromptItems(items) {
+  return (items || []).map((item) => [
+    `[${item.roleName}] ${item.name || ""}`.trim(),
+    `prompt_id: ${item.promptId || ""}`,
+    "",
+    item.content || "",
+  ].join("\n")).join("\n\n---\n\n") || "暂无 Prompt";
+}
+
+function renderPromptItemHtml(item) {
+  const title = `[${item.roleName}] ${item.name || ""}`.trim();
+  const content = item.content || "";
+  return `
+    <article class="drawer-prompt-item">
+      <div class="drawer-prompt-item-head">
+        <strong>${escapeHtml(title || "Prompt")}</strong>
+        <span>${promptSizeLabel(content)}</span>
+      </div>
+      ${item.promptId ? `<p class="drawer-prompt-id">prompt_id: ${escapeHtml(item.promptId)}</p>` : ""}
+      <pre>${escapeHtml(content || "暂无 Prompt 内容")}</pre>
+    </article>
+  `;
+}
+
+function promptSizeSummaryLabel(items, text) {
+  const count = items.length;
+  const total = promptSizeLabel(text);
+  return count > 1 ? `总 ${total} · ${count} 个 Prompt` : total;
+}
+
+function promptSizeLabel(text) {
+  const value = text && text !== "暂无 Prompt" ? String(text) : "";
+  const bytes = new TextEncoder().encode(value).length;
+  if (!bytes) return "0 KB";
+  const kb = bytes / 1024;
+  return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
 }
 
 async function renderDrawerAnnotationHistory() {
@@ -2372,6 +2441,11 @@ function shouldCollapseDrawerValue(text) {
 }
 
 async function handleDrawerKvToggle(event) {
+  const blockCopyButton = event.target.closest("[data-drawer-copy-block]");
+  if (blockCopyButton) {
+    await handleDrawerBlockCopy(blockCopyButton);
+    return;
+  }
   const copyButton = event.target.closest("[data-drawer-kv-copy]");
   if (copyButton) {
     await handleDrawerKvCopy(copyButton);
@@ -2405,6 +2479,24 @@ async function handleDrawerKvToggle(event) {
   }
   const collapsed = row.classList.toggle("is-collapsed");
   button.textContent = collapsed ? "展开" : "收起";
+}
+
+async function handleDrawerBlockCopy(button) {
+  const targetSelector = button.dataset.drawerCopyBlock || "";
+  const target = targetSelector ? document.querySelector(targetSelector) : null;
+  const content = target?.textContent || "";
+  if (!content.trim()) {
+    toast("暂无可复制内容");
+    return;
+  }
+  button.disabled = true;
+  try {
+    await copyTextToClipboard(content, "已复制内容");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function handleDrawerKvCopy(button) {
@@ -2752,10 +2844,7 @@ async function openColumnSettings() {
     return;
   }
   try {
-    if (!availableDatasetColumns.length) {
-      const payload = await api(`/api/datasets/${state.activeDatasetId}/rows?page=1&page_size=1`);
-      availableDatasetColumns = payload.columns || [];
-    }
+    await refreshAvailableDatasetColumns();
     latestFieldMapping = await api(`/api/field-mapping?scene_id=${encodeURIComponent(state.activeSceneId)}`);
     columnSettingsOriginalFontSize = tableFontSize;
     renderColumnSettings();
@@ -2763,6 +2852,24 @@ async function openColumnSettings() {
   } catch (error) {
     toast(error.message);
   }
+}
+
+async function refreshAvailableDatasetColumns() {
+  if (!state.activeDatasetId) return;
+  const payload = await api(`/api/datasets/${state.activeDatasetId}/rows?page=1&page_size=1${state.activeSchemeId ? `&scheme_id=${encodeURIComponent(state.activeSchemeId)}` : ""}`);
+  if (Array.isArray(payload.columns) && payload.columns.length) {
+    mergeAvailableDatasetColumns(payload.columns);
+  }
+}
+
+function mergeAvailableDatasetColumns(columns) {
+  let changed = false;
+  for (const column of columns || []) {
+    if (!column || availableDatasetColumns.includes(column)) continue;
+    availableDatasetColumns.push(column);
+    changed = true;
+  }
+  if (changed) fillSearchColumnOptions(availableDatasetColumns);
 }
 
 function closeColumnSettings() {
@@ -2898,8 +3005,13 @@ function formatStatusPill(value) {
 }
 
 function annotationButtonMeta(status) {
-  const freshStatuses = new Set(["未标注", "排队中", "标注中"]);
-  if (freshStatuses.has(status || "未标注")) {
+  if (status === "排队中") {
+    return { label: "排队中", className: "queued", disabled: true };
+  }
+  if (status === "标注中") {
+    return { label: "标注中", className: "running", disabled: true };
+  }
+  if ((status || "未标注") === "未标注") {
     return { label: "标注", className: "primary" };
   }
   return { label: "重新标注", className: "reannotate" };
@@ -2929,6 +3041,8 @@ async function startAnnotationTask(mode, rowIds = []) {
     return;
   }
   const optimisticRowIds = getOptimisticTaskRowIds(mode, selectedIds);
+  const optimisticStatuses = captureVisibleRowStatuses(optimisticRowIds);
+  markRowsQueuedForTask(optimisticRowIds);
   try {
     const task = await api("/api/annotation-tasks", {
       method: "POST",
@@ -2941,7 +3055,6 @@ async function startAnnotationTask(mode, rowIds = []) {
     });
     currentTask = task;
     updateTaskStrip(task);
-    markRowsQueuedForTask(optimisticRowIds);
     markInitialRunningRowsForTask(optimisticRowIds, task.concurrency || 1);
     connectTaskEvents(task.id);
     table?.deselectRow?.();
@@ -2949,6 +3062,7 @@ async function startAnnotationTask(mode, rowIds = []) {
     scheduleMetricsRefresh(0);
     toast(mode === "all" ? `全量标注任务已启动，本次 ${task.total_count || 0} 条` : "批量标注任务已启动");
   } catch (error) {
+    restoreRowsStatus(optimisticStatuses);
     toast(error.message);
   }
 }
@@ -3103,8 +3217,9 @@ function connectTaskEvents(taskId) {
     } else if (["row_started", "row_updated", "row_analyzed", "task_stopped", "task_finished"].includes(payload.type)) {
       scheduleMetricsRefresh();
     }
-    if (payload.type === "task_finished") {
+    if (payload.type === "task_finished" || isTaskTerminal(payload.task)) {
       closeTaskEvents();
+      await refreshWorkbench();
     }
   };
   taskEvents.onerror = () => {
@@ -3117,6 +3232,10 @@ function closeTaskEvents() {
     taskEvents.close();
     taskEvents = null;
   }
+}
+
+function isTaskTerminal(task) {
+  return ["done", "failed", "cancelled", "stopped"].includes(task?.status);
 }
 
 function scheduleMetricsRefresh(delay = 220) {
@@ -3223,6 +3342,29 @@ function markRowsQueuedForTask(rowIds) {
     const data = row.getData();
     if (idSet.has(data.row_id)) {
       updateTableRow(row, { 状态: "排队中" });
+    }
+  });
+}
+
+function captureVisibleRowStatuses(rowIds) {
+  if (!table) return new Map();
+  const idSet = new Set(rowIds);
+  const statuses = new Map();
+  table.getRows().forEach((row) => {
+    const data = row.getData();
+    if (idSet.has(data.row_id)) {
+      statuses.set(data.row_id, data["状态"] || "未标注");
+    }
+  });
+  return statuses;
+}
+
+function restoreRowsStatus(statuses) {
+  if (!table || !statuses?.size) return;
+  table.getRows().forEach((row) => {
+    const data = row.getData();
+    if (statuses.has(data.row_id)) {
+      updateTableRow(row, { 状态: statuses.get(data.row_id) });
     }
   });
 }
@@ -3338,7 +3480,9 @@ function refreshTableRow(row) {
 }
 
 async function ensureDynamicResultColumns(result) {
-  if (!table || !tableReadyForRealtime || !result || typeof result !== "object") return;
+  if (!result || typeof result !== "object") return;
+  mergeAvailableDatasetColumns(Object.keys(result));
+  if (!table || !tableReadyForRealtime) return;
   const existing = new Set(
     table.getColumns?.()
       .map((column) => column.getField?.())
@@ -3401,6 +3545,10 @@ async function handleRowAction(action, rowId) {
     return;
   }
   if (action === "annotate") {
+    if (!canQueueRow(rowData)) {
+      toast(`当前行${rowData?.状态 || "正在处理"}，请等待任务完成`);
+      return;
+    }
     await startAnnotationTask("selected", [rowId]);
     return;
   }

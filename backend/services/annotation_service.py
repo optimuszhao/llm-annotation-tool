@@ -1122,7 +1122,23 @@ def _render_prompt(scheme: dict, resources: dict, field_mapping: dict, row_data:
         method = getattr(hooks, method_name, None)
         if not method:
             raise ValueError(f"Prompt 初始化方法不存在：{method_name}")
-        custom_prompts = method(resources["prompts"], resources["knowledge"], resources["error_sets"], field_mapping, row_data, context)
+        custom_inputs = _build_custom_prompt_inputs(resources)
+        custom_context = {
+            **context,
+            "resource_lists": {
+                "prompts": resources["prompts"],
+                "knowledge": resources["knowledge"],
+                "error_sets": resources["error_sets"],
+            },
+        }
+        custom_prompts = method(
+            custom_inputs["prompts"],
+            custom_inputs["knowledge"],
+            custom_inputs["error_sets"],
+            field_mapping,
+            row_data,
+            custom_context,
+        )
         return _normalize_rendered_prompts(custom_prompts, resources["prompts"])
 
     rendered_prompts = {}
@@ -1130,6 +1146,47 @@ def _render_prompt(scheme: dict, resources: dict, field_mapping: dict, row_data:
         content = _render_prompt_template(prompt, resources["knowledge"], resources["error_sets"], row_data)
         _set_rendered_prompt(rendered_prompts, prompt, content)
     return rendered_prompts
+
+
+def _build_custom_prompt_inputs(resources: dict) -> dict:
+    prompt_map: dict[str, dict] = {}
+    knowledge_map: dict[str, str] = {}
+    error_set_map: dict[str, str] = {}
+
+    for prompt in resources.get("prompts", []):
+        key = _unique_resource_key(
+            prompt_map,
+            prompt.get("role_name") or prompt.get("name"),
+            prompt.get("id"),
+        )
+        prompt_map[key] = dict(prompt)
+
+    for item in resources.get("knowledge", []):
+        key = _unique_resource_key(knowledge_map, item.get("name"), item.get("id"))
+        knowledge_map[key] = str(item.get("content", ""))
+
+    for item in resources.get("error_sets", []):
+        key = _unique_resource_key(error_set_map, item.get("name"), item.get("id"))
+        error_set_map[key] = str(item.get("description", ""))
+
+    return {
+        "prompts": prompt_map,
+        "knowledge": knowledge_map,
+        "error_sets": error_set_map,
+    }
+
+
+def _unique_resource_key(target: dict, base: Any, fallback: Any = "") -> str:
+    key = str(base or fallback or "default").strip() or "default"
+    if key not in target:
+        return key
+    fallback_key = str(fallback or "").strip()
+    if fallback_key and fallback_key not in target:
+        return fallback_key
+    index = 2
+    while f"{key}#{index}" in target:
+        index += 1
+    return f"{key}#{index}"
 
 
 def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: list[dict], row_data: dict) -> str:

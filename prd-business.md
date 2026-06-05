@@ -195,7 +195,9 @@ Prompt 初始化规则：
 
 - 自动替换占位符使用全角大括号语法：`｛row.列名｝`、`｛knowledge｝`、`｛error_sets｝`
 - Prompt 中要求模型返回 JSON 时，JSON 示例直接写 `{ "字段": "值" }` 或 `{{字段}}`，系统只解析全角 `｛...｝`
-- 自定义处理会把 Prompt 列表、知识库、错题集、字段映射和当前行数据传给用户实现的方法
+- 自定义处理会把 Prompt、知识库、错题集转换为 dict 后传给用户实现的方法
+- 自定义处理入参结构：`prompt_contents={角色名: Prompt对象}`、`knowledge={知识名称: 知识内容}`、`error_sets={错题集名称: 错题内容}`
+- 自定义处理的 `context.resource_lists` 保留原始资源列表，便于读取 id、排序等元数据
 - 自动处理和自定义处理都输出同一种结构：`{ 角色名: Prompt对象 }`
 - Prompt 对象结构：`prompt_id`、`name`、`role_name`、`content`
 - 调用标注方法时，系统会把完整 Prompt 字典传给用户选择的标注方法

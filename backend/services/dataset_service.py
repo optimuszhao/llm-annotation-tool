@@ -232,14 +232,36 @@ def delete_dataset(dataset_id: str) -> dict:
 def get_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "") -> dict:
     with get_db() as conn:
         dataset, _scene, row = _load_dataset_row(conn, dataset_id, row_id, scheme_id)
-        columns = decode_json(dataset["column_schema"], [])
+        columns = _sync_model_result_columns(conn, dataset)
     return _format_row(row, columns, preview=False, scheme_view=bool(scheme_id))
 
 
 def get_dataset_row_field(dataset_id: str, row_id: str, column: str, scheme_id: str = "") -> dict:
     with get_db() as conn:
         dataset, _scene, row = _load_dataset_row(conn, dataset_id, row_id, scheme_id)
-        columns = decode_json(dataset["column_schema"], [])
+        columns = _sync_model_result_columns(conn, dataset)
+        analysis_columns = _analysis_result_columns(conn, dataset_id)
+        analysis_method = _analysis_method_by_column(analysis_columns).get(column)
+        if analysis_method:
+            latest_analysis = conn.execute(
+                """
+                SELECT analysis_data
+                FROM row_analysis_history
+                WHERE dataset_id=? AND row_id=? AND method_name=?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (dataset_id, row_id, analysis_method),
+            ).fetchone()
+            value = decode_json(latest_analysis["analysis_data"], {}) if latest_analysis else {}
+            text = encode_json(value)
+            return {
+                "row_id": row_id,
+                "column": column,
+                "value": value,
+                "size": len(text),
+                "exists": bool(latest_analysis),
+            }
     raw_data = decode_json(row["raw_data"], {})
     if scheme_id:
         raw_data = {**raw_data, **decode_json(row.get("scheme_model_result"), {})}
@@ -439,7 +461,7 @@ def get_dataset_rows(
             raise HTTPException(status_code=404, detail="数据集不存在")
         scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
         table_name = scene["data_table_name"]
-        columns = decode_json(dataset["column_schema"], [])
+        columns = _sync_model_result_columns(conn, dataset)
         analysis_columns = _analysis_result_columns(conn, dataset_id)
         analysis_method_by_column = _analysis_method_by_column(analysis_columns)
         all_columns = [*columns, *[item["column"] for item in analysis_columns]]
@@ -642,6 +664,34 @@ def get_dataset_rows(
 def _json_column_path(column: str) -> str:
     escaped = column.replace("\\", "\\\\").replace('"', '\\"')
     return f'$."{escaped}"'
+
+
+def _sync_model_result_columns(conn, dataset: dict) -> list[str]:
+    current = decode_json(dataset["column_schema"], [])
+    columns = list(current)
+    rows = conn.execute(
+        """
+        SELECT DISTINCT json_each.key AS column_name
+        FROM annotation_task_rows task_row
+        JOIN annotation_tasks task ON task.id=task_row.task_id
+        JOIN json_each(CASE WHEN json_valid(task_row.model_result) THEN task_row.model_result ELSE '{}' END)
+        WHERE task.dataset_id=?
+          AND json_valid(task_row.model_result)
+          AND TRIM(COALESCE(task_row.model_result, '')) NOT IN ('', '{}')
+        ORDER BY column_name ASC
+        """,
+        (dataset["id"],),
+    ).fetchall()
+    for row in rows:
+        column = row["column_name"]
+        if column and column not in columns:
+            columns.append(column)
+    if columns != current:
+        conn.execute(
+            "UPDATE datasets SET column_schema=? WHERE id=?",
+            (encode_json(columns), dataset["id"]),
+        )
+    return columns
 
 
 def export_dataset_rows(dataset_id: str) -> dict:

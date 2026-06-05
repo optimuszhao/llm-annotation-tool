@@ -111,7 +111,13 @@ def list_prompt_init_methods() -> dict:
     }
 ```
 
-实现 `build_prompts_custom(...)`。入参里包含前端方案选择的所有 Prompt、知识库、错题集、字段映射和当前行数据。
+实现 `build_prompts_custom(...)`。自定义初始化只接收更方便读取的字典结构，原始资源列表保存在 `context["resource_lists"]`。
+
+入参结构：
+
+- `prompt_contents`：`{角色名: Prompt对象}`
+- `knowledge`：`{知识名称: 知识内容}`
+- `error_sets`：`{错题集名称: 错题内容}`
 
 返回结构必须是 `{角色名: Prompt对象}`：
 
@@ -120,17 +126,20 @@ from user_hooks.prompt_utils import render_prompt_template
 
 
 def build_prompts_custom(
-    prompt_contents: list,
-    knowledge: list,
-    error_sets: list,
+    prompt_contents: dict,
+    knowledge: dict,
+    error_sets: dict,
     field_mapping: dict,
     row_data: dict,
     context: dict,
 ) -> dict:
     rendered_prompts = {}
 
-    for prompt in prompt_contents:
-        role_name = prompt.get("role_name") or prompt.get("name") or "default"
+    # prompt_contents 可以直接按角色名取，例如：
+    # main_prompt = prompt_contents.get("质检员")
+    # knowledge 可以直接按知识名称取，例如：
+    # rule_text = knowledge.get("故障分类规则", "")
+    for role_name, prompt in prompt_contents.items():
         content = render_prompt_template(
             prompt.get("content", ""),
             row_data=row_data,
@@ -149,6 +158,14 @@ def build_prompts_custom(
         }
 
     return rendered_prompts
+```
+
+需要读取资源 id、排序或其他元数据时使用：
+
+```python
+raw_prompts = context["resource_lists"]["prompts"]
+raw_knowledge = context["resource_lists"]["knowledge"]
+raw_error_sets = context["resource_lists"]["error_sets"]
 ```
 
 初始化后的 Prompt 会传给标注方法：
