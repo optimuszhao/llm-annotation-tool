@@ -2970,15 +2970,15 @@ function renderColumnSettings() {
   const resultColumnSet = new Set(resultColumns);
   const excelColumns = availableDatasetColumns.filter((column) => !resultColumnSet.has(column));
   grid.innerHTML = `
-    ${columnSettingsSectionHtml("Excel 原始列", "来自导入 Excel 和字段映射的基础列。人工、标注固定列保留在这里。", excelColumns, selected)}
-    ${columnSettingsSectionHtml("标注返回列", "标注方法返回 dict 的 key。多个 Prompt 聚合后的新增字段会显示在这里。", resultColumns, selected)}
+    ${columnSettingsSectionHtml("Excel 原始列", "来自导入 Excel 和字段映射的基础列。人工、标注固定列保留在这里。", excelColumns, selected, "excel")}
+    ${columnSettingsSectionHtml("标注返回列", "标注方法返回 dict 的 key。多个 Prompt 聚合后的新增字段会显示在这里。", resultColumns, selected, "result")}
   `;
   syncTableFontSizeSegment();
 }
 
-function columnSettingsSectionHtml(title, description, columns, selected) {
+function columnSettingsSectionHtml(title, description, columns, selected, type = "") {
   return `
-    <section class="column-settings-section">
+    <section class="column-settings-section ${type ? `column-settings-section-${type}` : ""}">
       <div class="column-settings-section-head">
         <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(description)}</span>
@@ -2987,12 +2987,19 @@ function columnSettingsSectionHtml(title, description, columns, selected) {
         ${columns.map((column) => `
     <label class="column-chip">
       <input type="checkbox" value="${escapeHtml(column)}" ${selected.has(column) ? "checked" : ""}>
-      <span title="${escapeHtml(column)}">${escapeHtml(column)}</span>
+      <span title="${escapeHtml(column)}">${escapeHtml(columnSettingsDisplayName(column, type))}</span>
     </label>
         `).join("") || `<div class="empty">暂无可配置列</div>`}
       </div>
     </section>
   `;
+}
+
+function columnSettingsDisplayName(column, type = "") {
+  if (type !== "result") return column;
+  return String(column || "")
+    .replace(/^标注结果[｜.]/, "")
+    .replace(/^角色标注结果[｜.]/, "");
 }
 
 function setColumnSettingsChecked(checked) {

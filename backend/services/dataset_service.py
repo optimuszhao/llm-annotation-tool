@@ -649,7 +649,8 @@ def get_dataset_rows(
                     COALESCE(NULLIF(preview_data, '{{}}'), raw_data) AS preview_data,
                     large_fields,
                     is_favorite,
-                    annotation_status
+                    annotation_status,
+                    model_result
                 FROM {table_name}
                 WHERE {where}
                 ORDER BY {order_by}
@@ -704,7 +705,23 @@ def _split_role_result_column(column: str) -> tuple[str, str]:
 
 
 def _model_result_columns(conn, dataset_id: str) -> list[str]:
-    rows = conn.execute(
+    rows = []
+    dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+    if dataset:
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+        if scene:
+            rows.extend(conn.execute(
+                f"""
+                SELECT model_result
+                FROM {scene['data_table_name']}
+                WHERE dataset_id=?
+                  AND json_valid(model_result)
+                  AND TRIM(COALESCE(model_result, '')) NOT IN ('', '{{}}')
+                ORDER BY row_index ASC
+                """,
+                (dataset_id,),
+            ).fetchall())
+    rows.extend(conn.execute(
         """
         SELECT task_row.model_result
         FROM annotation_task_rows task_row
@@ -715,7 +732,7 @@ def _model_result_columns(conn, dataset_id: str) -> list[str]:
         ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
         """,
         (dataset_id,),
-    ).fetchall()
+    ).fetchall())
     columns: list[str] = []
     for row in rows:
         columns.extend(model_result_display_columns(decode_json(row["model_result"], {})))
@@ -743,7 +760,11 @@ def _dedupe_columns(columns: Iterable[str]) -> list[str]:
 
 def _sync_model_result_columns(conn, dataset: dict, model_result_columns: Optional[list[str]] = None) -> list[str]:
     current = decode_json(dataset["column_schema"], [])
-    columns = list(current)
+    columns = [
+        column
+        for column in current
+        if column and column not in MODEL_RESULT_INTERNAL_KEYS
+    ]
     for column in model_result_columns if model_result_columns is not None else _model_result_columns(conn, dataset["id"]):
         if column and column not in columns:
             columns.append(column)

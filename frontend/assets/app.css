@@ -1757,6 +1757,9 @@ button { cursor: pointer; }
   grid-auto-rows: 34px;
   align-content: start;
 }
+.column-settings-modal .column-settings-section-result .column-chip-grid.compact {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+}
 .column-settings-modal .column-settings-section-head {
   align-items: flex-start;
 }
