@@ -146,7 +146,8 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
             dataset_id = f"dataset_{uuid4().hex[:12]}"
             timestamp = now_iso()
             data_rows: list[tuple[str, str, int, str, str, str, str, str]] = []
-            for row_index, row in enumerate(rows, start=2):
+            next_row_index = 1
+            for row in rows:
                 row_data = {
                     column: _cell_value(row[index] if index < len(row) else "")
                     for index, column in column_mappings
@@ -158,7 +159,7 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
                     (
                         f"row_{uuid4().hex[:16]}",
                         dataset_id,
-                        row_index,
+                        next_row_index,
                         encode_json(row_data),
                         preview_data,
                         large_fields,
@@ -166,6 +167,7 @@ async def import_excel_files(scene_id: str, files: list[UploadFile]) -> list[dic
                         timestamp,
                     )
                 )
+                next_row_index += 1
 
             conn.execute(
                 """
@@ -657,6 +659,8 @@ def get_dataset_rows(
             ).fetchall()
 
         data = [_format_row(row, columns, preview=True, scheme_view=bool(scheme_id)) for row in rows]
+        for display_index, item in enumerate(data, start=offset + 1):
+            item["display_index"] = display_index
         _append_latest_analysis_results(conn, dataset_id, data, analysis_columns)
 
     return {

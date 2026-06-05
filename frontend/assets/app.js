@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260605-role-result-columns";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-role-result-columns";
+import { renderManagePage } from "/pages/manage.js?v=20260605-compact-metrics";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-compact-metrics";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 

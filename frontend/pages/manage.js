@@ -641,7 +641,7 @@ function openPromptModal() {
           <textarea class="textarea rich-textarea prompt-editor-textarea" name="content" placeholder="Prompt 内容" required></textarea>
           <em class="prompt-placeholder-warning" id="promptPlaceholderWarning" hidden></em>
         </label>
-        <button class="btn primary full" type="submit" id="promptSubmitButton">新增 Prompt</button>
+        <button class="btn resource-save-button full" type="submit" id="promptSubmitButton">新增 Prompt</button>
       </form>
     </div>
   `, "modal-xl prompt-modal");
@@ -689,7 +689,7 @@ function openKnowledgeModal() {
           <span>知识内容</span>
           <textarea class="textarea rich-textarea prompt-editor-textarea" name="content" placeholder="知识内容" required></textarea>
         </label>
-        <button class="btn primary full" type="submit" id="knowledgeSubmitButton">新增知识</button>
+        <button class="btn resource-save-button full" type="submit" id="knowledgeSubmitButton">新增知识</button>
       </form>
     </div>
   `, "modal-xl prompt-modal");
@@ -734,7 +734,7 @@ function openErrorSetModal() {
           <span>描述</span>
           <textarea class="textarea rich-textarea prompt-editor-textarea" name="description" placeholder="描述"></textarea>
         </label>
-        <button class="btn primary full" type="submit" id="errorSetSubmitButton">新增错题集</button>
+        <button class="btn resource-save-button full" type="submit" id="errorSetSubmitButton">新增错题集</button>
       </form>
     </div>
   `, "modal-xl prompt-modal");

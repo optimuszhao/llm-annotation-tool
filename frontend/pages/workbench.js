@@ -94,37 +94,26 @@ export function renderWorkbenchPage() {
 
       <div class="metric-strip" aria-label="数据指标">
         <section class="metric-group metric-group-volume" aria-label="数据量">
-          <div title="当前数据集总行数。"><span>总数</span><strong id="metricTotal">0</strong></div>
-          <div title="当前方案下尚未产生标注结果的行数。"><span>未标注</span><strong id="metricUnannotated">0</strong></div>
-          <div title="已完成评估的行数，计算公式：TP + TN + FP + FN。"><span>已标注</span><strong id="metricDone">0</strong></div>
-          <div title="已创建任务、等待执行的行数。"><span>排队中</span><strong id="metricQueued">0</strong></div>
-          <div title="当前正在调用标注方法的行数。"><span>标注中</span><strong id="metricRunning">0</strong></div>
+          <div class="metric-item muted" title="当前数据集总行数。"><span>总数</span><strong id="metricTotal">0</strong></div>
+          <div class="metric-item muted" title="当前方案下尚未产生标注结果的行数。"><span>未标注</span><strong id="metricUnannotated">0</strong></div>
+          <div class="metric-item muted" title="已完成评估的行数，计算公式：TP + TN + FP + FN。"><span>已标注</span><strong id="metricDone">0</strong></div>
+          <div class="metric-item muted" title="已创建任务、等待执行的行数。"><span>排队中</span><strong id="metricQueued">0</strong></div>
+          <div class="metric-item muted" title="当前正在调用标注方法的行数。"><span>标注中</span><strong id="metricRunning">0</strong></div>
         </section>
         <section class="metric-group metric-group-confusion" aria-label="混淆矩阵">
-          <div title="TP：人工答案为是，模型标注为是。"><span>TP</span><strong id="metricTp">0</strong></div>
-          <div title="TN：人工答案为否，模型标注为否。"><span>TN</span><strong id="metricTn">0</strong></div>
-          <div title="FP：人工答案为否，模型标注为是。"><span>FP</span><strong id="metricFp">0</strong></div>
-          <div title="FN：人工答案为是，模型标注为否。"><span>FN</span><strong id="metricFn">0</strong></div>
+          <div class="metric-item primary" title="TP：人工答案为是，模型标注为是。"><span>TP</span><strong id="metricTp">0</strong></div>
+          <div class="metric-item primary" title="TN：人工答案为否，模型标注为否。"><span>TN</span><strong id="metricTn">0</strong></div>
+          <div class="metric-item primary" title="FP：人工答案为否，模型标注为是。"><span>FP</span><strong id="metricFp">0</strong></div>
+          <div class="metric-item primary" title="FN：人工答案为是，模型标注为否。"><span>FN</span><strong id="metricFn">0</strong></div>
         </section>
         <section class="metric-group metric-group-rate" aria-label="评估率">
-          <div title="算法准确率：整体判断正确比例。公式：(TP + TN) / (TP + TN + FP + FN)。"><span>算法准确率</span><strong id="metricAccuracy">--</strong></div>
-          <div title="正确查全率：人工为是的数据中，被模型标为是的比例。公式：TP / (TP + FN)。"><span>正确查全率</span><strong id="metricRecall">--</strong></div>
-          <div title="正确查准率：模型标为是的数据中，人工也为是的比例。公式：TP / (TP + FP)。"><span>正确查准率</span><strong id="metricPrecision">--</strong></div>
-          <div title="错误查准率：模型标为否的数据中，人工也为否的比例。公式：TN / (TN + FN)。"><span>错误查准率</span><strong id="metricSpecificity">--</strong></div>
-          <div title="F1 score：正确查准率和正确查全率的综合指标。公式：(2 × TP) / (2 × TP + FP + FN)。"><span>F1 score</span><strong id="metricF1">--</strong></div>
-          <div title="业务准确率：模型标为是的占比。公式：(TP + FP) / (TP + TN + FP + FN)。"><span>业务准确率</span><strong id="metricFpr">--</strong></div>
+          <div class="metric-item rate" title="算法准确率：整体判断正确比例。公式：(TP + TN) / (TP + TN + FP + FN)。"><span>算法准确率</span><strong id="metricAccuracy">--</strong></div>
+          <div class="metric-item rate" title="正确查全率：人工为是的数据中，被模型标为是的比例。公式：TP / (TP + FN)。"><span>正确查全率</span><strong id="metricRecall">--</strong></div>
+          <div class="metric-item rate" title="正确查准率：模型标为是的数据中，人工也为是的比例。公式：TP / (TP + FP)。"><span>正确查准率</span><strong id="metricPrecision">--</strong></div>
+          <div class="metric-item rate" title="错误查准率：模型标为否的数据中，人工也为否的比例。公式：TN / (TN + FN)。"><span>错误查准率</span><strong id="metricSpecificity">--</strong></div>
+          <div class="metric-item rate" title="F1 score：正确查准率和正确查全率的综合指标。公式：(2 × TP) / (2 × TP + FP + FN)。"><span>F1 score</span><strong id="metricF1">--</strong></div>
+          <div class="metric-item rate" title="业务准确率：模型标为是的占比。公式：(TP + FP) / (TP + TN + FP + FN)。"><span>业务准确率</span><strong id="metricFpr">--</strong></div>
         </section>
-      </div>
-
-      <div class="task-strip" id="taskStrip" hidden>
-        <div class="task-title">
-          <span class="scheme-badge">TASK</span>
-          <strong id="taskTitle">任务状态</strong>
-          <span class="card-meta" id="taskMeta">暂无运行中的标注任务。</span>
-        </div>
-        <div class="task-progress-wrap">
-          <div class="progress" aria-label="任务进度"><span id="taskProgress" style="--value:0%"></span></div>
-        </div>
       </div>
 
       <div class="toolbar workbench-toolbar">
@@ -748,6 +737,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     },
     paginationSize: 20,
     paginationSizeSelector: [20, 50, 100, 200],
+    paginationButtonCount: 11,
     selectableRows: "highlight",
     index: "row_id",
     rowHeight: 42,
@@ -878,7 +868,7 @@ function buildColumns(columns, sampleRows = []) {
     },
     {
       title: "序号",
-      field: "row_index",
+      field: "display_index",
       hozAlign: "center",
       headerHozAlign: "center",
       headerSort: false,
@@ -887,6 +877,7 @@ function buildColumns(columns, sampleRows = []) {
       maxWidth: 64,
       resizable: false,
       frozen: true,
+      cssClass: "row-index-cell",
       formatter: (cell) => `<span class="row-index-pill">${escapeHtml(cell.getValue() || "-")}</span>`,
     },
     ...columns.map((column) => dataColumnDef(column, sampleRows)),
@@ -2762,7 +2753,7 @@ function editableDetailData() {
 }
 
 function editableDetailDataFrom(row) {
-  const reserved = new Set(["row_id", "row_index", "状态", "model_result", "analysis_data", "rendered_prompt"]);
+  const reserved = new Set(["row_id", "row_index", "display_index", "状态", "model_result", "analysis_data", "rendered_prompt"]);
   return Object.fromEntries(
     Object.entries(row || {}).filter(([key]) => !reserved.has(key) && !key.startsWith("__")),
   );
@@ -3616,26 +3607,6 @@ function flattenRoleModelResult(result) {
 }
 
 function updateTaskStrip(task) {
-  const strip = document.querySelector("#taskStrip");
-  const title = document.querySelector("#taskTitle");
-  const meta = document.querySelector("#taskMeta");
-  const progress = document.querySelector("#taskProgress");
-  if (!title || !meta || !progress) return;
-  const active = task && ["queued", "running"].includes(task.status);
-  document.querySelector(".workbench-pro")?.classList.toggle("has-task", Boolean(active));
-  if (strip) strip.hidden = !active;
-  if (!task || !active) {
-    title.textContent = "任务状态";
-    meta.textContent = "暂无运行中的标注任务。";
-    progress.style.setProperty("--value", "0%");
-    return;
-  }
-  const finished = (task.done_count || 0) + (task.failed_count || 0) + (task.cancelled_count || 0);
-  const total = task.total_count || 0;
-  const percent = total ? Math.round((finished / total) * 100) : 0;
-  title.textContent = `任务 ${task.status}`;
-  meta.textContent = `总 ${total} · 排 ${task.queued_count || 0} · 中 ${task.running_count || 0} · 完 ${task.done_count || 0} · 失败 ${task.failed_count || 0}`;
-  progress.style.setProperty("--value", `${percent}%`);
 }
 
 async function handleRowAction(action, rowId) {
