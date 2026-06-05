@@ -35,6 +35,7 @@ let statusFilters = new Set();
 let favoriteOnlyFilter = false;
 let columnFilter = { column: "", value: "", empty: false };
 let availableDatasetColumns = [];
+let availableModelResultColumns = [];
 let latestFieldMapping = null;
 let tableFontSize = normalizeTableFontSize(localStorage.getItem("llm-table-font-size") || "medium");
 let columnSettingsOriginalFontSize = tableFontSize;
@@ -170,10 +171,6 @@ export function renderWorkbenchPage() {
               <button type="button" data-global-action="delete">删除数据</button>
             </div>
           </div>
-          <button class="icon-btn table-focus-button" type="button" id="tableFocusButton" aria-label="全屏表格" title="全屏表格">
-            <span class="focus-icon focus-enter" aria-hidden="true"></span>
-            <span class="focus-icon focus-exit" aria-hidden="true"></span>
-          </button>
         </div>
       </div>
 
@@ -678,6 +675,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   if (token !== refreshToken) return;
   document.querySelector("#metricTotal").textContent = response.total.toLocaleString();
   availableDatasetColumns = response.columns.length ? response.columns : defaultColumns;
+  availableModelResultColumns = Array.isArray(response.model_result_columns) ? response.model_result_columns : [];
   fillSearchColumnOptions(availableDatasetColumns);
   const visibleColumns = await resolveVisibleColumns(availableDatasetColumns);
   const columns = buildColumns(visibleColumns, response.data || []);
@@ -757,6 +755,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
       document.querySelector("#metricTotal").textContent = payload.total.toLocaleString();
       if (Array.isArray(payload.columns)) {
         availableDatasetColumns = payload.columns.length ? payload.columns : availableDatasetColumns;
+        availableModelResultColumns = Array.isArray(payload.model_result_columns) ? payload.model_result_columns : availableModelResultColumns;
         fillSearchColumnOptions(availableDatasetColumns);
       }
       refreshMetrics();
@@ -867,6 +866,19 @@ function buildColumns(columns, sampleRows = []) {
       headerSort: false,
       width: 48,
       frozen: true,
+    },
+    {
+      title: "序号",
+      field: "row_index",
+      hozAlign: "center",
+      headerHozAlign: "center",
+      headerSort: false,
+      width: 64,
+      minWidth: 64,
+      maxWidth: 64,
+      resizable: false,
+      frozen: true,
+      formatter: (cell) => `<span class="row-index-pill">${escapeHtml(cell.getValue() || "-")}</span>`,
     },
     ...columns.map((column) => dataColumnDef(column, sampleRows)),
     {
@@ -1365,6 +1377,7 @@ function setBatchButtonState() {
 }
 
 function toggleTableFocusMode() {
+  if (!document.querySelector(".workbench-pro")) return;
   tableFocusMode = !tableFocusMode;
   applyTableFocusMode();
   window.requestAnimationFrame(() => table?.redraw?.(true));
@@ -1372,14 +1385,14 @@ function toggleTableFocusMode() {
 
 function applyTableFocusMode() {
   const root = document.querySelector(".workbench-pro");
-  if (!root) return;
-  root.classList.toggle("table-focus-mode", tableFocusMode);
-  document.body.classList.toggle("table-focus-active", tableFocusMode);
+  if (root) root.classList.toggle("table-focus-mode", tableFocusMode);
+  document.body.classList.toggle("table-focus-active", Boolean(root && tableFocusMode));
   const button = document.querySelector("#tableFocusButton");
   if (button) {
-    button.classList.toggle("primary", tableFocusMode);
-    button.setAttribute("aria-label", tableFocusMode ? "退出全屏" : "全屏表格");
-    button.setAttribute("title", tableFocusMode ? "退出全屏" : "全屏表格");
+    const active = Boolean(root && tableFocusMode);
+    button.classList.toggle("primary", active);
+    button.setAttribute("aria-label", active ? "退出全屏" : "全屏表格");
+    button.setAttribute("title", active ? "退出全屏" : "全屏表格");
   }
 }
 
@@ -2860,6 +2873,9 @@ async function refreshAvailableDatasetColumns() {
   if (Array.isArray(payload.columns) && payload.columns.length) {
     mergeAvailableDatasetColumns(payload.columns);
   }
+  if (Array.isArray(payload.model_result_columns)) {
+    mergeAvailableModelResultColumns(payload.model_result_columns);
+  }
 }
 
 function mergeAvailableDatasetColumns(columns) {
@@ -2870,6 +2886,13 @@ function mergeAvailableDatasetColumns(columns) {
     changed = true;
   }
   if (changed) fillSearchColumnOptions(availableDatasetColumns);
+}
+
+function mergeAvailableModelResultColumns(columns) {
+  for (const column of columns || []) {
+    if (!column || availableModelResultColumns.includes(column)) continue;
+    availableModelResultColumns.push(column);
+  }
 }
 
 function closeColumnSettings() {
@@ -2883,13 +2906,34 @@ function closeColumnSettings() {
 function renderColumnSettings() {
   const grid = document.querySelector("#columnSettingsGrid");
   const selected = new Set(latestFieldMapping?.visible_columns?.length ? latestFieldMapping.visible_columns : availableDatasetColumns);
-  grid.innerHTML = availableDatasetColumns.map((column) => `
+  const fixedColumns = new Set(fixedMappingColumns(availableDatasetColumns));
+  const resultColumns = availableModelResultColumns.filter((column) => availableDatasetColumns.includes(column) && !fixedColumns.has(column));
+  const resultColumnSet = new Set(resultColumns);
+  const excelColumns = availableDatasetColumns.filter((column) => !resultColumnSet.has(column));
+  grid.innerHTML = `
+    ${columnSettingsSectionHtml("Excel 原始列", "来自导入 Excel 和字段映射的基础列。人工、标注固定列保留在这里。", excelColumns, selected)}
+    ${columnSettingsSectionHtml("标注返回列", "标注方法返回 dict 的 key。多个 Prompt 聚合后的新增字段会显示在这里。", resultColumns, selected)}
+  `;
+  syncTableFontSizeSegment();
+}
+
+function columnSettingsSectionHtml(title, description, columns, selected) {
+  return `
+    <section class="column-settings-section">
+      <div class="column-settings-section-head">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(description)}</span>
+      </div>
+      <div class="column-chip-grid compact">
+        ${columns.map((column) => `
     <label class="column-chip">
       <input type="checkbox" value="${escapeHtml(column)}" ${selected.has(column) ? "checked" : ""}>
       <span title="${escapeHtml(column)}">${escapeHtml(column)}</span>
     </label>
-  `).join("") || `<div class="empty">当前数据集暂无可配置列</div>`;
-  syncTableFontSizeSegment();
+        `).join("") || `<div class="empty">暂无可配置列</div>`}
+      </div>
+    </section>
+  `;
 }
 
 function setColumnSettingsChecked(checked) {
@@ -3482,6 +3526,7 @@ function refreshTableRow(row) {
 async function ensureDynamicResultColumns(result) {
   if (!result || typeof result !== "object") return;
   mergeAvailableDatasetColumns(Object.keys(result));
+  mergeAvailableModelResultColumns(Object.keys(result));
   if (!table || !tableReadyForRealtime) return;
   const existing = new Set(
     table.getColumns?.()

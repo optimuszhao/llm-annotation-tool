@@ -232,7 +232,8 @@ def delete_dataset(dataset_id: str) -> dict:
 def get_dataset_row(dataset_id: str, row_id: str, scheme_id: str = "") -> dict:
     with get_db() as conn:
         dataset, _scene, row = _load_dataset_row(conn, dataset_id, row_id, scheme_id)
-        columns = _sync_model_result_columns(conn, dataset)
+        model_result_columns = _model_result_columns(conn, dataset_id)
+        columns = _sync_model_result_columns(conn, dataset, model_result_columns)
     return _format_row(row, columns, preview=False, scheme_view=bool(scheme_id))
 
 
@@ -461,7 +462,8 @@ def get_dataset_rows(
             raise HTTPException(status_code=404, detail="数据集不存在")
         scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
         table_name = scene["data_table_name"]
-        columns = _sync_model_result_columns(conn, dataset)
+        model_result_columns = _model_result_columns(conn, dataset_id)
+        columns = _sync_model_result_columns(conn, dataset, model_result_columns)
         analysis_columns = _analysis_result_columns(conn, dataset_id)
         analysis_method_by_column = _analysis_method_by_column(analysis_columns)
         all_columns = [*columns, *[item["column"] for item in analysis_columns]]
@@ -658,6 +660,7 @@ def get_dataset_rows(
         "page_size": page_size,
         "last_page": max(math.ceil(total / page_size), 1),
         "columns": all_columns,
+        "model_result_columns": model_result_columns,
     }
 
 
@@ -666,9 +669,7 @@ def _json_column_path(column: str) -> str:
     return f'$."{escaped}"'
 
 
-def _sync_model_result_columns(conn, dataset: dict) -> list[str]:
-    current = decode_json(dataset["column_schema"], [])
-    columns = list(current)
+def _model_result_columns(conn, dataset_id: str) -> list[str]:
     rows = conn.execute(
         """
         SELECT DISTINCT json_each.key AS column_name
@@ -680,10 +681,15 @@ def _sync_model_result_columns(conn, dataset: dict) -> list[str]:
           AND TRIM(COALESCE(task_row.model_result, '')) NOT IN ('', '{}')
         ORDER BY column_name ASC
         """,
-        (dataset["id"],),
+        (dataset_id,),
     ).fetchall()
-    for row in rows:
-        column = row["column_name"]
+    return [row["column_name"] for row in rows if row["column_name"]]
+
+
+def _sync_model_result_columns(conn, dataset: dict, model_result_columns: Optional[list[str]] = None) -> list[str]:
+    current = decode_json(dataset["column_schema"], [])
+    columns = list(current)
+    for column in model_result_columns if model_result_columns is not None else _model_result_columns(conn, dataset["id"]):
         if column and column not in columns:
             columns.append(column)
     if columns != current:

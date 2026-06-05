@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260605-row-stop-task";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-row-stop-task";
+import { renderManagePage } from "/pages/manage.js?v=20260605-focus-header";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-focus-header";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 
