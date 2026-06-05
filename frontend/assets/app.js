@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260605-result-key-values";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-result-key-values";
+import { renderManagePage } from "/pages/manage.js?v=20260605-large-resource-editor";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-large-resource-editor";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 

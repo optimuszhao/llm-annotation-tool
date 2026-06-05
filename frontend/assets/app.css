@@ -985,7 +985,7 @@ button { cursor: pointer; }
   border-top: 1px solid var(--line);
 }
 .rich-textarea {
-  min-height: 220px;
+  min-height: 360px;
 }
 .prompt-editor-layout {
   display: grid;
@@ -996,8 +996,8 @@ button { cursor: pointer; }
   min-height: 0;
 }
 .prompt-modal {
-  height: 80dvh;
-  max-height: calc(100dvh - 24px);
+  height: 88dvh;
+  max-height: calc(100dvh - 16px);
 }
 .prompt-modal .modal-body {
   overflow: hidden;
@@ -1135,18 +1135,18 @@ button { cursor: pointer; }
 }
 .prompt-editor-form {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 14px;
+  grid-template-rows: auto auto minmax(420px, 1fr) auto;
+  gap: 10px;
   min-height: 0;
   overflow: hidden;
-  padding: 16px;
+  padding: 14px;
 }
 .prompt-editor-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--line);
 }
 .prompt-editor-head strong,
@@ -1158,7 +1158,7 @@ button { cursor: pointer; }
   font-size: 16px;
 }
 .prompt-editor-head span {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
 }
@@ -1208,7 +1208,7 @@ button { cursor: pointer; }
 .prompt-content-field {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 7px;
+  gap: 6px;
   min-height: 0;
   overflow: hidden;
 }
@@ -1219,7 +1219,7 @@ button { cursor: pointer; }
   font-weight: 800;
 }
 .prompt-editor-textarea {
-  min-height: 0;
+  min-height: 420px;
   height: 100%;
   overflow: auto;
   resize: none;
