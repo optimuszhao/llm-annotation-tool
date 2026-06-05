@@ -670,8 +670,8 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   document.querySelector("#metricTotal").textContent = response.total.toLocaleString();
   availableDatasetColumns = response.columns.length ? response.columns : defaultColumns;
   availableModelResultColumns = Array.isArray(response.model_result_columns) ? response.model_result_columns : [];
-  fillSearchColumnOptions(availableDatasetColumns);
-  const visibleColumns = await resolveVisibleColumns(availableDatasetColumns);
+  fillSearchColumnOptions(allConfigurableColumns());
+  const visibleColumns = await resolveVisibleColumns(allConfigurableColumns());
   const columns = buildColumns(visibleColumns, response.data || []);
   const nextBuildKey = [
     state.activeDatasetId,
@@ -965,6 +965,21 @@ function fillSearchColumnOptions(columns) {
   if (columnFilter.column && !["状态", ...columns].includes(columnFilter.column)) {
     columnFilter = { column: "", value: "", empty: false };
   }
+}
+
+function allConfigurableColumns() {
+  return uniqueColumns([...(availableDatasetColumns || []), ...(availableModelResultColumns || [])]);
+}
+
+function uniqueColumns(columns) {
+  const seen = new Set();
+  const result = [];
+  for (const column of columns || []) {
+    if (!column || seen.has(column)) continue;
+    seen.add(column);
+    result.push(column);
+  }
+  return result;
 }
 
 async function resolveVisibleColumns(columns) {
@@ -2925,14 +2940,17 @@ function mergeAvailableDatasetColumns(columns) {
     availableDatasetColumns.push(column);
     changed = true;
   }
-  if (changed) fillSearchColumnOptions(availableDatasetColumns);
+  if (changed) fillSearchColumnOptions(allConfigurableColumns());
 }
 
 function mergeAvailableModelResultColumns(columns) {
+  let changed = false;
   for (const column of columns || []) {
     if (!column || availableModelResultColumns.includes(column)) continue;
     availableModelResultColumns.push(column);
+    changed = true;
   }
+  if (changed) fillSearchColumnOptions(allConfigurableColumns());
 }
 
 function closeColumnSettings() {
@@ -2945,9 +2963,10 @@ function closeColumnSettings() {
 
 function renderColumnSettings() {
   const grid = document.querySelector("#columnSettingsGrid");
-  const selected = new Set(latestFieldMapping?.visible_columns?.length ? latestFieldMapping.visible_columns : availableDatasetColumns);
+  const configurableColumns = allConfigurableColumns();
+  const selected = new Set(latestFieldMapping?.visible_columns?.length ? latestFieldMapping.visible_columns : configurableColumns);
   const fixedColumns = new Set(fixedMappingColumns(availableDatasetColumns));
-  const resultColumns = availableModelResultColumns.filter((column) => availableDatasetColumns.includes(column) && !fixedColumns.has(column));
+  const resultColumns = availableModelResultColumns.filter((column) => !fixedColumns.has(column));
   const resultColumnSet = new Set(resultColumns);
   const excelColumns = availableDatasetColumns.filter((column) => !resultColumnSet.has(column));
   grid.innerHTML = `

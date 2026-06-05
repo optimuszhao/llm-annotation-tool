@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260605-compact-metrics";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-compact-metrics";
+import { renderManagePage } from "/pages/manage.js?v=20260605-model-result-column-picker";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-model-result-column-picker";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 
