@@ -272,10 +272,10 @@ def get_dataset_row_field(dataset_id: str, row_id: str, column: str, scheme_id: 
     raw_data = decode_json(row["raw_data"], {})
     if scheme_id:
         model_result = decode_json(row.get("scheme_model_result"), {})
-        raw_data = {**raw_data, **model_result, **_flatten_role_model_result(model_result)}
+        raw_data = {**raw_data, **flatten_model_result_for_display(model_result)}
     elif column not in raw_data:
         model_result = decode_json(row.get("model_result"), {})
-        raw_data = {**raw_data, **model_result, **_flatten_role_model_result(model_result)}
+        raw_data = {**raw_data, **flatten_model_result_for_display(model_result)}
     value = raw_data.get(column, "")
     text = value if isinstance(value, str) else encode_json(value)
     return {
@@ -682,8 +682,13 @@ def _json_column_path(column: str) -> str:
 def _model_result_json_path(column: str) -> str:
     role_name, result_key = _split_role_result_column(column)
     if role_name and result_key:
-        return f'{_json_column_path(ROLE_RESULT_KEY)}."{_escape_json_path_key(role_name)}"."{_escape_json_path_key(result_key)}"'
+        parts = [ROLE_RESULT_KEY, role_name, *[part for part in result_key.split(ROLE_RESULT_COLUMN_SEPARATOR) if part]]
+        return _json_path_from_parts(parts)
     return _json_column_path(column)
+
+
+def _json_path_from_parts(parts: list[str]) -> str:
+    return "$" + "".join(f'."{_escape_json_path_key(str(part))}"' for part in parts if part)
 
 
 def _escape_json_path_key(value: str) -> str:
@@ -699,56 +704,26 @@ def _split_role_result_column(column: str) -> tuple[str, str]:
 
 
 def _model_result_columns(conn, dataset_id: str) -> list[str]:
-    role_rows = conn.execute(
+    rows = conn.execute(
         """
-        SELECT DISTINCT role.key AS role_name, field.key AS field_name
+        SELECT task_row.model_result
         FROM annotation_task_rows task_row
         JOIN annotation_tasks task ON task.id=task_row.task_id
-        JOIN json_each(json_extract(CASE WHEN json_valid(task_row.model_result) THEN task_row.model_result ELSE '{}' END, ?)) AS role
-        JOIN json_each(CASE WHEN json_valid(role.value) THEN role.value ELSE '{}' END) AS field
         WHERE task.dataset_id=?
           AND json_valid(task_row.model_result)
           AND TRIM(COALESCE(task_row.model_result, '')) NOT IN ('', '{}')
-          AND json_valid(role.value)
-        ORDER BY role_name ASC, field_name ASC
-        """,
-        (_json_column_path(ROLE_RESULT_KEY), dataset_id),
-    ).fetchall()
-    role_columns = [
-        _role_result_column(row["role_name"], row["field_name"])
-        for row in role_rows
-        if row["role_name"] and row["field_name"]
-    ]
-    top_rows = conn.execute(
-        """
-        SELECT DISTINCT json_each.key AS column_name
-        FROM annotation_task_rows task_row
-        JOIN annotation_tasks task ON task.id=task_row.task_id
-        JOIN json_each(CASE WHEN json_valid(task_row.model_result) THEN task_row.model_result ELSE '{}' END)
-        WHERE task.dataset_id=?
-          AND json_valid(task_row.model_result)
-          AND TRIM(COALESCE(task_row.model_result, '')) NOT IN ('', '{}')
-        ORDER BY column_name ASC
+        ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
         """,
         (dataset_id,),
     ).fetchall()
-    top_columns = [
-        row["column_name"]
-        for row in top_rows
-        if row["column_name"] and row["column_name"] not in MODEL_RESULT_INTERNAL_KEYS
-    ]
-    return _dedupe_columns(role_columns if role_columns else top_columns)
+    columns: list[str] = []
+    for row in rows:
+        columns.extend(model_result_display_columns(decode_json(row["model_result"], {})))
+    return _dedupe_columns(columns)
 
 
 def model_result_display_columns(model_result: dict) -> list[str]:
-    flattened_columns = list(_flatten_role_model_result(model_result).keys())
-    if flattened_columns:
-        return flattened_columns
-    return [
-        str(column)
-        for column in (model_result or {}).keys()
-        if column and column not in MODEL_RESULT_INTERNAL_KEYS
-    ]
+    return list(flatten_model_result_for_display(model_result).keys())
 
 
 def _role_result_column(role_name: str, field_name: str) -> str:
@@ -995,16 +970,17 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
     raw_data = decode_json(row.get("preview_data") if preview else row.get("raw_data"), {})
     if scheme_view:
         model_result = decode_json(row.get("scheme_model_result"), {})
-        flattened_result = _flatten_role_model_result(model_result)
-        display_result = {
-            key: _preview(value) if preview else value
-            for key, value in {**model_result, **flattened_result}.items()
-            if key not in MODEL_RESULT_INTERNAL_KEYS
-        }
+        display_result = flatten_model_result_for_display(model_result)
+        if preview:
+            display_result = {key: _preview(value) for key, value in display_result.items()}
         raw_data = {**raw_data, **display_result}
         status = row.get("scheme_status") or "未标注"
     else:
         model_result = decode_json(row.get("model_result"), {})
+        display_result = flatten_model_result_for_display(model_result)
+        if preview:
+            display_result = {key: _preview(value) for key, value in display_result.items()}
+        raw_data = {**raw_data, **display_result}
         status = row.get("annotation_status") or raw_data.get("状态") or raw_data.get("status") or "未标注"
     large_fields = set(decode_json(row.get("large_fields"), []) or [])
     item = {
@@ -1042,9 +1018,34 @@ def _flatten_role_model_result(model_result: dict) -> dict[str, Any]:
     for role_name, result in role_results.items():
         if not isinstance(result, dict):
             continue
-        for key, value in result.items():
+        for key, value in _flatten_leaf_values(result).items():
             flattened[_role_result_column(str(role_name), str(key))] = value
     return flattened
+
+
+def flatten_model_result_for_display(model_result: dict) -> dict[str, Any]:
+    if not isinstance(model_result, dict):
+        return {}
+    role_result = _flatten_role_model_result(model_result)
+    if role_result:
+        return role_result
+    return _flatten_leaf_values({
+        key: value
+        for key, value in model_result.items()
+        if key not in MODEL_RESULT_INTERNAL_KEYS
+    })
+
+
+def _flatten_leaf_values(value: Any, prefix: str = "") -> dict[str, Any]:
+    if isinstance(value, dict):
+        flattened: dict[str, Any] = {}
+        for key, item in value.items():
+            if not key:
+                continue
+            next_prefix = f"{prefix}{ROLE_RESULT_COLUMN_SEPARATOR}{key}" if prefix else str(key)
+            flattened.update(_flatten_leaf_values(item, next_prefix))
+        return flattened
+    return {prefix: value} if prefix else {}
 
 
 def update_dataset_row_favorite(dataset_id: str, row_id: str, is_favorite: bool) -> dict:

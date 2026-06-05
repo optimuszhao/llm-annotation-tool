@@ -3505,7 +3505,7 @@ async function applyTaskEventToTable(payload) {
   }
     if (payload.type === "row_updated") {
       const result = payload.model_result || {};
-      const flattenedResult = flattenRoleModelResult(result);
+      const flattenedResult = flattenModelResultForDisplay(result);
       let status = payload.status || (payload.error ? "失败" : "");
     let fullRow = null;
     if (!status && state.activeDatasetId && payload.row_id) {
@@ -3607,9 +3607,7 @@ async function ensureDynamicResultColumns(result) {
 }
 
 function modelResultDisplayColumns(result) {
-  const flattened = Object.keys(flattenRoleModelResult(result));
-  if (flattened.length) return flattened;
-  return Object.keys(result || {}).filter((key) => key !== ROLE_RESULT_KEY && key !== "角色标注答案");
+  return Object.keys(flattenModelResultForDisplay(result));
 }
 
 function flattenRoleModelResult(result) {
@@ -3618,11 +3616,33 @@ function flattenRoleModelResult(result) {
   const flattened = {};
   Object.entries(roleResults).forEach(([roleName, roleResult]) => {
     if (!roleResult || typeof roleResult !== "object" || Array.isArray(roleResult)) return;
-    Object.entries(roleResult).forEach(([key, value]) => {
+    Object.entries(flattenLeafValues(roleResult)).forEach(([key, value]) => {
       flattened[`${roleName}.${key}`] = value;
     });
   });
   return flattened;
+}
+
+function flattenModelResultForDisplay(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return {};
+  const roleResult = flattenRoleModelResult(result);
+  if (Object.keys(roleResult).length) return roleResult;
+  return flattenLeafValues(
+    Object.fromEntries(
+      Object.entries(result).filter(([key]) => key !== ROLE_RESULT_KEY && key !== "角色标注答案"),
+    ),
+  );
+}
+
+function flattenLeafValues(value, prefix = "") {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return Object.entries(value).reduce((acc, [key, item]) => {
+      if (!key) return acc;
+      const nextPrefix = prefix ? `${prefix}.${key}` : key;
+      return { ...acc, ...flattenLeafValues(item, nextPrefix) };
+    }, {});
+  }
+  return prefix ? { [prefix]: value } : {};
 }
 
 function updateTaskStrip(task) {
