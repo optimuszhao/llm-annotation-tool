@@ -2,7 +2,7 @@ const sceneStats = [
   { title: "数据集", value: "12", note: "12,840 行数据" },
   { title: "Prompt", value: "18", note: "5 个角色可复用" },
   { title: "知识库", value: "26", note: "业务规则与口径" },
-  { title: "错题集", value: "9", note: "高频误判样例" },
+  { title: "fewshots样例", value: "9", note: "高频误判样例" },
 ];
 
 const schemeCards = [
@@ -47,7 +47,7 @@ const schemeCards = [
 const datasetRows = [
   { name: "SPN_测试数据.xlsx", rows: "12,840", fields: "42 列", use: "主方案数据源" },
   { name: "售后审核_抽样集.xlsx", rows: "3,200", fields: "36 列", use: "批量回归" },
-  { name: "历史误判样本.xlsx", rows: "976", fields: "28 列", use: "错题沉淀" },
+  { name: "历史误判样本.xlsx", rows: "976", fields: "28 列", use: "样例沉淀" },
 ];
 
 export function renderManageStudioPage() {
@@ -59,7 +59,7 @@ export function renderManageStudioPage() {
         <div>
           <p class="eyebrow">新数据集与方案管理</p>
           <h1>先维护场景，再沉淀资源，最后配置标注方案</h1>
-          <span>方案是核心入口，它连接数据集、Prompt、知识库、错题集和标注方法。</span>
+          <span>方案是核心入口，它连接数据集、Prompt、知识库、fewshots样例和标注方法。</span>
         </div>
         <div class="evaluation-head-actions">
           <button class="btn ghost" type="button">新增场景</button>
@@ -71,13 +71,13 @@ export function renderManageStudioPage() {
         <div class="logic-step primary">
           <span>01</span>
           <strong>场景</strong>
-          <p>没有业务场景时，先新增场景。每个场景拥有独立的数据、Prompt、知识库、错题集和方案。</p>
+          <p>没有业务场景时，先新增场景。每个场景拥有独立的数据、Prompt、知识库、fewshots样例和方案。</p>
         </div>
         <i>→</i>
         <div class="logic-step">
           <span>02</span>
           <strong>场景资源</strong>
-          <p>在场景下导入数据集，并维护可被方案引用的 Prompt、知识库和错题集。</p>
+          <p>在场景下导入数据集，并维护可被方案引用的 Prompt、知识库和fewshots样例。</p>
         </div>
         <i>→</i>
         <div class="logic-step focus">
@@ -109,7 +109,7 @@ export function renderManageStudioPage() {
         <div class="evaluation-panel-head">
           <div>
             <strong>当前场景的标注方案</strong>
-            <span>每个方案都说明自己会使用哪些数据集、Prompt、知识库、错题集和标注方法。</span>
+            <span>每个方案都说明自己会使用哪些数据集、Prompt、知识库、fewshots样例和标注方法。</span>
           </div>
           <button class="btn primary" type="button">新增方案</button>
         </div>
@@ -142,7 +142,7 @@ export function renderManageStudioPage() {
           <div class="relation-map">
             ${renderRelationNode("Prompt", "角色指令", "质检员、复核员、裁判")}
             ${renderRelationNode("知识库", "业务上下文", "产品规则、审核口径")}
-            ${renderRelationNode("错题集", "误判经验", "高频误判、边界样例")}
+            ${renderRelationNode("fewshots样例", "误判经验", "高频误判、边界样例")}
             ${renderRelationNode("标注方法", "后台调用", "call_model")}
           </div>
           <div class="mapping-preview">
@@ -181,7 +181,7 @@ function renderSchemeCard(scheme) {
         ${renderLinkGroup("数据集", [scheme.datasets])}
         ${renderLinkGroup("Prompt", scheme.prompts)}
         ${renderLinkGroup("知识库", scheme.knowledge)}
-        ${renderLinkGroup("错题集", scheme.errors)}
+        ${renderLinkGroup("fewshots样例", scheme.errors)}
       </div>
       <div class="scheme-method-line">
         <span>${scheme.mode}</span>

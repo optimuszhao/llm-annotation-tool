@@ -19,7 +19,7 @@ def render_prompt_template(
     推荐写法：
     - `｛row.工单名称｝`：读取当前行字段。
     - `｛knowledge.知识名称｝`：读取指定知识库。
-    - `｛error_sets.错题集名称｝`：读取指定错题集。
+    - `｛error_sets.fewshots样例名称｝`：读取指定fewshots样例。
     - `｛knowledge｝` / `｛error_sets｝`：读取方案关联的全部资源。
 
     Prompt 里的 JSON 示例和 `{{...}}` 返回格式提示会原样保留。
@@ -32,12 +32,12 @@ def render_prompt_template(
         key = match.group(1).strip()
         if key in {"knowledge", "知识库"}:
             return knowledge_text
-        if key in {"error_sets", "error_set", "错题集"}:
+        if key in {"error_sets", "error_set", "fewshots样例", "错题集"}:
             return error_text
         knowledge_name = named_resource_placeholder(key, {"knowledge", "知识库"})
         if knowledge_name:
             return lookup_named_resource_text(knowledge or [], knowledge_name, "content")
-        error_name = named_resource_placeholder(key, {"error_sets", "error_set", "错题集"})
+        error_name = named_resource_placeholder(key, {"error_sets", "error_set", "fewshots样例", "错题集"})
         if error_name:
             return lookup_named_resource_text(error_sets or [], error_name, "description")
         if key.startswith("row."):

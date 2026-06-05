@@ -34,6 +34,7 @@ let drawerAnalysisSplitCleanup = null;
 let statusFilters = new Set();
 let favoriteOnlyFilter = false;
 let columnFilter = { column: "", value: "", empty: false };
+let activeSort = { column: "", dir: "" };
 let availableDatasetColumns = [];
 let availableModelResultColumns = [];
 let latestFieldMapping = null;
@@ -609,9 +610,11 @@ function bindWorkbenchEvents() {
   if (!documentMenusBound) {
     document.addEventListener("pointerdown", stopRowActionPropagation, true);
     document.addEventListener("pointerdown", stopColumnFilterHeaderEvents, true);
+    document.addEventListener("pointerdown", stopColumnSortHeaderEvents, true);
     document.addEventListener("click", handleRowActionClick, true);
     document.addEventListener("click", handleMoreMenu);
     document.addEventListener("click", handleColumnFilterClick, true);
+    document.addEventListener("click", handleColumnSortClick, true);
     documentMenusBound = true;
   }
 }
@@ -687,6 +690,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     await tableReady;
     if (token !== refreshToken) return;
     restoreTableHorizontalScroll(horizontalScroll);
+    updateSortButtons();
     await refreshMetrics();
     syncStatusFilterMenu();
     syncFavoriteFilterButton();
@@ -774,6 +778,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   await tableReady;
   if (token !== refreshToken) return;
   restoreTableHorizontalScroll(horizontalScroll);
+  updateSortButtons();
   tableReadyForRealtime = true;
   await refreshMetrics();
   syncStatusFilterMenu();
@@ -949,10 +954,9 @@ function buildRowsQuery(page, pageSize, tableParams = {}) {
   if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
   statusFilters.forEach((status) => params.append("statuses", status));
   if (favoriteOnlyFilter) params.set("favorite", "true");
-  const sorter = Array.isArray(tableParams.sort) ? tableParams.sort[0] : null;
-  if (sorter?.field && sorter.field !== "__spacer" && sorter.field !== "row_id") {
-    params.set("sort_field", sorter.field);
-    params.set("sort_dir", sorter.dir || "asc");
+  if (activeSort.column) {
+    params.set("sort_field", activeSort.column);
+    params.set("sort_dir", activeSort.dir || "asc");
   }
   return params.toString();
 }
@@ -964,6 +968,9 @@ function schemeQuery(prefix = "?") {
 function fillSearchColumnOptions(columns) {
   if (columnFilter.column && !["状态", ...columns].includes(columnFilter.column)) {
     columnFilter = { column: "", value: "", empty: false };
+  }
+  if (activeSort.column && !columns.includes(activeSort.column)) {
+    activeSort = { column: "", dir: "" };
   }
 }
 
@@ -1523,6 +1530,51 @@ function stopColumnFilterHeaderEvents(event) {
   if (!event.target.closest("[data-column-filter]")) return;
   event.preventDefault();
   event.stopImmediatePropagation();
+}
+
+function stopColumnSortHeaderEvents(event) {
+  if (!event.target.closest("[data-column-sort]")) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+async function handleColumnSortClick(event) {
+  const button = event.target.closest("[data-column-sort]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const column = button.dataset.columnSort || "";
+  if (!column) return;
+  closeMenus();
+  activeSort = nextSortState(column);
+  updateSortButtons();
+  try {
+    await refreshWorkbench();
+  } finally {
+    updateSortButtons();
+  }
+}
+
+function nextSortState(column) {
+  if (activeSort.column !== column) return { column, dir: "asc" };
+  if (activeSort.dir === "asc") return { column, dir: "desc" };
+  if (activeSort.dir === "desc") return { column: "", dir: "" };
+  return { column, dir: "asc" };
+}
+
+function updateSortButtons() {
+  document.querySelectorAll("[data-column-sort]").forEach((button) => {
+    const column = button.dataset.columnSort || "";
+    const dir = activeSort.column === column ? activeSort.dir : "";
+    button.dataset.sortDir = dir;
+    button.classList.toggle("active", Boolean(dir));
+    button.classList.toggle("asc", dir === "asc");
+    button.classList.toggle("desc", dir === "desc");
+    const label = dir === "asc" ? "升序排序" : (dir === "desc" ? "降序排序" : "未排序");
+    button.setAttribute("aria-label", `${column}：${label}`);
+    button.setAttribute("title", `${column}：${label}`);
+    button.closest(".tabulator-col")?.setAttribute("aria-sort", dir === "asc" ? "ascending" : (dir === "desc" ? "descending" : "none"));
+  });
 }
 
 function openColumnFilterPopover(button) {
@@ -3366,7 +3418,7 @@ function dataColumnDef(column, sampleRows = []) {
     widthGrow: 0,
     widthShrink: 0,
     frozen: mappedAnswer,
-    headerSort: !mappedAnswer,
+    headerSort: false,
     formatter: mappedAnswer ? answerValueFormatter : (previewColumn(column) ? textPreviewFormatter : undefined),
     cssClass: [mappedAnswer ? "answer-cell" : "", previewColumn(column) ? "cell-preview" : ""].filter(Boolean).join(" "),
     headerCssClass: mappedAnswer ? "mapped-answer-header" : "",
@@ -3379,7 +3431,10 @@ function columnHeaderHtml(title, column) {
   return `
     <span class="column-title-wrap">
       <span class="column-title-text" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
-      ${mappedAnswer ? "" : `<button class="column-filter-button ${active ? "active" : ""}" type="button" data-column-filter="${escapeHtml(column)}" aria-label="筛选 ${escapeHtml(title)}" aria-expanded="false"></button>`}
+      ${mappedAnswer ? "" : `
+        <button class="column-filter-button ${active ? "active" : ""}" type="button" data-column-filter="${escapeHtml(column)}" aria-label="筛选 ${escapeHtml(title)}" aria-expanded="false"></button>
+        <button class="column-sort-button ${activeSort.column === column ? `active ${activeSort.dir}` : ""}" type="button" data-column-sort="${escapeHtml(column)}" data-sort-dir="${escapeHtml(activeSort.column === column ? activeSort.dir : "")}" aria-label="${escapeHtml(title)}：${activeSort.column === column ? (activeSort.dir === "asc" ? "升序排序" : "降序排序") : "未排序"}"></button>
+      `}
     </span>
   `;
 }

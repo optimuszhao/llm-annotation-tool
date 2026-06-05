@@ -1,6 +1,6 @@
 # LLM 标注工具
 
-本项目是本地可运行的 LLM 标注工作台，第一阶段实现场景管理、Excel 数据集导入、Prompt/知识库/错题集/方案基础管理，以及标注工作台分页展示导入数据。
+本项目是本地可运行的 LLM 标注工作台，第一阶段实现场景管理、Excel 数据集导入、Prompt/知识库/fewshots样例/方案基础管理，以及标注工作台分页展示导入数据。
 
 ## 启动
 
@@ -61,7 +61,7 @@ http://127.0.0.1:8000
 工单名称：｛row.工单名称｝
 API 内容：｛row.API Part 1｝
 知识库：｛knowledge｝
-错题集：｛error_sets｝
+fewshots样例：｛error_sets｝
 
 请严格返回 JSON：
 {
@@ -70,7 +70,7 @@ API 内容：｛row.API Part 1｝
 }
 ```
 
-`｛row.列名｝` 会读取当前行数据，`｛knowledge｝` 会合并当前方案选择的知识库，`｛error_sets｝` 会合并当前方案选择的错题集。
+`｛row.列名｝` 会读取当前行数据，`｛knowledge｝` 会合并当前方案选择的知识库，`｛error_sets｝` 会合并当前方案选择的fewshots样例。
 
 Prompt 里可以直接写 JSON 示例的大括号 `{}`，也可以写 `{{xxx}}` 作为返回格式提示。系统只解析全角 `｛...｝`，Python `str.format()` 会把全角大括号当作普通文本处理。
 
@@ -81,7 +81,7 @@ Prompt 里可以直接写 JSON 示例的大括号 `{}`，也可以写 `{{xxx}}` 
 自定义 Prompt 初始化适合这些情况：
 
 - 一个方案选择了多个 Prompt，每个 Prompt 对应不同角色，需要分别组织 system/user/reviewer 等消息。
-- 知识库、错题集需要按业务规则筛选、排序、裁剪或拼接。
+- 知识库、fewshots样例需要按业务规则筛选、排序、裁剪或拼接。
 - 行数据里有 JSON、长文本、多字段组合，需要先清洗、格式化、摘要或脱敏。
 - 公司内部模型服务要求固定的 messages 结构，需要在调用模型前统一组装。
 - Prompt 模板中会写大量 JSON 返回示例，需要稳定避开 `{}` 和模板占位符冲突。
@@ -117,7 +117,7 @@ def list_prompt_init_methods() -> dict:
 
 - `prompt_contents`：`{角色名: Prompt对象}`
 - `knowledge`：`{知识名称: 知识内容}`
-- `error_sets`：`{错题集名称: 错题内容}`
+- `error_sets`：`{fewshots样例名称: fewshots样例内容}`
 
 返回结构必须是 `{角色名: Prompt对象}`：
 

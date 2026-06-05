@@ -93,7 +93,7 @@ export function renderStartPage() {
               <span>2</span>
               <div>
                 <strong>导入资源</strong>
-                <p>Excel、Prompt、知识库、错题集统一归档。</p>
+                <p>Excel、Prompt、知识库、fewshots样例统一归档。</p>
               </div>
             </li>
             <li>

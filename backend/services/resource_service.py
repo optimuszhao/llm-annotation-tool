@@ -258,7 +258,7 @@ def update_error_set(error_set_id: str, payload: dict) -> dict:
 
 
 def delete_error_set(error_set_id: str) -> dict:
-    return _delete_resource("error_sets", error_set_id, "error_set", "错题集")
+    return _delete_resource("error_sets", error_set_id, "error_set", "fewshots样例")
 
 
 def list_schemes(scene_id: Optional[str]) -> list[dict]:

@@ -18,7 +18,7 @@ export function renderManagePage() {
       <section class="page-heading">
         <div>
           <h2>数据集与方案管理</h2>
-          <p>场景驱动资源沉淀，组合 Prompt、知识库、错题集和数据集后形成标注方案。</p>
+          <p>场景驱动资源沉淀，组合 Prompt、知识库、fewshots样例和数据集后形成标注方案。</p>
         </div>
         ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button">导出算法包</button>` : ""}
       </section>
@@ -55,7 +55,7 @@ function renderSceneContent(activeScene) {
     { key: "datasets", title: "数据集", action: "导入数据集", meta: "Excel 文件入库后，工作台按页读取。", count: state.datasets.length },
     { key: "prompts", title: "Prompt", action: "新增 Prompt", meta: "支持角色名、名称和提示词正文。", count: state.prompts.length },
     { key: "knowledge", title: "知识库", action: "导入知识", meta: "保存业务规则、上下文和补充说明。", count: state.knowledge.length },
-    { key: "errorSets", title: "错题集", action: "整理错题", meta: "第一阶段保留结构和基础管理。", count: state.errorSets.length },
+    { key: "errorSets", title: "fewshots样例", action: "整理样例", meta: "第一阶段保留结构和基础管理。", count: state.errorSets.length },
     { key: "fieldMapping", title: "字段映射配置", action: "配置字段", meta: "选择答案列、列表展示列和标注上下文字段。", count: columnOptions().length },
   ];
   return `
@@ -288,7 +288,7 @@ async function deleteActiveScene() {
     return;
   }
   const ok = window.confirm(
-    `确认删除场景“${scene.name}”？\n\n该操作会关联删除该场景下的所有数据集、Prompt、知识库、错题集、字段映射配置和标注方案。确认后会执行全部删除。`
+    `确认删除场景“${scene.name}”？\n\n该操作会关联删除该场景下的所有数据集、Prompt、知识库、fewshots样例、字段映射配置和标注方案。确认后会执行全部删除。`
   );
   if (!ok) return;
   await api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" });
@@ -633,7 +633,7 @@ function openPromptModal() {
         </div>
         <section class="prompt-rule-box prompt-rule-inline">
           <strong>占位符规范</strong>
-          <p>使用 <code>｛row.列名｝</code>、<code>｛knowledge.知识名称｝</code>、<code>｛error_sets.错题集名称｝</code>。JSON 返回格式和 <code>{{字段}}</code> 示例会原样保留。</p>
+          <p>使用 <code>｛row.列名｝</code>、<code>｛knowledge.知识名称｝</code>、<code>｛error_sets.fewshots样例名称｝</code>。JSON 返回格式和 <code>{{字段}}</code> 示例会原样保留。</p>
         </section>
         <div class="prompt-field-grid">
           <label><span>Prompt 名称</span><input class="input" name="name" placeholder="Prompt 名称" required></label>
@@ -700,12 +700,12 @@ function openKnowledgeModal() {
 }
 
 function openErrorSetModal() {
-  openModal("错题集", "当前场景独立维护错题集名称和描述。点击左侧错题集名称后，可以在右侧直接编辑保存。", `
+  openModal("fewshots样例", "当前场景独立维护fewshots样例名称和描述。点击左侧fewshots样例名称后，可以在右侧直接编辑保存。", `
     <div class="prompt-editor-layout">
-      <aside class="prompt-sidebar" aria-label="已添加错题集">
+      <aside class="prompt-sidebar" aria-label="已添加fewshots样例">
         <div class="prompt-sidebar-head">
           <div>
-            <strong>已添加错题集</strong>
+            <strong>已添加fewshots样例</strong>
             <span>${state.errorSets.length} 个 · 点击名称可编辑</span>
           </div>
           <button class="ghost-button" type="button" id="newErrorSetButton">新增</button>
@@ -719,25 +719,25 @@ function openErrorSetModal() {
               </div>
               <button class="resource-delete-button" type="button" data-delete-error-set="${escapeHtml(item.id)}" data-resource-name="${escapeHtml(item.name)}">删除</button>
             </div>
-          `).join("") || `<div class="empty">当前场景暂无错题集。</div>`}
+          `).join("") || `<div class="empty">当前场景暂无fewshots样例。</div>`}
         </div>
       </aside>
       <form id="errorSetForm" class="prompt-editor-form labeled-form">
         <input type="hidden" name="id" id="errorSetId">
         <div class="prompt-editor-head">
           <div>
-            <strong id="errorSetFormTitle">新增错题集</strong>
-            <span id="errorSetFormMeta">填写错题集名称和描述。</span>
+            <strong id="errorSetFormTitle">新增fewshots样例</strong>
+            <span id="errorSetFormMeta">填写fewshots样例名称和描述。</span>
           </div>
         </div>
         <div class="prompt-field-grid one">
-          <label><span>错题集名称</span><input class="input" name="name" placeholder="错题集名称" required></label>
+          <label><span>fewshots样例名称</span><input class="input" name="name" placeholder="fewshots样例名称" required></label>
         </div>
         <label class="prompt-content-field">
           <span>描述</span>
           <textarea class="textarea rich-textarea prompt-editor-textarea" name="description" placeholder="描述"></textarea>
         </label>
-        <button class="btn resource-save-button full" type="submit" id="errorSetSubmitButton">新增错题集</button>
+        <button class="btn resource-save-button full" type="submit" id="errorSetSubmitButton">新增fewshots样例</button>
       </form>
     </div>
   `, "modal-xl prompt-modal");
@@ -777,6 +777,7 @@ function promptPlaceholderCandidates() {
     "知识库",
     "error_sets",
     "error_set",
+    "fewshots样例",
     "错题集",
   ]);
   columnOptions().forEach((column) => {
@@ -795,6 +796,7 @@ function promptPlaceholderCandidates() {
     values.add(item.name);
     values.add(`error_sets.${item.name}`);
     values.add(`error_set.${item.name}`);
+    values.add(`fewshots样例.${item.name}`);
     values.add(`错题集.${item.name}`);
   });
   return values;
@@ -987,9 +989,9 @@ function bindErrorSetEditor() {
     idInput.value = item?.id || "";
     nameInput.value = item?.name || "";
     descriptionInput.value = item?.description || "";
-    titleNode.textContent = item ? "编辑错题集" : "新增错题集";
-    metaNode.textContent = item ? "已载入历史描述，可直接修改后保存。" : "填写错题集名称和描述。";
-    submitButton.textContent = item ? "保存错题集" : "新增错题集";
+    titleNode.textContent = item ? "编辑fewshots样例" : "新增fewshots样例";
+    metaNode.textContent = item ? "已载入历史描述，可直接修改后保存。" : "填写fewshots样例名称和描述。";
+    submitButton.textContent = item ? "保存fewshots样例" : "新增fewshots样例";
     menuCards.forEach((card) => {
       card.classList.toggle("active", item?.id === card.dataset.errorSetId);
     });
@@ -1012,12 +1014,12 @@ function bindErrorSetEditor() {
   document.querySelectorAll("[data-delete-error-set]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
-      const ok = window.confirm(`确认删除错题集“${button.dataset.resourceName}”？关联方案中的该错题集引用也会同步移除。`);
+      const ok = window.confirm(`确认删除fewshots样例“${button.dataset.resourceName}”？关联方案中的该fewshots样例引用也会同步移除。`);
       if (!ok) return;
       await api(`/api/error-sets/${encodeURIComponent(button.dataset.deleteErrorSet)}`, { method: "DELETE" });
       await loadSceneResources();
       openErrorSetModal();
-      toast("错题集已删除");
+      toast("fewshots样例已删除");
     });
   });
 
@@ -1037,7 +1039,7 @@ function bindErrorSetEditor() {
     });
     await loadSceneResources();
     openErrorSetModal();
-    toast(errorSetId ? "错题集已保存" : "错题集已新增");
+    toast(errorSetId ? "fewshots样例已保存" : "fewshots样例已新增");
   });
 }
 
@@ -1107,13 +1109,13 @@ async function openSchemeModal(schemeId = "") {
           <section class="scheme-config-card" id="customPromptPanel" hidden>
             <div class="scheme-config-title">
               <strong>自定义初始化</strong>
-              <span>手动选择初始化方法、知识库和错题集。</span>
+              <span>手动选择初始化方法、知识库和fewshots样例。</span>
             </div>
             ${renderSchemeSelect("prompt_init_method_name", "promptInitMethod", promptInitMethods, editingScheme?.prompt_init_method_name, "选择 Prompt 初始化后台方法")}
             <div class="scheme-method-help" id="promptInitMethodHelp"></div>
             <div class="scheme-custom-resource-grid">
               ${renderSchemeResourcePicker("知识库", "knowledge_ids", state.knowledge, "content", selectedResources.knowledge, { searchable: true, compact: true })}
-              ${renderSchemeResourcePicker("错题集", "error_set_ids", state.errorSets, "description", selectedResources.error_set, { searchable: true, compact: true })}
+              ${renderSchemeResourcePicker("fewshots样例", "error_set_ids", state.errorSets, "description", selectedResources.error_set, { searchable: true, compact: true })}
             </div>
           </section>
         </div>
@@ -1383,10 +1385,10 @@ function renderAutoPromptValidation(promptIds) {
   ];
   validation.innerHTML = messages.length
     ? `<div class="scheme-validation-list">${messages.map((item) => `<div class="${item.type}">${escapeHtml(item.message)}</div>`).join("")}</div>`
-    : `<div class="scheme-validation-ok">占位符检查通过。自动模式会按引用关联知识库和错题集。</div>`;
+    : `<div class="scheme-validation-ok">占位符检查通过。自动模式会按引用关联知识库和fewshots样例。</div>`;
   linked.innerHTML = `
     ${renderAutoLinkedCard("关联知识库", result.knowledge)}
-    ${renderAutoLinkedCard("关联错题集", result.errorSets)}
+    ${renderAutoLinkedCard("关联fewshots样例", result.errorSets)}
   `;
 }
 
@@ -1427,7 +1429,7 @@ function analyzeAutoPromptLinks(promptIds) {
         useAllKnowledge = true;
         return;
       }
-      if (["error_sets", "error_set", "错题集"].includes(key)) {
+      if (["error_sets", "error_set", "fewshots样例", "错题集"].includes(key)) {
         useAllErrorSets = true;
         return;
       }
@@ -1438,11 +1440,11 @@ function analyzeAutoPromptLinks(promptIds) {
         else errors.push(`${prompt.name} 引用了不存在的知识库：${knowledgeName}`);
         return;
       }
-      const errorSetName = parseNamedResourceRef(key, ["error_sets", "error_set", "错题集"]);
+      const errorSetName = parseNamedResourceRef(key, ["error_sets", "error_set", "fewshots样例", "错题集"]);
       if (errorSetName) {
         const item = state.errorSets.find((resource) => resource.name === errorSetName || resource.id === errorSetName);
         if (item) errorSetIds.add(item.id);
-        else errors.push(`${prompt.name} 引用了不存在的错题集：${errorSetName}`);
+        else errors.push(`${prompt.name} 引用了不存在的fewshots样例：${errorSetName}`);
         return;
       }
       errors.push(`${prompt.name} 存在无法自动替换的占位符：${renderPlaceholderName(key)}`);
@@ -1455,7 +1457,7 @@ function analyzeAutoPromptLinks(promptIds) {
   }
   if (useAllErrorSets) {
     state.errorSets.forEach((item) => errorSetIds.add(item.id));
-    warnings.push("检测到 ｛error_sets｝，会自动关联当前场景全部错题集。");
+    warnings.push("检测到 ｛error_sets｝，会自动关联当前场景全部fewshots样例。");
   }
 
   return {

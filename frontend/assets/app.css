@@ -5527,6 +5527,55 @@ body.table-focus-active .page.active {
   background: color-mix(in srgb, var(--primary-soft) 56%, var(--surface));
   color: var(--primary-strong);
 }
+.column-sort-button {
+  position: relative;
+  display: inline-grid;
+  grid-column: 4;
+  justify-self: end;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+.column-sort-button::before,
+.column-sort-button::after {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 0;
+  content: "";
+  transform: translateX(-50%);
+}
+.column-sort-button::before {
+  top: 4px;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid currentColor;
+  border-left: 4px solid transparent;
+}
+.column-sort-button::after {
+  bottom: 4px;
+  border-top: 5px solid currentColor;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+}
+.column-sort-button:hover,
+.column-sort-button.active {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--line));
+  background: color-mix(in srgb, var(--primary-soft) 56%, var(--surface));
+}
+.column-sort-button.asc::before,
+.column-sort-button.desc::after {
+  color: var(--primary-strong);
+}
+.column-sort-button.asc::after,
+.column-sort-button.desc::before {
+  color: color-mix(in srgb, var(--muted) 42%, transparent);
+}
 .column-filter-popover {
   position: fixed;
   z-index: 22050;

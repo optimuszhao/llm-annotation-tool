@@ -1,7 +1,7 @@
 const tasks = [
   {
     id: "TASK-20260531-004",
-    name: "错题集增强后全量标注",
+    name: "fewshots样例增强后全量标注",
     mode: "全量标注",
     dataset: "SPN_测试数据.xlsx",
     scheme: "质检员 + 复核员 · call_model",

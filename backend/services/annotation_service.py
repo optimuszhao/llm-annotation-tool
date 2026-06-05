@@ -1230,12 +1230,12 @@ def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: lis
         key = match.group(1).strip()
         if key in {"knowledge", "知识库"}:
             return knowledge_text
-        if key in {"error_sets", "error_set", "错题集"}:
+        if key in {"error_sets", "error_set", "fewshots样例", "错题集"}:
             return error_text
         knowledge_match = _named_resource_placeholder(key, {"knowledge", "知识库"})
         if knowledge_match:
             return _lookup_named_resource_text(knowledge, knowledge_match, "content")
-        error_match = _named_resource_placeholder(key, {"error_sets", "error_set", "错题集"})
+        error_match = _named_resource_placeholder(key, {"error_sets", "error_set", "fewshots样例", "错题集"})
         if error_match:
             return _lookup_named_resource_text(error_sets, error_match, "description")
         if key.startswith("row."):

@@ -9,7 +9,7 @@ def list_prompt_init_methods() -> dict:
         "custom_default": {
             "name": "自定义 Prompt 初始化",
             "method_name": "build_prompts_custom",
-            "description": "接收 Prompt、知识库、错题集、字段映射和当前行数据，返回 {角色名: Prompt对象}。",
+            "description": "接收 Prompt、知识库、fewshots样例、字段映射和当前行数据，返回 {角色名: Prompt对象}。",
         }
     }
 
@@ -27,7 +27,7 @@ def build_prompts_custom(
     入参结构：
     - prompt_contents: {角色名: Prompt对象}
     - knowledge: {知识名称: 知识内容}
-    - error_sets: {错题集名称: 错题内容}
+    - error_sets: {fewshots样例名称: fewshots样例内容}
 
     原始资源列表仍保存在 context["resource_lists"]，需要 id、排序等元数据时可以读取。
     返回结构必须是 `{角色名: Prompt对象}`。
