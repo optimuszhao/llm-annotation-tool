@@ -276,6 +276,9 @@ function bindManageEvents() {
     });
   });
   document.querySelector("#closeModal")?.addEventListener("click", closeModalAndRefresh);
+  document.querySelector("#manageModal")?.addEventListener("click", (event) => {
+    if (event.target.id === "manageModal") closeModalAndRefresh();
+  });
 }
 
 async function deleteActiveScene() {
@@ -597,10 +600,6 @@ function bindDatasetSearch() {
 function openPromptModal() {
   openModal("Prompt", "当前场景独立维护 Prompt。点击左侧 Prompt 名称后，可以在右侧直接编辑保存。", `
     <div class="prompt-editor-layout">
-      <section class="prompt-rule-box prompt-rule-strip">
-        <strong>Prompt 规范</strong>
-        <p>占位符统一使用全角大括号 <code>｛row.列名｝</code>、<code>｛knowledge.知识名称｝</code>、<code>｛error_sets.错题集名称｝</code>。需要引用全部资源时可用 <code>｛knowledge｝</code>、<code>｛error_sets｝</code>。JSON 返回格式和 <code>{{字段}}</code> 示例会原样保留。</p>
-      </section>
       <aside class="prompt-sidebar" aria-label="已添加 Prompt">
         <div class="prompt-sidebar-head">
           <div>
@@ -624,7 +623,7 @@ function openPromptModal() {
           `).join("") || `<div class="empty">当前场景暂无 Prompt。</div>`}
         </div>
       </aside>
-      <form id="promptForm" class="prompt-editor-form labeled-form">
+      <form id="promptForm" class="prompt-editor-form prompt-editor-form-with-rule labeled-form">
         <input type="hidden" name="id" id="promptId">
         <div class="prompt-editor-head">
           <div>
@@ -632,6 +631,10 @@ function openPromptModal() {
             <span id="promptFormMeta">填写名称、角色名和 Prompt 内容。</span>
           </div>
         </div>
+        <section class="prompt-rule-box prompt-rule-inline">
+          <strong>占位符规范</strong>
+          <p>使用 <code>｛row.列名｝</code>、<code>｛knowledge.知识名称｝</code>、<code>｛error_sets.错题集名称｝</code>。JSON 返回格式和 <code>{{字段}}</code> 示例会原样保留。</p>
+        </section>
         <div class="prompt-field-grid">
           <label><span>Prompt 名称</span><input class="input" name="name" placeholder="Prompt 名称" required></label>
           <label><span>角色名</span><input class="input" name="role_name" placeholder="例如：质检员 / 分析师" required></label>

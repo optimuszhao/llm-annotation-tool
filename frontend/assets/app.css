@@ -990,7 +990,7 @@ button { cursor: pointer; }
 .prompt-editor-layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 14px;
   height: 100%;
   min-height: 0;
@@ -1135,11 +1135,14 @@ button { cursor: pointer; }
 }
 .prompt-editor-form {
   display: grid;
-  grid-template-rows: auto auto minmax(420px, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
   min-height: 0;
   overflow: hidden;
   padding: 14px;
+}
+.prompt-editor-form-with-rule {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
 .prompt-editor-head {
   display: flex;
@@ -1163,20 +1166,25 @@ button { cursor: pointer; }
   font-size: 12px;
 }
 .prompt-rule-box {
-  padding: 12px 14px;
+  padding: 9px 12px;
   border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--line));
   border-radius: 8px;
   background: color-mix(in srgb, var(--primary-soft) 42%, var(--surface));
 }
 .prompt-rule-box strong {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
   color: var(--primary-strong);
+  font-size: 12px;
 }
 .prompt-rule-box p {
   margin: 0;
   color: var(--muted);
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.prompt-rule-inline {
+  min-height: 0;
 }
 .prompt-rule-strip {
   grid-column: 1 / -1;
@@ -1219,7 +1227,7 @@ button { cursor: pointer; }
   font-weight: 800;
 }
 .prompt-editor-textarea {
-  min-height: 420px;
+  min-height: 0;
   height: 100%;
   overflow: auto;
   resize: none;

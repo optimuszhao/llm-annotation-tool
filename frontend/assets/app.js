@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260605-large-resource-editor";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-large-resource-editor";
+import { renderManagePage } from "/pages/manage.js?v=20260605-prompt-modal-layout";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-prompt-modal-layout";
 import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
 import { initComponents } from "/assets/components.js";
 
