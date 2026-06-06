@@ -20,7 +20,7 @@ export function renderManagePage() {
           <h2>数据集与方案管理</h2>
           <p>场景驱动资源沉淀，组合 Prompt、知识库、fewshots样例和数据集后形成标注方案。</p>
         </div>
-        ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button">导出算法包</button>` : ""}
+        ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button">导出标注算法包</button>` : ""}
       </section>
       ${renderModelMarketPanel()}
       <div class="ref-scene-tabs" role="tablist" aria-label="场景列表">
@@ -203,7 +203,7 @@ async function exportAlgorithmPackage() {
     return;
   }
   const button = document.querySelector("#exportAlgorithmPackageButton");
-  const oldText = button?.textContent || "导出算法包";
+  const oldText = button?.textContent || "导出标注算法包";
   if (button) {
     button.disabled = true;
     button.textContent = "导出中...";
@@ -1376,8 +1376,14 @@ async function openSchemeModal(schemeId = "") {
     promptInitMethods = { custom_default: { name: "默认初始化调用", method_name: "build_prompts_custom" } };
   }
   const initType = editingScheme?.prompt_init_type || "auto";
-  openModal(editingScheme ? "编辑方案" : "添加方案", "选择 Prompt、初始化方式和标注方法，系统自动生成方案名称。", `
+  openModal(editingScheme ? "编辑方案" : "添加方案", "选择 Prompt、初始化方式和标注方法，系统会生成方案名称，你也可以手动修改。", `
     <form id="schemeForm" class="scheme-form-v2 labeled-form">
+      <section class="scheme-name-card">
+        <label class="scheme-name-field">
+          <span>方案名称</span>
+          <input class="input" name="name" id="schemeNameInput" value="${escapeHtml(editingScheme?.name || "")}" placeholder="选择 Prompt 后自动生成，可手动修改" required>
+        </label>
+      </section>
       <div class="scheme-two-column-layout">
         <div class="scheme-column scheme-column-primary">
           ${renderSchemePromptPicker(state.prompts, selectedResources.prompt)}
@@ -1464,7 +1470,7 @@ async function openSchemeModal(schemeId = "") {
       method: editingScheme ? "PUT" : "POST",
       body: JSON.stringify({
         scene_id: state.activeSceneId,
-        name: buildSchemeAutoName(form),
+        name: String(form.get("name") || "").trim() || buildSchemeAutoName(form),
         model_key: form.get("model_key") || "core_model",
         method_name: form.get("method_name"),
         prompt_init_type: promptInitType,
@@ -1641,6 +1647,16 @@ function renderSchemeResourcePicker(title, name, items, metaField, selected = ne
 
 function bindSchemeModalControls(methods, promptInitMethods) {
   const form = document.querySelector("#schemeForm");
+  const nameInput = form.querySelector("#schemeNameInput");
+  if (nameInput) {
+    nameInput.dataset.manual = nameInput.value.trim() ? "true" : "false";
+    nameInput.classList.toggle("auto-generated", nameInput.dataset.manual !== "true");
+    nameInput.addEventListener("input", () => {
+      nameInput.dataset.manual = "true";
+      nameInput.classList.remove("auto-generated");
+      updateSchemeAutoNamePreview(new FormData(form));
+    });
+  }
   const refresh = () => {
     const formData = new FormData(form);
     const initType = formData.get("prompt_init_type") || "auto";
@@ -1692,8 +1708,16 @@ function getSelectedPromptRoles(form) {
 
 function updateSchemeAutoNamePreview(form) {
   const node = document.querySelector("#schemeTitleName");
+  const input = document.querySelector("#schemeNameInput");
+  const autoName = buildSchemeAutoName(form);
+  if (input && input.dataset.manual !== "true") {
+    input.value = autoName;
+    input.classList.add("auto-generated");
+  } else if (input) {
+    input.classList.remove("auto-generated");
+  }
   if (!node) return;
-  node.textContent = buildSchemeAutoName(form);
+  node.textContent = input?.value?.trim() || autoName;
   node.hidden = false;
 }
 

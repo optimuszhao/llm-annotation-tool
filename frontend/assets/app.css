@@ -4864,7 +4864,7 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   --scheme-section-title-size: 15px;
   width: min(1200px, calc(100vw - 64px));
   height: auto !important;
-  max-height: min(90dvh, 860px) !important;
+  max-height: min(96dvh, 1080px) !important;
   overflow: hidden;
   border-radius: 16px;
   grid-template-rows: auto minmax(0, 1fr);
@@ -4904,6 +4904,44 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   min-height: 0;
   height: auto;
   max-height: none !important;
+}
+.scheme-name-card {
+  display: block;
+  margin: var(--scheme-modal-pad-y) var(--scheme-modal-pad-x) 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--line));
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-soft) 42%, transparent), transparent 64%),
+    color-mix(in srgb, var(--surface) 90%, var(--surface-2));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.66);
+}
+.scheme-name-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  width: 100%;
+}
+.scheme-name-field > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+.scheme-name-field .input.auto-generated {
+  color: color-mix(in srgb, var(--muted) 78%, var(--text));
+  background: color-mix(in srgb, var(--surface) 76%, var(--surface-2));
+}
+.scheme-name-field .input.auto-generated:focus {
+  color: var(--text);
+}
+.scheme-name-helper {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .scheme-two-column-layout {
   display: grid;
