@@ -12,10 +12,13 @@ from backend.routers import (
     chat,
     datasets,
     error_sets,
+    evaluation_tasks,
     export_packages,
     field_mappings,
     knowledge,
     maintenance,
+    model_market,
+    model_distillation,
     preferences,
     prompts,
     scenes,
@@ -35,11 +38,14 @@ def create_app() -> FastAPI:
     app.include_router(prompts.router)
     app.include_router(knowledge.router)
     app.include_router(error_sets.router)
+    app.include_router(evaluation_tasks.router)
     app.include_router(export_packages.router)
     app.include_router(schemes.router)
     app.include_router(field_mappings.router)
     app.include_router(annotation_tasks.router)
     app.include_router(maintenance.router)
+    app.include_router(model_market.router)
+    app.include_router(model_distillation.router)
     app.include_router(preferences.router)
     app.include_router(chat.router)
 

@@ -35,7 +35,7 @@ export function renderChatPage() {
         </div>
 
         <form class="chat-input-bar" id="chatForm">
-          <textarea id="chatInput" rows="1" placeholder="输入要发送给大模型的内容，Enter 发送，Shift + Enter 换行"></textarea>
+          <textarea id="chatInput" rows="1" placeholder="输入要发送给大模型的内容"></textarea>
           <button class="btn primary chat-send-button" type="submit" ${sending ? "disabled" : ""}>${sending ? "发送中" : "发送"}</button>
         </form>
       </section>

@@ -6,7 +6,7 @@
   <title>数据飞轮标注与算法包微调工作台</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/vendor/tabulator.min.css">
-  <link rel="stylesheet" href="/assets/app.css?v=20260605-prompt-modal-layout">
+  <link rel="stylesheet" href="/assets/app.css?v=20260606-evaluation-matrix-align">
   <link rel="stylesheet" href="/assets/components.css">
 </head>
 <body>
@@ -15,7 +15,7 @@
       <div class="brand-mark">LLM</div>
       <div>
         <strong>数据飞轮标注与算法包微调工作台</strong>
-        <span>本地数据闭环工作台</span>
+        <span>标注 · 测评 · 微调闭环</span>
       </div>
     </div>
     <nav class="workflow-tabs" aria-label="主流程">
@@ -23,7 +23,9 @@
       <i class="workflow-arrow">›</i>
       <button class="workflow-tab active" data-page="workbench"><span>2</span>标注工作台</button>
       <i class="workflow-arrow">›</i>
-      <button class="workflow-tab" data-page="chat"><span>3</span>对话大模型</button>
+      <button class="workflow-tab" data-page="evaluation"><span>3</span>算法评估</button>
+      <i class="workflow-arrow">›</i>
+      <button class="workflow-tab" data-page="chat"><span>4</span>对话大模型</button>
     </nav>
     <div class="theme-tools">
       <button class="icon-btn" id="modeToggle" type="button" title="切换明暗模式" onclick="window.__toggleMode?.()">◐</button>
@@ -48,6 +50,7 @@
   <main class="app-main">
     <section class="page" id="page-manage"></section>
     <section class="page active" id="page-workbench"></section>
+    <section class="page" id="page-evaluation"></section>
     <section class="page" id="page-chat"></section>
   </main>
 
@@ -138,6 +141,6 @@
   </script>
   <script src="/vendor/gsap.min.js"></script>
   <script src="/vendor/tabulator.min.js"></script>
-  <script type="module" src="/assets/app.js?v=20260605-prompt-modal-layout"></script>
+  <script type="module" src="/assets/app.js?v=20260606-model-radio-compact"></script>
 </body>
 </html>

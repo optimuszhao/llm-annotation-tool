@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from io import BytesIO
 from typing import Any, Iterable, Optional
 from uuid import uuid4
@@ -484,7 +485,19 @@ def get_dataset_rows(
         params: list[Any] = [dataset_id]
         search_text = search.strip()
         search_column = search_column.strip()
-        if search_text and search_column == "状态":
+        if (search_text or search_empty) and search_column in {"display_index", "row_index", "序号"}:
+            index_column = f"{base_alias + '.' if base_alias else ''}row_index"
+            if search_text:
+                row_indexes = _parse_row_index_filter(search_text)
+                if row_indexes:
+                    placeholders = ", ".join(["?"] * len(row_indexes))
+                    where += f" AND {index_column} IN ({placeholders})"
+                    params.extend(row_indexes)
+                else:
+                    where += " AND 1=0"
+            elif search_empty:
+                where += " AND 1=0"
+        elif search_text and search_column == "状态":
             where += f" AND {status_expr} LIKE ?"
             params.append(f"%{search_text}%")
         elif search_empty and search_column == "状态":
@@ -661,12 +674,13 @@ def get_dataset_rows(
 
         data = [_format_row(row, columns, preview=True, scheme_view=bool(scheme_id)) for row in rows]
         for display_index, item in enumerate(data, start=offset + 1):
-            item["display_index"] = display_index
+            item["display_index"] = item.get("row_index") or display_index
         _append_latest_analysis_results(conn, dataset_id, data, analysis_columns)
 
     return {
         "data": data,
         "total": total,
+        "last_row": total,
         "page": page,
         "page_size": page_size,
         "last_page": max(math.ceil(total / page_size), 1),
@@ -678,6 +692,23 @@ def get_dataset_rows(
 def _json_column_path(column: str) -> str:
     escaped = column.replace("\\", "\\\\").replace('"', '\\"')
     return f'$."{escaped}"'
+
+
+def _parse_row_index_filter(value: str) -> list[int]:
+    indexes: list[int] = []
+    seen: set[int] = set()
+    for part in re.split(r"[,，\\s]+", value.strip()):
+        if not part:
+            continue
+        try:
+            index = int(part)
+        except ValueError:
+            continue
+        if index < 1 or index in seen:
+            continue
+        seen.add(index)
+        indexes.append(index)
+    return indexes
 
 
 def _model_result_json_path(column: str) -> str:
@@ -1047,14 +1078,13 @@ def _flatten_role_model_result(model_result: dict) -> dict[str, Any]:
 def flatten_model_result_for_display(model_result: dict) -> dict[str, Any]:
     if not isinstance(model_result, dict):
         return {}
-    role_result = _flatten_role_model_result(model_result)
-    if role_result:
-        return role_result
-    return _flatten_leaf_values({
+    top_level_result = _flatten_leaf_values({
         key: value
         for key, value in model_result.items()
         if key not in MODEL_RESULT_INTERNAL_KEYS
     })
+    role_result = _flatten_role_model_result(model_result)
+    return {**top_level_result, **role_result}
 
 
 def _flatten_leaf_values(value: Any, prefix: str = "") -> dict[str, Any]:

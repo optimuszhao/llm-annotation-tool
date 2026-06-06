@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from . import analysis_methods, annotation_methods, prompt_init_methods
 from .llm_chat import llm_chat_function
+from .model_distillation import model_distillation_hooks
 from .prompt_utils import (
     is_yes_answer,
     join_error_sets,
@@ -21,6 +22,7 @@ class UserHooks:
     2. `annotation_methods.py`：自定义标注方法，可以写多个。
     3. `prompt_init_methods.py`：自定义 Prompt 初始化方法。
     4. `analysis_methods.py`：自定义分析方法，可以写多个。
+    5. `model_distillation.py`：模型蒸馏方法，把多行数据提炼为知识库候选项。
     """
 
     render_prompt_template = staticmethod(render_prompt_template)
@@ -47,6 +49,9 @@ class UserHooks:
 
     def list_analysis_methods(self) -> dict:
         return analysis_methods.list_analysis_methods()
+
+    def list_distillation_methods(self) -> dict:
+        return model_distillation_hooks.list_methods()
 
     def call_model(self, model_key: str, prompts: dict, context: dict) -> dict:
         """默认标注方法。
@@ -102,6 +107,13 @@ class UserHooks:
         result = method(row_data, model_result, context)
         if not isinstance(result, dict):
             raise ValueError(f"分析方法 {method_name} 必须返回 dict")
+        return result
+
+    def run_distillation_method(self, method_name: str, rows: list[dict], context: dict) -> list[dict]:
+        result = model_distillation_hooks.run(method_name, rows, context)
+        for index, item in enumerate(result, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"模型蒸馏结果第 {index} 项必须是 dict")
         return result
 
     def analyze_row(self, row_data: dict, model_result: dict) -> dict:

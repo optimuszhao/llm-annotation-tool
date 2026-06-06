@@ -5,12 +5,14 @@ import re
 import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from typing import Any, Iterable, Optional
 from uuid import uuid4
 
 from fastapi import HTTPException
 
 from backend.database import decode_json, encode_json, get_db, now_iso
+from backend.services.model_market_service import get_model_market_config
 from backend.services.dataset_service import build_row_preview_payload, flatten_model_result_for_display, model_result_display_columns
 from user_hooks import hooks
 
@@ -724,6 +726,7 @@ def get_dataset_metrics(dataset_id: str, scheme_id: str = "") -> dict:
     algorithm_accuracy = round((tp + tn) / evaluated, 4) if evaluated else None
     correct_recall = round(tp / (tp + fn), 4) if tp + fn else None
     correct_precision = round(tp / (tp + fp), 4) if tp + fp else None
+    error_recall = round(tn / (tn + fp), 4) if tn + fp else None
     error_precision = round(tn / (tn + fn), 4) if tn + fn else None
     f1 = round((2 * tp) / ((2 * tp) + fp + fn), 4) if (2 * tp) + fp + fn else None
     business_accuracy = round((tp + fp) / evaluated, 4) if evaluated else None
@@ -741,13 +744,14 @@ def get_dataset_metrics(dataset_id: str, scheme_id: str = "") -> dict:
         "algorithm_accuracy": algorithm_accuracy,
         "correct_recall": correct_recall,
         "correct_precision": correct_precision,
+        "error_recall": error_recall,
         "error_precision": error_precision,
         "f1": f1,
         "business_accuracy": business_accuracy,
         "accuracy": algorithm_accuracy,
         "precision": correct_precision,
         "recall": correct_recall,
-        "specificity": error_precision,
+        "specificity": error_recall,
         "false_positive_rate": business_accuracy,
     }
 
@@ -855,6 +859,7 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
         ).fetchone()
         field_mapping = _get_field_mapping(conn, scene["id"])
         resources = _get_scheme_resources(conn, scheme["id"])
+        model_config = get_model_market_config(scheme.get("model_key", "")) or {}
         row_data = decode_json(row["raw_data"], {})
         context = {
             "task_id": task_id,
@@ -865,6 +870,8 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
             "row_index": row["row_index"],
             "field_mapping": field_mapping,
             "row_data": row_data,
+            "model_config": model_config,
+            "model_market_config": model_config,
         }
 
     rendered_prompts = _render_prompt(scheme, resources, field_mapping, row_data, context)
@@ -882,6 +889,7 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
 
     status = _judge_confusion_status(row_data.get(human_answer_column), model_result.get(model_answer_column))
     timestamp = now_iso()
+    model_result["标注耗时"] = _format_annotation_duration(task_row.get("started_at"), timestamp)
 
     with get_db() as conn:
         task = conn.execute("SELECT * FROM annotation_tasks WHERE id=?", (task_id,)).fetchone()
@@ -940,6 +948,22 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
         "metrics": get_dataset_metrics(context["dataset_id"], task["scheme_id"]),
         "task": get_annotation_task(task_id),
     }
+
+
+def _format_annotation_duration(started_at: str | None, finished_at: str | None) -> str:
+    if not started_at or not finished_at:
+        return ""
+    try:
+        seconds = max((datetime.fromisoformat(finished_at) - datetime.fromisoformat(started_at)).total_seconds(), 0)
+    except ValueError:
+        return ""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, rest = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{int(minutes)}m {rest:.1f}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{int(hours)}h {int(minutes)}m {rest:.1f}s"
 
 
 def _mark_row_failed(task_id: str, task_row_id: str, error: str) -> dict:

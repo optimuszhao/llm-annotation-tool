@@ -74,5 +74,31 @@ class AnnotationTaskCreate(BaseModel):
     mode: Literal["all", "selected"] = "all"
 
 
+class EvaluationTaskCreate(BaseModel):
+    scene_id: str
+    dataset_id: str
+    scheme_ids: List[str] = Field(min_length=1, max_length=4)
+    name: str = ""
+
+
+class EvaluationTaskItemCreate(BaseModel):
+    annotation_task_id: str
+
+
 class AnalysisCreate(BaseModel):
     task_row_id: Optional[str] = None
+
+
+class ModelDistillationRun(BaseModel):
+    dataset_id: str
+    scene_id: str = ""
+    scheme_id: str = ""
+    method_name: str
+    row_ids: List[str] = []
+
+
+class ModelMarketConfigCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    url: str = Field(min_length=1)
+    api_key: str = ""
+    model_name: str = ""

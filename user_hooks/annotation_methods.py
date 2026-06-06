@@ -25,6 +25,11 @@ def list_annotation_methods() -> dict:
             "method_name": "example_annotation_by_role_prompts",
             "description": "演示如何读取 {角色名: Prompt对象}，方便复制改造成公司内部标注方案。",
         },
+        "model_market": {
+            "name": "模型市场调用",
+            "method_name": "call_model_market",
+            "description": "预留公共模型市场调用方法，后续由开发人员接入模型市场配置和真实请求。",
+        },
     }
 
 
@@ -60,4 +65,43 @@ def analyze_fault(model_key: str, prompts: dict, context: dict) -> dict:
         "故障分类": "示例故障",
         "使用Prompt": prompt_names,
         "模型说明": "Mock 故障分析方案，正式环境请在 user_hooks/annotation_methods.py 中替换。",
+    }
+
+
+def call_model_market(model_key: str, prompts: dict, context: dict) -> dict:
+    """预留：通过模型市场配置调用大模型。
+
+    这个方法用于后续接入“模型市场”配置。当前系统会把渲染后的 Prompt 以
+    `{角色名: Prompt对象}` 的形式传入 `prompts`，字段映射、当前行数据等信息在
+    `context` 中。等前端方案配置接入模型市场后，可在 `context["model_config"]`
+    或 `context["model_market_config"]` 中读取选中的模型 URL、API Key、Model Name。
+
+    推荐实现步骤：
+    1. 读取 `context["model_config"]` 中的 URL、API Key、Model Name。
+    2. 遍历 `prompts`，对每个角色的 Prompt 调用模型市场公共请求方法。
+    3. 将每个模型返回解析成 dict。
+    4. 按业务规则聚合出字段映射中的“标注答案列”。
+    5. 返回完整 dict，系统会把所有 key 渲染成可配置列表列。
+    """
+    field_mapping = context.get("field_mapping", {})
+    row_data = context.get("row_data", {})
+    model_column = field_mapping.get("model_answer_column") or "GPT4_标注"
+    human_column = field_mapping.get("human_answer_column") or ""
+    model_config = context.get("model_config") or context.get("model_market_config") or {}
+    model_config_payload = model_config.get("config") if isinstance(model_config.get("config"), dict) else {}
+    model_display_name = (
+        model_config_payload.get("Model Name")
+        or model_config.get("model_name")
+        or model_config.get("name")
+        or model_key
+        or "未选择模型"
+    )
+    role_names = list(prompts.keys())
+    return {
+        model_column: row_data.get(human_column, "是"),
+        "模型市场方法": "call_model_market",
+        "模型配置名称": model_display_name,
+        "使用角色": role_names,
+        "Prompt数量": len(prompts),
+        "模型说明": "这是模型市场调用占位方法，正式环境请在这里接入真实模型市场请求。",
     }

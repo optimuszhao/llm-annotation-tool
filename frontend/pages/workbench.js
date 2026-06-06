@@ -1,4 +1,4 @@
-import { api, loadSceneResources, state, toast } from "/assets/app.js";
+import { api, confirmAction, loadSceneResources, state, toast } from "/assets/app.js";
 
 let table = null;
 let tableBuildKey = "";
@@ -42,6 +42,7 @@ const ROLE_RESULT_KEY = "角色标注结果";
 let tableFontSize = normalizeTableFontSize(localStorage.getItem("llm-table-font-size") || "medium");
 let columnSettingsOriginalFontSize = tableFontSize;
 let tableFocusMode = false;
+let distillationCandidates = [];
 
 const tableFontSizeLabels = {
   small: "小",
@@ -82,38 +83,50 @@ function renderAnalysisMethodOptions() {
   }).join("") || `<option value="default_analysis">默认分析</option>`;
 }
 
+function renderDistillationMethodOptions() {
+  const entries = Object.entries(state.distillationMethods || {});
+  return entries.map(([key, item]) => {
+    const value = item.method_name || key;
+    const text = item.name || key;
+    return `<option value="${escapeHtml(value)}">${escapeHtml(text)}</option>`;
+  }).join("") || `<option value="mock_distill">示例蒸馏</option>`;
+}
+
 export function renderWorkbenchPage() {
   document.querySelector("#page-workbench").innerHTML = `
     <div class="workbench-layout workbench-pro">
       <div class="workbench-head">
         <div class="workbench-titleline">
           <button class="workbench-source-title" id="workbenchSourceButton" type="button" title="切换数据集与方案">
+            <span class="source-title-kicker">当前数据源</span>
             <span class="source-title-main" id="workbenchTitle">标注工作台</span>
           </button>
         </div>
       </div>
 
       <div class="metric-strip" aria-label="数据指标">
-        <section class="metric-group metric-group-volume" aria-label="数据量">
-          <div class="metric-item muted" title="当前数据集总行数。"><span>总数</span><strong id="metricTotal">0</strong></div>
-          <div class="metric-item muted" title="当前方案下尚未产生标注结果的行数。"><span>未标注</span><strong id="metricUnannotated">0</strong></div>
-          <div class="metric-item muted" title="已完成评估的行数，计算公式：TP + TN + FP + FN。"><span>已标注</span><strong id="metricDone">0</strong></div>
-          <div class="metric-item muted" title="已创建任务、等待执行的行数。"><span>排队中</span><strong id="metricQueued">0</strong></div>
-          <div class="metric-item muted" title="当前正在调用标注方法的行数。"><span>标注中</span><strong id="metricRunning">0</strong></div>
+        <section class="metric-group metric-group-rate" aria-label="准确率板块">
+          <div class="metric-panel-name">准确率</div>
+          <div class="metric-item rate metric-item-hero" title="算法准确率：整体判断正确比例。公式：(TP + TN) / (TP + TN + FP + FN)。"><span>算法准确率</span><strong id="metricAccuracy">--</strong></div>
+          <div class="metric-item rate" title="业务准确率：模型标为是的占比。公式：(TP + FP) / (TP + TN + FP + FN)。"><span>业务准确率</span><strong id="metricFpr">--</strong></div>
+          <div class="metric-item rate" title="正确查全率：人工为是的数据中，被模型标为是的比例。公式：TP / (TP + FN)。"><span>正确查全率</span><strong id="metricRecall">--</strong></div>
+          <div class="metric-item rate" title="错误查全率：人工为否的数据中，被模型标为否的比例。公式：TN / (TN + FP)。"><span>错误查全率</span><strong id="metricSpecificity">--</strong></div>
+          <div class="metric-item rate" title="F1 score：正向判断综合指标。公式：(2 × TP) / (2 × TP + FP + FN)。"><span>F1 score</span><strong id="metricF1">--</strong></div>
         </section>
-        <section class="metric-group metric-group-confusion" aria-label="混淆矩阵">
+        <section class="metric-group metric-group-confusion" aria-label="结果数量板块">
+          <div class="metric-panel-name">结果数量</div>
           <div class="metric-item primary" title="TP：人工答案为是，模型标注为是。"><span>TP</span><strong id="metricTp">0</strong></div>
           <div class="metric-item primary" title="TN：人工答案为否，模型标注为否。"><span>TN</span><strong id="metricTn">0</strong></div>
           <div class="metric-item primary" title="FP：人工答案为否，模型标注为是。"><span>FP</span><strong id="metricFp">0</strong></div>
           <div class="metric-item primary" title="FN：人工答案为是，模型标注为否。"><span>FN</span><strong id="metricFn">0</strong></div>
         </section>
-        <section class="metric-group metric-group-rate" aria-label="评估率">
-          <div class="metric-item rate" title="算法准确率：整体判断正确比例。公式：(TP + TN) / (TP + TN + FP + FN)。"><span>算法准确率</span><strong id="metricAccuracy">--</strong></div>
-          <div class="metric-item rate" title="正确查全率：人工为是的数据中，被模型标为是的比例。公式：TP / (TP + FN)。"><span>正确查全率</span><strong id="metricRecall">--</strong></div>
-          <div class="metric-item rate" title="正确查准率：模型标为是的数据中，人工也为是的比例。公式：TP / (TP + FP)。"><span>正确查准率</span><strong id="metricPrecision">--</strong></div>
-          <div class="metric-item rate" title="错误查准率：模型标为否的数据中，人工也为否的比例。公式：TN / (TN + FN)。"><span>错误查准率</span><strong id="metricSpecificity">--</strong></div>
-          <div class="metric-item rate" title="F1 score：正确查准率和正确查全率的综合指标。公式：(2 × TP) / (2 × TP + FP + FN)。"><span>F1 score</span><strong id="metricF1">--</strong></div>
-          <div class="metric-item rate" title="业务准确率：模型标为是的占比。公式：(TP + FP) / (TP + TN + FP + FN)。"><span>业务准确率</span><strong id="metricFpr">--</strong></div>
+        <section class="metric-group metric-group-volume" aria-label="任务状态统计板块">
+          <div class="metric-panel-name">任务状态</div>
+          <div class="metric-item muted" title="当前数据集总行数。"><span>总数</span><strong id="metricTotal">0</strong></div>
+          <div class="metric-item muted" title="当前方案下尚未产生标注结果的行数。"><span>未标注</span><strong id="metricUnannotated">0</strong></div>
+          <div class="metric-item muted" title="已完成评估的行数，计算公式：TP + TN + FP + FN。"><span>已标注</span><strong id="metricDone">0</strong></div>
+          <div class="metric-item muted" title="已创建任务、等待执行的行数。"><span>排队中</span><strong id="metricQueued">0</strong></div>
+          <div class="metric-item muted" title="当前正在调用标注方法的行数。"><span>标注中</span><strong id="metricRunning">0</strong></div>
         </section>
       </div>
 
@@ -124,10 +137,11 @@ export function renderWorkbenchPage() {
             全选当前页
           </label>
           <button class="btn" type="button" id="batchAnnotateButton" disabled>批量标注</button>
+          <button class="btn distill-button" type="button" id="modelDistillButton" disabled>模型蒸馏</button>
           <button class="btn primary" type="button" id="fullAnnotateButton">全量标注</button>
         </div>
         <div class="toolbar-right">
-          <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新列表</button>
+          <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新</button>
           <button class="btn favorite-filter-button" type="button" id="favoriteFilterButton">只看收藏</button>
           <div class="dropdown-wrap">
             <button class="btn status-filter-button" type="button" id="statusFilterButton" aria-expanded="false">状态筛选</button>
@@ -282,6 +296,39 @@ export function renderWorkbenchPage() {
           <footer class="modal-actions">
             <button class="btn" type="button" id="batchAnalysisCancel">取消</button>
             <button class="btn primary" type="button" id="batchAnalysisStart">开始批量分析</button>
+          </footer>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="modelDistillationModal">
+      <section class="modal batch-analysis-modal model-distillation-modal" role="dialog" aria-modal="true" aria-labelledby="modelDistillationTitle">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">模型蒸馏</p>
+            <h2 id="modelDistillationTitle">模型蒸馏</h2>
+            <p class="card-meta">调用后台自定义方法返回列表，经人工判断后快速插入知识库。</p>
+          </div>
+          <button class="icon-btn" type="button" id="modelDistillationClose" aria-label="关闭模型蒸馏弹窗">×</button>
+        </header>
+        <div class="batch-analysis-body model-distillation-body">
+          <label class="batch-analysis-method">
+            <span>蒸馏方法</span>
+            <select class="select" id="modelDistillationMethodSelect" aria-label="选择模型蒸馏方法">
+              ${renderDistillationMethodOptions()}
+            </select>
+          </label>
+          <section class="batch-analysis-warning">
+            <strong>执行说明</strong>
+            <p id="modelDistillationHint">已选择 0 行。蒸馏期间请保持弹框打开，完成后可勾选候选知识并写入当前场景知识库。</p>
+          </section>
+          <section class="model-distillation-result" id="modelDistillationResult">
+            <div class="empty">点击“开始蒸馏”后，这里会展示后台返回的候选知识。</div>
+          </section>
+          <footer class="modal-actions">
+            <button class="btn" type="button" id="modelDistillationCancel">取消</button>
+            <button class="btn" type="button" id="modelDistillationStart">开始蒸馏</button>
+            <button class="btn primary" type="button" id="modelDistillationSave" disabled>加入知识库</button>
           </footer>
         </div>
       </section>
@@ -512,6 +559,14 @@ function bindWorkbenchEvents() {
   });
   document.querySelector("#batchAnalysisStatusBox").addEventListener("click", handleBatchAnalysisStatusActions);
   document.querySelector("#batchAnalysisStart").addEventListener("click", startBatchAnalysis);
+  document.querySelector("#modelDistillationClose").addEventListener("click", closeModelDistillationModal);
+  document.querySelector("#modelDistillationCancel").addEventListener("click", closeModelDistillationModal);
+  document.querySelector("#modelDistillationModal").addEventListener("click", (event) => {
+    if (event.target.id === "modelDistillationModal") closeModelDistillationModal();
+  });
+  document.querySelector("#modelDistillationStart").addEventListener("click", startModelDistillation);
+  document.querySelector("#modelDistillationSave").addEventListener("click", saveDistillationKnowledge);
+  document.querySelector("#modelDistillationResult").addEventListener("change", syncDistillationSaveButton);
   document.querySelector("#sourceModalBackdrop").addEventListener("click", handleSourceModalClick);
   document.querySelector("#refreshTableButton").addEventListener("click", refreshTableData);
   document.querySelector("#favoriteFilterButton").addEventListener("click", toggleFavoriteFilter);
@@ -531,6 +586,7 @@ function bindWorkbenchEvents() {
   document.querySelector("#batchAnnotateButton").addEventListener("click", () => {
     startAnnotationTask("selected");
   });
+  document.querySelector("#modelDistillButton").addEventListener("click", openModelDistillationModal);
   document.querySelector("#fullAnnotateButton").addEventListener("click", () => {
     startAnnotationTask("all");
   });
@@ -615,6 +671,7 @@ function bindWorkbenchEvents() {
     document.addEventListener("click", handleMoreMenu);
     document.addEventListener("click", handleColumnFilterClick, true);
     document.addEventListener("click", handleColumnSortClick, true);
+    document.addEventListener("click", handleCompactPaginationClick);
     documentMenusBound = true;
   }
 }
@@ -676,12 +733,14 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   fillSearchColumnOptions(allConfigurableColumns());
   const visibleColumns = await resolveVisibleColumns(allConfigurableColumns());
   const columns = buildColumns(visibleColumns, response.data || []);
+  const pageButtonCount = paginationButtonCountFor(response.last_page);
   const nextBuildKey = [
     state.activeDatasetId,
     state.activeSceneId,
     state.activeSchemeId,
     visibleColumns.join("\u001f"),
-    fixedMappingColumns(availableDatasetColumns).join("\u001f"),
+    fixedMappingColumns(allConfigurableColumns()).join("\u001f"),
+    pageButtonCount,
     `${columnFilter.column}\u001f${columnFilter.value}\u001f${columnFilter.empty ? "empty" : ""}`,
   ].join("\u001e");
   if (table && tableBuildKey === nextBuildKey) {
@@ -703,8 +762,10 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   const tableReady = waitForNextTableAjax();
   table = new Tabulator("#workbenchTable", {
     height: "100%",
+    renderHorizontal: "virtual",
     layout: "fitColumns",
     movableColumns: true,
+    nestedFieldSeparator: false,
     placeholder: "当前数据集没有数据",
     locale: "zh-cn",
     langs: {
@@ -741,7 +802,11 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     },
     paginationSize: 20,
     paginationSizeSelector: [20, 50, 100, 200],
-    paginationButtonCount: 11,
+    paginationButtonCount: pageButtonCount,
+    dataReceiveParams: {
+      data: "data",
+      last_page: "last_page",
+    },
     selectableRows: "highlight",
     index: "row_id",
     rowHeight: 42,
@@ -759,8 +824,9 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
       if (Array.isArray(payload.columns)) {
         availableDatasetColumns = payload.columns.length ? payload.columns : availableDatasetColumns;
         availableModelResultColumns = Array.isArray(payload.model_result_columns) ? payload.model_result_columns : availableModelResultColumns;
-        fillSearchColumnOptions(availableDatasetColumns);
+        fillSearchColumnOptions(allConfigurableColumns());
       }
+      scheduleCompactPagination();
       refreshMetrics();
       setBatchButtonState();
       resolveTableAjaxReady();
@@ -774,11 +840,14 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   });
   table.on?.("rowSelectionChanged", setBatchButtonState);
   table.on?.("cellDblClick", (event, cell) => openCellDetail(cell));
+  table.on?.("pageLoaded", scheduleCompactPagination);
+  table.on?.("dataLoaded", scheduleCompactPagination);
   document.querySelector("#workbenchTable").ondblclick = handleTableCellDoubleClick;
   await tableReady;
   if (token !== refreshToken) return;
   restoreTableHorizontalScroll(horizontalScroll);
   updateSortButtons();
+  scheduleCompactPagination();
   tableReadyForRealtime = true;
   await refreshMetrics();
   syncStatusFilterMenu();
@@ -803,6 +872,68 @@ function hideTableLoading() {
   window.setTimeout(() => {
     if (!mask.classList.contains("open")) mask.hidden = true;
   }, 160);
+}
+
+function paginationButtonCountFor(lastPage) {
+  const pageCount = Number(lastPage || 1) || 1;
+  if (pageCount <= 1) return 1;
+  return Math.min(pageCount, 9);
+}
+
+function scheduleCompactPagination() {
+  window.requestAnimationFrame(() => window.requestAnimationFrame(renderCompactPagination));
+}
+
+function renderCompactPagination() {
+  if (!table) return;
+  const pagesNode = document.querySelector("#workbenchTable .tabulator-pages");
+  if (!pagesNode) return;
+  const currentPage = Number(table.getPage?.() || 1) || 1;
+  const maxPage = Number(table.getPageMax?.() || 1) || 1;
+  const items = compactPaginationItems(currentPage, maxPage);
+  pagesNode.classList.add("compact-pagination-pages");
+  pagesNode.innerHTML = items.map((item) => {
+    if (item === "...") return `<span class="tabulator-page-ellipsis" aria-hidden="true">...</span>`;
+    const page = Number(item);
+    const active = page === currentPage ? " active" : "";
+    return `<button class="tabulator-page compact-pagination-button${active}" type="button" role="button" aria-label="第 ${page} 页" title="第 ${page} 页" data-compact-page="${page}">${page}</button>`;
+  }).join("");
+}
+
+function compactPaginationItems(currentPage, maxPage) {
+  if (maxPage <= 9) return Array.from({ length: maxPage }, (_, index) => index + 1);
+  const pages = new Set([1, maxPage]);
+  const start = Math.max(2, currentPage - 2);
+  const end = Math.min(maxPage - 1, currentPage + 2);
+  for (let page = start; page <= end; page += 1) pages.add(page);
+  if (currentPage <= 4) {
+    for (let page = 2; page <= 6; page += 1) pages.add(page);
+  }
+  if (currentPage >= maxPage - 3) {
+    for (let page = maxPage - 5; page <= maxPage - 1; page += 1) {
+      if (page > 1) pages.add(page);
+    }
+  }
+  const sorted = [...pages].sort((a, b) => a - b);
+  const result = [];
+  for (const page of sorted) {
+    const previous = result[result.length - 1];
+    if (typeof previous === "number" && page - previous > 1) result.push("...");
+    result.push(page);
+  }
+  return result;
+}
+
+async function handleCompactPaginationClick(event) {
+  const button = event.target.closest("[data-compact-page]");
+  if (!button || !table) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const page = Number(button.dataset.compactPage || 1) || 1;
+  const currentPage = Number(table.getPage?.() || 1) || 1;
+  if (page === currentPage) return;
+  await table.setPage?.(page);
+  scheduleCompactPagination();
 }
 
 function getTableHolder() {
@@ -873,6 +1004,7 @@ function buildColumns(columns, sampleRows = []) {
     },
     {
       title: "序号",
+      titleFormatter: () => rowIndexHeaderHtml(),
       field: "display_index",
       hozAlign: "center",
       headerHozAlign: "center",
@@ -966,7 +1098,7 @@ function schemeQuery(prefix = "?") {
 }
 
 function fillSearchColumnOptions(columns) {
-  if (columnFilter.column && !["状态", ...columns].includes(columnFilter.column)) {
+  if (columnFilter.column && !["状态", "display_index", ...columns].includes(columnFilter.column)) {
     columnFilter = { column: "", value: "", empty: false };
   }
   if (activeSort.column && !columns.includes(activeSort.column)) {
@@ -995,7 +1127,7 @@ async function resolveVisibleColumns(columns) {
     latestFieldMapping = await api(`/api/field-mapping?scene_id=${encodeURIComponent(state.activeSceneId)}`);
     const visible = latestFieldMapping.visible_columns || [];
     if (!visible.length) return prioritizeMappingColumns(columns);
-    const visibleSet = new Set(visible);
+    const visibleSet = new Set([...visible, ...fixedMappingColumns(columns)]);
     const nextColumns = columns.filter((column) => visibleSet.has(column));
     return prioritizeMappingColumns(nextColumns.length ? nextColumns : columns);
   } catch {
@@ -1009,7 +1141,7 @@ function prioritizeMappingColumns(columns) {
   return [...fixed, ...columns.filter((column) => !fixed.includes(column))];
 }
 
-function fixedMappingColumns(columns = availableDatasetColumns) {
+function fixedMappingColumns(columns = allConfigurableColumns()) {
   const selected = [
     latestFieldMapping?.human_answer_column,
     latestFieldMapping?.model_answer_column,
@@ -1236,6 +1368,151 @@ function closeBatchAnalysisModal() {
   document.querySelector("#batchAnalysisModal")?.classList.remove("open");
 }
 
+function openModelDistillationModal() {
+  if (!state.activeDatasetId || !state.activeSceneId) {
+    toast("请先选择场景和数据集");
+    return;
+  }
+  const selectedIds = selectedRowIds();
+  if (!selectedIds.length) {
+    toast("请先勾选需要蒸馏的数据行");
+    return;
+  }
+  distillationCandidates = [];
+  const modal = document.querySelector("#modelDistillationModal");
+  document.querySelector("#modelDistillationMethodSelect").innerHTML = renderDistillationMethodOptions();
+  document.querySelector("#modelDistillationHint").textContent = `已选择 ${selectedIds.length} 行。蒸馏期间请保持弹框打开，完成后可勾选候选知识并写入当前场景知识库。`;
+  document.querySelector("#modelDistillationResult").innerHTML = `<div class="empty">点击“开始蒸馏”后，这里会展示后台返回的候选知识。</div>`;
+  document.querySelector("#modelDistillationSave").disabled = true;
+  modal.classList.add("open");
+}
+
+function closeModelDistillationModal() {
+  document.querySelector("#modelDistillationModal")?.classList.remove("open");
+}
+
+async function startModelDistillation() {
+  const selectedIds = selectedRowIds();
+  if (!selectedIds.length) {
+    toast("请先勾选需要蒸馏的数据行");
+    return;
+  }
+  const startButton = document.querySelector("#modelDistillationStart");
+  const resultNode = document.querySelector("#modelDistillationResult");
+  startButton.disabled = true;
+  startButton.textContent = "蒸馏中...";
+  document.querySelector("#modelDistillationSave").disabled = true;
+  resultNode.innerHTML = `
+    <div class="model-distillation-loading">
+      <span class="table-loading-spinner" aria-hidden="true"></span>
+      <strong>正在调用后台蒸馏方法，请保持弹框打开...</strong>
+    </div>
+  `;
+  try {
+    const result = await api("/api/model-distillation/run", {
+      method: "POST",
+      body: JSON.stringify({
+        scene_id: state.activeSceneId,
+        dataset_id: state.activeDatasetId,
+        scheme_id: state.activeSchemeId || "",
+        method_name: document.querySelector("#modelDistillationMethodSelect")?.value || "mock_distill",
+        row_ids: selectedIds,
+      }),
+    });
+    distillationCandidates = result.items || [];
+    renderDistillationCandidates();
+    toast(`蒸馏完成：返回 ${distillationCandidates.length} 条候选知识`);
+  } catch (error) {
+    distillationCandidates = [];
+    resultNode.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+    toast(error.message);
+  } finally {
+    startButton.disabled = false;
+    startButton.textContent = "重新蒸馏";
+    syncDistillationSaveButton();
+  }
+}
+
+function renderDistillationCandidates() {
+  const resultNode = document.querySelector("#modelDistillationResult");
+  if (!distillationCandidates.length) {
+    resultNode.innerHTML = `<div class="empty">当前蒸馏方法没有返回候选知识。</div>`;
+    return;
+  }
+  resultNode.innerHTML = `
+    <div class="model-distillation-result-head">
+      <strong>${distillationCandidates.length} 条候选知识</strong>
+      <span>勾选后点击“加入知识库”。</span>
+    </div>
+    <div class="model-distillation-list">
+      ${distillationCandidates.map((item, index) => `
+        <label class="model-distillation-card">
+          <input type="checkbox" value="${index}" checked>
+          <span>
+            <strong>${escapeHtml(item.name)}</strong>
+            <em>${escapeHtml(item.content)}</em>
+          </span>
+        </label>
+      `).join("")}
+    </div>
+  `;
+}
+
+function syncDistillationSaveButton() {
+  const checked = document.querySelectorAll("#modelDistillationResult input[type='checkbox']:checked").length;
+  const button = document.querySelector("#modelDistillationSave");
+  if (button) {
+    button.disabled = checked === 0;
+    button.textContent = checked > 0 ? `加入知识库 ${checked}` : "加入知识库";
+  }
+}
+
+async function saveDistillationKnowledge() {
+  if (!state.activeSceneId) {
+    toast("请先选择场景");
+    return;
+  }
+  const selected = [...document.querySelectorAll("#modelDistillationResult input[type='checkbox']:checked")]
+    .map((input) => distillationCandidates[Number(input.value)])
+    .filter(Boolean);
+  if (!selected.length) {
+    toast("请选择要加入知识库的候选项");
+    return;
+  }
+  const ok = await confirmAction({
+    title: "加入知识库",
+    message: `确认将 ${selected.length} 条蒸馏结果加入当前场景知识库？`,
+    details: ["入库后可在“数据集与方案管理”的知识库弹窗中继续编辑。"],
+    confirmText: "加入知识库",
+    variant: "primary",
+  });
+  if (!ok) return;
+  const button = document.querySelector("#modelDistillationSave");
+  button.disabled = true;
+  button.textContent = "写入中...";
+  try {
+    for (const item of selected) {
+      await api("/api/knowledge", {
+        method: "POST",
+        body: JSON.stringify({
+          scene_id: state.activeSceneId,
+          name: item.name,
+          content: item.content,
+          source_file: "model_distillation",
+        }),
+      });
+    }
+    await loadSceneResources();
+    closeModelDistillationModal();
+    toast(`已加入知识库：${selected.length} 条`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    syncDistillationSaveButton();
+  }
+}
+
 function syncBatchAnalysisScope() {
   const scope = document.querySelector('input[name="batchAnalysisScope"]:checked')?.value || "all";
   document.querySelector("#batchAnalysisStatusBox").hidden = scope !== "statuses";
@@ -1267,6 +1544,17 @@ async function startBatchAnalysis() {
     toast("请选择要分析的状态");
     return;
   }
+  const ok = await confirmAction({
+    title: "开始批量分析",
+    message: "确认启动批量分析？",
+    details: [
+      scope === "statuses" ? `范围：${statuses.join("、")}` : "范围：当前数据集全部行",
+      "后台会按单线程顺序处理。",
+    ],
+    confirmText: "开始分析",
+    variant: "primary",
+  });
+  if (!ok) return;
   const button = document.querySelector("#batchAnalysisStart");
   button.disabled = true;
   button.textContent = "启动中...";
@@ -1299,7 +1587,14 @@ async function deleteBatchAnalysisData() {
   const hint = scope === "statuses"
     ? `当前状态筛选：${[...statusFilters].join("、")}`
     : "当前数据集全部行";
-  if (!window.confirm(`确认删除分析数据？\n范围：${hint}\n会清空行详情中的分析结果和分析历史。`)) return;
+  const ok = await confirmAction({
+    title: "删除分析数据",
+    message: "确认删除分析数据？",
+    details: [`范围：${hint}`, "行详情中的分析结果和分析历史会被清空。"],
+    confirmText: "删除分析数据",
+    variant: "danger",
+  });
+  if (!ok) return;
   try {
     const result = await api(`/api/datasets/${state.activeDatasetId}/analysis-batch/delete`, {
       method: "POST",
@@ -1351,7 +1646,14 @@ async function favoriteRows(isFavorite) {
   const scopeText = selectedIds.length
     ? `当前选中的 ${selectedIds.length} 行`
     : (isFavorite ? "当前数据集全部行" : (favoriteOnlyFilter ? "当前收藏筛选结果" : "当前数据集全部收藏行"));
-  if (!window.confirm(`确认${actionText}？\n范围：${scopeText}`)) return;
+  const ok = await confirmAction({
+    title: actionText,
+    message: `确认${actionText}？`,
+    details: [`范围：${scopeText}`],
+    confirmText: actionText,
+    variant: isFavorite ? "primary" : "warning",
+  });
+  if (!ok) return;
   try {
     const result = await api(`/api/datasets/${state.activeDatasetId}/rows/favorite/batch`, {
       method: "POST",
@@ -1410,8 +1712,17 @@ function setBatchButtonState() {
     button.disabled = selectedCount === 0;
     button.textContent = selectedCount > 0 ? `批量标注 ${selectedCount}` : "批量标注";
   }
+  const distillButton = document.querySelector("#modelDistillButton");
+  if (distillButton) {
+    distillButton.disabled = selectedCount === 0;
+    distillButton.textContent = selectedCount > 0 ? `模型蒸馏 ${selectedCount}` : "模型蒸馏";
+  }
   const currentPage = document.querySelector("#selectCurrentPage");
   if (currentPage && selectedCount === 0) currentPage.checked = false;
+}
+
+function selectedRowIds() {
+  return table?.getSelectedRows?.().map((row) => row.getData().row_id).filter(Boolean) || [];
 }
 
 function toggleTableFocusMode() {
@@ -2877,7 +3188,13 @@ async function reindexRows() {
     return;
   }
   const datasetName = state.datasets.find((item) => item.id === state.activeDatasetId)?.name || "当前数据集";
-  const ok = window.confirm(`确认刷新“${datasetName}”的序号？\n系统会按当前数据集的入库顺序重新写入序号，从 1 开始连续排列。`);
+  const ok = await confirmAction({
+    title: "刷新序号",
+    message: `确认刷新“${datasetName}”的序号？`,
+    details: ["系统会按当前数据集的入库顺序重新写入序号，从 1 开始连续排列。"],
+    confirmText: "刷新序号",
+    variant: "warning",
+  });
   if (!ok) return;
   showTableLoading("正在刷新序号...");
   try {
@@ -2913,7 +3230,13 @@ function sanitizeFileName(value) {
 
 async function deleteRow(rowId) {
   if (!state.activeDatasetId || !rowId) return;
-  const ok = window.confirm("确认删除这行数据？删除后该行会从当前数据集中移除。");
+  const ok = await confirmAction({
+    title: "删除行数据",
+    message: "确认删除这行数据？",
+    details: ["该行会从当前数据集中移除。"],
+    confirmText: "删除行",
+    variant: "danger",
+  });
   if (!ok) return;
   try {
     const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${rowId}`, { method: "DELETE" });
@@ -2934,7 +3257,13 @@ async function deleteSelectedRows() {
     toast("请先选择要删除的行");
     return;
   }
-  const ok = window.confirm(`确认删除选中的 ${selectedIds.length} 行数据？`);
+  const ok = await confirmAction({
+    title: "删除选中数据",
+    message: `确认删除选中的 ${selectedIds.length} 行数据？`,
+    details: ["删除后这些行会从当前数据集中移除。"],
+    confirmText: "删除选中行",
+    variant: "danger",
+  });
   if (!ok) return;
   try {
     const result = await api(`/api/datasets/${state.activeDatasetId}/rows/delete`, {
@@ -3017,18 +3346,19 @@ function renderColumnSettings() {
   const grid = document.querySelector("#columnSettingsGrid");
   const configurableColumns = allConfigurableColumns();
   const selected = new Set(latestFieldMapping?.visible_columns?.length ? latestFieldMapping.visible_columns : configurableColumns);
-  const fixedColumns = new Set(fixedMappingColumns(availableDatasetColumns));
-  const resultColumns = availableModelResultColumns.filter((column) => !fixedColumns.has(column));
+  const fixedColumns = new Set(fixedMappingColumns(configurableColumns));
+  fixedColumns.forEach((column) => selected.add(column));
+  const resultColumns = uniqueColumns(availableModelResultColumns);
   const resultColumnSet = new Set(resultColumns);
   const excelColumns = availableDatasetColumns.filter((column) => !resultColumnSet.has(column));
   grid.innerHTML = `
-    ${columnSettingsSectionHtml("Excel 原始列", "来自导入 Excel 和字段映射的基础列。人工、标注固定列保留在这里。", excelColumns, selected, "excel")}
-    ${columnSettingsSectionHtml("标注返回列", "标注方法返回 dict 的 key。多个 Prompt 聚合后的新增字段会显示在这里。", resultColumns, selected, "result")}
+    ${columnSettingsSectionHtml("Excel 原始列", "来自导入 Excel 和字段映射的基础列。人工、标注固定列默认保留。", excelColumns, selected, "excel", fixedColumns)}
+    ${columnSettingsSectionHtml("标注返回列", "标注方法返回 dict 的 key。标注答案列默认保留，其余字段按需显示。", resultColumns, selected, "result", fixedColumns)}
   `;
   syncTableFontSizeSegment();
 }
 
-function columnSettingsSectionHtml(title, description, columns, selected, type = "") {
+function columnSettingsSectionHtml(title, description, columns, selected, type = "", fixedColumns = new Set()) {
   return `
     <section class="column-settings-section ${type ? `column-settings-section-${type}` : ""}">
       <div class="column-settings-section-head">
@@ -3036,12 +3366,16 @@ function columnSettingsSectionHtml(title, description, columns, selected, type =
         <span>${escapeHtml(description)}</span>
       </div>
       <div class="column-chip-grid compact">
-        ${columns.map((column) => `
-    <label class="column-chip">
-      <input type="checkbox" value="${escapeHtml(column)}" ${selected.has(column) ? "checked" : ""}>
+        ${columns.map((column) => {
+          const fixed = fixedColumns.has(column);
+          return `
+    <label class="column-chip ${fixed ? "locked" : ""}">
+      <input type="checkbox" value="${escapeHtml(column)}" ${selected.has(column) ? "checked" : ""} ${fixed ? "disabled data-fixed-column=\"true\"" : ""}>
       <span title="${escapeHtml(column)}">${escapeHtml(columnSettingsDisplayName(column, type))}</span>
+      ${fixed ? `<em>固定</em>` : ""}
     </label>
-        `).join("") || `<div class="empty">暂无可配置列</div>`}
+        `;
+        }).join("") || `<div class="empty">暂无可配置列</div>`}
       </div>
     </section>
   `;
@@ -3056,13 +3390,21 @@ function columnSettingsDisplayName(column, type = "") {
 
 function setColumnSettingsChecked(checked) {
   document.querySelectorAll("#columnSettingsGrid input[type='checkbox']").forEach((input) => {
+    if (input.dataset.fixedColumn === "true") {
+      input.checked = true;
+      return;
+    }
     input.checked = checked;
   });
 }
 
 async function saveColumnSettings() {
   if (!state.activeSceneId) return;
-  const visibleColumns = [...document.querySelectorAll("#columnSettingsGrid input:checked")].map((input) => input.value);
+  const fixedColumns = fixedMappingColumns(allConfigurableColumns());
+  const visibleColumns = uniqueColumns([
+    ...fixedColumns,
+    ...[...document.querySelectorAll("#columnSettingsGrid input:checked")].map((input) => input.value),
+  ]);
   if (!visibleColumns.length) {
     toast("至少保留一列用于列表展示");
     return;
@@ -3202,6 +3544,16 @@ async function startAnnotationTask(mode, rowIds = []) {
     toast("请先选择需要标注的行");
     return;
   }
+  if (mode === "selected" && !rowIds.length) {
+    const ok = await confirmAction({
+      title: "开始批量标注",
+      message: `确认开始批量标注选中的 ${selectedIds.length} 行？`,
+      details: ["排队中和标注中的数据会被跳过。"],
+      confirmText: "开始标注",
+      variant: "primary",
+    });
+    if (!ok) return;
+  }
   const optimisticRowIds = getOptimisticTaskRowIds(mode, selectedIds);
   const optimisticStatuses = captureVisibleRowStatuses(optimisticRowIds);
   markRowsQueuedForTask(optimisticRowIds);
@@ -3240,7 +3592,16 @@ async function confirmFullAnnotationTask() {
       toast("当前没有可创建任务的数据行，排队中和标注中的数据会被跳过");
       return false;
     }
-    return window.confirm(`确认开始全量标注？\n\n当前有 ${running} 条标注中、${queued} 条排队中，本次会跳过这些数据，并重新标注其余 ${available} 条。`);
+    return confirmAction({
+      title: "开始全量标注",
+      message: "确认开始全量标注？",
+      details: [
+        `当前有 ${running} 条标注中、${queued} 条排队中。`,
+        `本次会跳过这些数据，并重新标注其余 ${available} 条。`,
+      ],
+      confirmText: "开始全量标注",
+      variant: "primary",
+    });
   } catch (error) {
     toast(error.message);
     return false;
@@ -3256,7 +3617,13 @@ async function stopCurrentTask() {
     return;
   }
   const queued = currentTask.queued_count || 0;
-  const ok = window.confirm(`当前还有 ${queued} 条任务正在排队。确认停止未完成标注？`);
+  const ok = await confirmAction({
+    title: "停止未完成标注",
+    message: "确认停止未完成标注？",
+    details: [`当前还有 ${queued} 条任务正在排队。`],
+    confirmText: "停止任务",
+    variant: "warning",
+  });
   if (!ok) return;
   try {
     const result = await api(`/api/annotation-tasks/${currentTask.id}/stop-unfinished`, { method: "POST" });
@@ -3282,7 +3649,6 @@ async function refreshMetrics() {
     "metricFp",
     "metricFn",
     "metricAccuracy",
-    "metricPrecision",
     "metricRecall",
     "metricF1",
     "metricSpecificity",
@@ -3303,6 +3669,7 @@ async function refreshMetrics() {
       algorithm_accuracy: null,
       correct_recall: null,
       correct_precision: null,
+      error_recall: null,
       error_precision: null,
       business_accuracy: null,
       precision: null,
@@ -3333,8 +3700,7 @@ function setMetrics(metrics) {
   document.querySelector("#metricFn").textContent = formatNumber(metrics.fn);
   document.querySelector("#metricAccuracy").textContent = formatRate(metrics.algorithm_accuracy ?? metrics.accuracy);
   document.querySelector("#metricRecall").textContent = formatRate(metrics.correct_recall ?? metrics.recall);
-  document.querySelector("#metricPrecision").textContent = formatRate(metrics.correct_precision ?? metrics.precision);
-  document.querySelector("#metricSpecificity").textContent = formatRate(metrics.error_precision ?? metrics.specificity);
+  document.querySelector("#metricSpecificity").textContent = formatRate(metrics.error_recall ?? metrics.specificity ?? metrics.error_precision);
   document.querySelector("#metricF1").textContent = formatRate(metrics.f1);
   document.querySelector("#metricFpr").textContent = formatRate(metrics.business_accuracy ?? metrics.false_positive_rate);
 }
@@ -3421,7 +3787,6 @@ function dataColumnDef(column, sampleRows = []) {
     headerSort: false,
     formatter: mappedAnswer ? answerValueFormatter : (previewColumn(column) ? textPreviewFormatter : undefined),
     cssClass: [mappedAnswer ? "answer-cell" : "", previewColumn(column) ? "cell-preview" : ""].filter(Boolean).join(" "),
-    headerCssClass: mappedAnswer ? "mapped-answer-header" : "",
   };
 }
 
@@ -3435,6 +3800,16 @@ function columnHeaderHtml(title, column) {
         <button class="column-filter-button ${active ? "active" : ""}" type="button" data-column-filter="${escapeHtml(column)}" aria-label="筛选 ${escapeHtml(title)}" aria-expanded="false"></button>
         <button class="column-sort-button ${activeSort.column === column ? `active ${activeSort.dir}` : ""}" type="button" data-column-sort="${escapeHtml(column)}" data-sort-dir="${escapeHtml(activeSort.column === column ? activeSort.dir : "")}" aria-label="${escapeHtml(title)}：${activeSort.column === column ? (activeSort.dir === "asc" ? "升序排序" : "降序排序") : "未排序"}"></button>
       `}
+    </span>
+  `;
+}
+
+function rowIndexHeaderHtml() {
+  const active = columnFilter.column === "display_index" && (columnFilter.value || columnFilter.empty);
+  return `
+    <span class="column-title-wrap row-index-title-wrap">
+      <span class="column-title-text" title="序号">序号</span>
+      <button class="column-filter-button ${active ? "active" : ""}" type="button" data-column-filter="display_index" aria-label="筛选序号" aria-expanded="false"></button>
     </span>
   `;
 }
@@ -3750,7 +4125,13 @@ async function stopRowTask(rowId) {
   if (!state.activeDatasetId || !rowId) return;
   const rowData = getVisibleRowData(rowId);
   const status = rowData?.["状态"] || "";
-  const ok = window.confirm(`确认停止当前行所属任务的未完成标注？\\n当前行状态：${status || "未知"}\\n排队中的数据会取消，正在标注的数据会自然完成。`);
+  const ok = await confirmAction({
+    title: "停止当前行任务",
+    message: "确认停止当前行所属任务的未完成标注？",
+    details: [`当前行状态：${status || "未知"}`, "排队中的数据会取消，正在标注的数据会自然完成。"],
+    confirmText: "停止任务",
+    variant: "warning",
+  });
   if (!ok) return;
   try {
     const params = new URLSearchParams({ dataset_id: state.activeDatasetId });

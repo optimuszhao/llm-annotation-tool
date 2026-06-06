@@ -190,6 +190,17 @@ def init_db(recover_interrupted: bool = False) -> None:
                 FOREIGN KEY(scene_id) REFERENCES scenes(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS model_market_configs (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                url TEXT NOT NULL,
+                api_key TEXT NOT NULL DEFAULT '',
+                model_name TEXT NOT NULL,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS annotation_tasks (
                 id TEXT PRIMARY KEY,
                 scene_id TEXT NOT NULL,
@@ -230,6 +241,34 @@ def init_db(recover_interrupted: bool = False) -> None:
                 FOREIGN KEY(task_id) REFERENCES annotation_tasks(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS evaluation_tasks (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT NOT NULL,
+                dataset_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                error TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS evaluation_task_items (
+                id TEXT PRIMARY KEY,
+                evaluation_task_id TEXT NOT NULL,
+                scheme_id TEXT NOT NULL,
+                annotation_task_id TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(evaluation_task_id) REFERENCES evaluation_tasks(id) ON DELETE CASCADE,
+                FOREIGN KEY(scheme_id) REFERENCES schemes(id) ON DELETE CASCADE,
+                FOREIGN KEY(annotation_task_id) REFERENCES annotation_tasks(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS row_analysis_history (
                 id TEXT PRIMARY KEY,
                 dataset_id TEXT NOT NULL,
@@ -252,7 +291,12 @@ def init_db(recover_interrupted: bool = False) -> None:
             CREATE INDEX IF NOT EXISTS idx_annotation_tasks_status ON annotation_tasks(status);
             CREATE INDEX IF NOT EXISTS idx_annotation_task_rows_task ON annotation_task_rows(task_id);
             CREATE INDEX IF NOT EXISTS idx_annotation_task_rows_row ON annotation_task_rows(row_id);
+            CREATE INDEX IF NOT EXISTS idx_evaluation_tasks_dataset ON evaluation_tasks(dataset_id);
+            CREATE INDEX IF NOT EXISTS idx_evaluation_tasks_scene ON evaluation_tasks(scene_id);
+            CREATE INDEX IF NOT EXISTS idx_evaluation_task_items_eval ON evaluation_task_items(evaluation_task_id);
+            CREATE INDEX IF NOT EXISTS idx_evaluation_task_items_annotation ON evaluation_task_items(annotation_task_id);
             CREATE INDEX IF NOT EXISTS idx_row_analysis_history_row ON row_analysis_history(dataset_id, row_id);
+            CREATE INDEX IF NOT EXISTS idx_model_market_configs_name ON model_market_configs(name);
             """
         )
         ensure_column(conn, "schemes", "prompt_init_type", "TEXT NOT NULL DEFAULT 'auto'")

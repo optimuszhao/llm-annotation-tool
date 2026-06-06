@@ -1,6 +1,7 @@
-import { renderManagePage } from "/pages/manage.js?v=20260605-prompt-modal-layout";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260605-prompt-modal-layout";
-import { renderChatPage } from "/pages/chat.js?v=20260602-chat-stream";
+import { renderManagePage } from "/pages/manage.js?v=20260606-model-radio-compact";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260606-model-distillation";
+import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
+import { renderChatPage } from "/pages/chat.js?v=20260606-resource-draft";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
@@ -10,13 +11,16 @@ export const state = {
   knowledge: [],
   errorSets: [],
   schemes: [],
+  modelMarketConfigs: [],
   analysisMethods: {},
+  distillationMethods: {},
   activeSceneId: "",
   activeDatasetId: "",
   activeSchemeId: "",
 };
 
 const defaultPage = "workbench";
+let activeConfirmResolve = null;
 
 export async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -44,14 +48,98 @@ export function toast(message) {
   node.dataset.timer = window.setTimeout(() => node.classList.remove("open"), 2600);
 }
 
+export function confirmAction(options = {}) {
+  const config = typeof options === "string" ? { message: options } : options;
+  const dialog = ensureConfirmDialog();
+  const variant = config.variant || "danger";
+  const title = config.title || "确认操作";
+  const message = config.message || "确认继续执行当前操作？";
+  const confirmText = config.confirmText || "确认";
+  const cancelText = config.cancelText || "取消";
+  const details = Array.isArray(config.details) ? config.details.filter(Boolean) : [];
+
+  if (activeConfirmResolve) activeConfirmResolve(false);
+  activeConfirmResolve = null;
+
+  dialog.dataset.variant = variant;
+  dialog.querySelector("#confirmDialogTitle").textContent = title;
+  dialog.querySelector("#confirmDialogMessage").innerHTML = renderConfirmText(message);
+  dialog.querySelector("#confirmDialogCancel").textContent = cancelText;
+  dialog.querySelector("#confirmDialogConfirm").textContent = confirmText;
+  dialog.querySelector("#confirmDialogDetails").innerHTML = details.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  dialog.querySelector("#confirmDialogDetails").hidden = !details.length;
+  dialog.classList.add("open");
+
+  return new Promise((resolve) => {
+    const finish = (ok) => {
+      dialog.classList.remove("open");
+      document.removeEventListener("keydown", handleKeydown, true);
+      activeConfirmResolve = null;
+      resolve(ok);
+    };
+    const handleKeydown = (event) => {
+      if (event.key === "Escape") finish(false);
+      if (event.key === "Enter" && event.target === dialog) finish(true);
+    };
+    activeConfirmResolve = finish;
+    dialog.onclick = (event) => {
+      if (event.target === dialog || event.target.closest("[data-confirm-cancel]")) finish(false);
+      if (event.target.closest("[data-confirm-ok]")) finish(true);
+    };
+    document.addEventListener("keydown", handleKeydown, true);
+    window.requestAnimationFrame(() => dialog.querySelector("#confirmDialogConfirm")?.focus());
+  });
+}
+
+function ensureConfirmDialog() {
+  let dialog = document.querySelector("#confirmDialog");
+  if (dialog) return dialog;
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="modal-backdrop confirm-dialog-backdrop" id="confirmDialog" role="presentation">
+      <section class="modal confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogMessage" tabindex="-1">
+        <header class="confirm-dialog-head">
+          <span class="confirm-dialog-icon" aria-hidden="true">!</span>
+          <div>
+            <p class="eyebrow">二次确认</p>
+            <h2 id="confirmDialogTitle">确认操作</h2>
+          </div>
+          <button class="icon-btn" type="button" data-confirm-cancel aria-label="关闭">×</button>
+        </header>
+        <div class="confirm-dialog-body">
+          <div class="confirm-dialog-message" id="confirmDialogMessage"></div>
+          <ul class="confirm-dialog-details" id="confirmDialogDetails" hidden></ul>
+        </div>
+        <footer class="modal-actions confirm-dialog-actions">
+          <button class="btn" type="button" id="confirmDialogCancel" data-confirm-cancel>取消</button>
+          <button class="btn primary confirm-dialog-confirm" type="button" id="confirmDialogConfirm" data-confirm-ok>确认</button>
+        </footer>
+      </section>
+    </div>
+  `);
+  return document.querySelector("#confirmDialog");
+}
+
+function renderConfirmText(message) {
+  return String(message || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join("");
+}
+
 export async function loadState() {
-  const [scenes, analysisMethods, savedSource] = await Promise.all([
+  const [scenes, modelMarketConfigs, analysisMethods, distillationMethods, savedSource] = await Promise.all([
     api("/api/scenes"),
+    api("/api/model-market-configs").catch(() => []),
     api("/api/schemes/analysis-methods").catch(() => ({})),
+    api("/api/model-distillation/methods").catch(() => ({})),
     api("/api/preferences/workbench-source").catch(() => ({})),
   ]);
   state.scenes = scenes;
+  state.modelMarketConfigs = modelMarketConfigs;
   state.analysisMethods = analysisMethods;
+  state.distillationMethods = distillationMethods;
   state.activeSceneId = validStateId(state.scenes, savedSource.scene_id || state.activeSceneId);
   state.activeDatasetId = savedSource.dataset_id || state.activeDatasetId;
   state.activeSchemeId = savedSource.scheme_id || state.activeSchemeId;
@@ -92,6 +180,7 @@ function showPage(name) {
     page.classList.toggle("active", page.id === `page-${name}`);
   });
   if (name === "workbench") refreshWorkbench();
+  if (name === "evaluation") renderEvaluationPage();
   if (name === "chat") renderChatPage();
 }
 
@@ -289,7 +378,14 @@ async function runLagHistoryCleanup(type) {
         doneText: "清理历史分析数据",
         toastText: "历史分析数据已清理",
       };
-  if (!window.confirm(config.confirmText)) return;
+  const ok = await confirmAction({
+    title: type === "annotation" ? "清理历史标注数据" : "清理历史分析数据",
+    message: config.confirmText,
+    details: ["系统会保留最近一条历史记录。"],
+    confirmText: type === "annotation" ? "清理标注历史" : "清理分析历史",
+    variant: "danger",
+  });
+  if (!ok) return;
   const button = document.querySelector(config.button);
   const resultNode = document.querySelector("#lagHelperResult");
   button.disabled = true;
@@ -339,19 +435,16 @@ async function boot() {
   setupThemeTools();
   setupLagHelper();
   initComponents();
-  renderManagePage();
-  renderWorkbenchPage();
-  renderChatPage();
-  showPage(defaultPage);
   try {
     await loadState();
-    renderManagePage();
-    renderWorkbenchPage();
-    renderChatPage();
-    showPage(defaultPage);
   } catch (error) {
     toast(error.message);
   }
+  renderManagePage();
+  renderWorkbenchPage();
+  renderEvaluationPage();
+  renderChatPage();
+  showPage(defaultPage);
 }
 
 boot();

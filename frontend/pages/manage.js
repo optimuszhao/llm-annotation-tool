@@ -1,4 +1,4 @@
-import { api, loadSceneResources, loadState, state, toast } from "/assets/app.js";
+import { api, confirmAction, loadSceneResources, loadState, state, toast } from "/assets/app.js";
 
 const defaultColumns = [
   "ID",
@@ -22,6 +22,7 @@ export function renderManagePage() {
         </div>
         ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button">导出算法包</button>` : ""}
       </section>
+      ${renderModelMarketPanel()}
       <div class="ref-scene-tabs" role="tablist" aria-label="场景列表">
         <div class="ref-scene-tab-main">
           <div class="ref-scene-tab-list">
@@ -38,6 +39,48 @@ export function renderManagePage() {
   bindManageEvents();
 }
 
+function renderModelMarketPanel() {
+  const models = [
+    {
+      name: "Core Model",
+      type: "本地模型",
+      description: "默认 Core Model，对应当前后台 call_model 逻辑。",
+      locked: true,
+    },
+    ...state.modelMarketConfigs.map((item) => ({
+      ...item,
+      type: "模型市场",
+      description: `${item.url || "未配置 URL"} · ${item.model_name || item.name}`,
+      locked: false,
+    })),
+  ];
+  return `
+    <section class="model-market-panel" aria-label="模型展示区域">
+      <div class="model-market-head">
+        <div>
+          <strong>可用模型</strong>
+          <span>Core Model 与模型市场配置统一展示，创建方案时选择具体调用方式。</span>
+        </div>
+        <button class="model-market-add" id="addModelMarketButton" type="button">添加模型</button>
+      </div>
+      <div class="model-market-list">
+        ${models.map((model) => `
+          <article class="model-market-card ${model.locked ? "locked" : ""}">
+            <div>
+              <strong>${escapeHtml(model.name)}</strong>
+              <span>${escapeHtml(model.type || "模型市场配置")}</span>
+              <p>${escapeHtml(model.description || "手动维护 URL、API Key 和 Model Name。")}</p>
+            </div>
+            ${model.locked
+              ? `<em>默认</em>`
+              : `<button class="model-market-delete" type="button" data-delete-model-market="${escapeHtml(model.id)}" data-model-market-name="${escapeHtml(model.name)}">删除</button>`}
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function getActiveScene() {
   return state.scenes.find((scene) => scene.id === state.activeSceneId) || state.scenes[0] || null;
 }
@@ -52,11 +95,11 @@ function renderEmptyScene() {
 
 function renderSceneContent(activeScene) {
   const cards = [
-    { key: "datasets", title: "数据集", action: "导入数据集", meta: "Excel 文件入库后，工作台按页读取。", count: state.datasets.length },
+    { key: "datasets", title: "算法验证数据集", action: "导入数据集", meta: "Excel 文件入库后，工作台按页读取。", count: state.datasets.length },
     { key: "prompts", title: "Prompt", action: "新增 Prompt", meta: "支持角色名、名称和提示词正文。", count: state.prompts.length },
     { key: "knowledge", title: "知识库", action: "导入知识", meta: "保存业务规则、上下文和补充说明。", count: state.knowledge.length },
     { key: "errorSets", title: "fewshots样例", action: "整理样例", meta: "第一阶段保留结构和基础管理。", count: state.errorSets.length },
-    { key: "fieldMapping", title: "字段映射配置", action: "配置字段", meta: "选择答案列、列表展示列和标注上下文字段。", count: columnOptions().length },
+    { key: "fieldMapping", title: "算法输入输出字段映射", action: "配置字段", meta: "选择答案列、列表展示列和标注上下文字段。", count: columnOptions().length },
   ];
   return `
     <div class="ref-manage-main">
@@ -244,6 +287,24 @@ function bindManageEvents() {
   document.querySelector("#addSceneButton")?.addEventListener("click", openSceneModal);
   document.querySelector("#deleteSceneButton")?.addEventListener("click", deleteActiveScene);
   document.querySelector("#exportAlgorithmPackageButton")?.addEventListener("click", exportAlgorithmPackage);
+  document.querySelector("#addModelMarketButton")?.addEventListener("click", openModelMarketModal);
+  document.querySelectorAll("[data-delete-model-market]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const ok = await confirmAction({
+        title: "删除模型配置",
+        message: `确认删除模型市场配置“${button.dataset.modelMarketName}”？`,
+        details: ["已被标注方案使用的模型配置需要先调整方案。"],
+        confirmText: "删除模型",
+        variant: "danger",
+      });
+      if (!ok) return;
+      await api(`/api/model-market-configs/${encodeURIComponent(button.dataset.deleteModelMarket)}`, { method: "DELETE" });
+      state.modelMarketConfigs = await api("/api/model-market-configs");
+      renderManagePage();
+      toast("模型配置已删除");
+    });
+  });
   document.querySelectorAll("[data-resource-card]").forEach((card) => {
     const open = () => {
       if (!state.activeSceneId) {
@@ -267,7 +328,13 @@ function bindManageEvents() {
   });
   document.querySelectorAll("[data-delete-scheme]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const ok = window.confirm(`确认删除标注方案“${button.dataset.schemeName}”？删除后该方案关联的资源选择会同步清理。`);
+      const ok = await confirmAction({
+        title: "删除标注方案",
+        message: `确认删除标注方案“${button.dataset.schemeName}”？`,
+        details: ["关联资源选择会同步清理。"],
+        confirmText: "删除方案",
+        variant: "danger",
+      });
       if (!ok) return;
       await api(`/api/schemes/${encodeURIComponent(button.dataset.deleteScheme)}`, { method: "DELETE" });
       await loadSceneResources();
@@ -287,9 +354,13 @@ async function deleteActiveScene() {
     toast("请先选择场景");
     return;
   }
-  const ok = window.confirm(
-    `确认删除场景“${scene.name}”？\n\n该操作会关联删除该场景下的所有数据集、Prompt、知识库、fewshots样例、字段映射配置和标注方案。确认后会执行全部删除。`
-  );
+  const ok = await confirmAction({
+    title: "删除场景",
+    message: `确认删除场景“${scene.name}”？`,
+    details: ["该场景下的数据集、Prompt、知识库、fewshots样例、字段映射配置和标注方案会一起删除。"],
+    confirmText: "删除场景",
+    variant: "danger",
+  });
   if (!ok) return;
   await api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" });
   state.activeSceneId = "";
@@ -372,7 +443,7 @@ async function openFieldMappingModal() {
   const humanAnswer = mapping.human_answer_column || (columns.includes("情感分类") ? "情感分类" : columns[0] || "");
   const modelAnswer = mapping.model_answer_column || (columns.includes("GPT4_标注") ? "GPT4_标注" : "");
 
-  openModal("字段映射配置", "配置当前场景数据集的答案列、列表展示列和标注上下文字段。", `
+  openModal("算法输入输出字段映射", "配置当前场景数据集的答案列、列表展示列和标注上下文字段。", `
     <form id="fieldMappingForm" class="field-mapping-form">
       <section class="mapping-section mapping-primary">
         <label>
@@ -415,6 +486,99 @@ async function openFieldMappingModal() {
       });
     });
   });
+}
+
+function openModelMarketModal() {
+  openModal("添加模型配置", "手动填写模型市场配置，后续创建方案时可选择对应模型调用。", `
+    <form id="modelMarketForm" class="model-market-form">
+      <section class="model-market-config-grid">
+        <label>
+          <span>模型名称</span>
+          <input class="input" name="model_name" id="modelMarketNameInput" value="新模型" placeholder="例如：千问 Max" required>
+        </label>
+        <label>
+          <span>URL</span>
+          <input class="input" name="url" id="modelMarketUrlInput" placeholder="https://your-model-endpoint.example.com/v1/chat/completions" required>
+        </label>
+        <label>
+          <span>API Key</span>
+          <input class="input" name="api_key" id="modelMarketApiKeyInput" placeholder="请输入 API Key" autocomplete="off">
+        </label>
+      </section>
+      <label class="model-market-json-field">
+        <span>配置预览</span>
+        <textarea class="input" id="modelMarketJsonConfig" spellcheck="false" readonly>${escapeHtml(JSON.stringify(modelMarketConfigSample("新模型"), null, 2))}</textarea>
+      </label>
+      <div class="model-market-note">
+        <strong>配置说明</strong>
+        <span>配置包含 URL、API Key、Model Name。Model Name 自动取自模型名称。</span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-model-market-cancel>取消</button>
+        <button class="btn primary" type="submit">添加模型</button>
+      </div>
+    </form>
+  `, "modal-wide model-market-modal");
+  const form = document.querySelector("#modelMarketForm");
+  const nameInput = document.querySelector("#modelMarketNameInput");
+  const urlInput = document.querySelector("#modelMarketUrlInput");
+  const apiKeyInput = document.querySelector("#modelMarketApiKeyInput");
+  const jsonInput = document.querySelector("#modelMarketJsonConfig");
+  const syncPreview = () => {
+    jsonInput.value = JSON.stringify({
+      URL: urlInput.value.trim(),
+      "API Key": apiKeyInput.value.trim(),
+      "Model Name": nameInput.value.trim() || "新模型",
+    }, null, 2);
+  };
+  [nameInput, urlInput, apiKeyInput].forEach((input) => input.addEventListener("input", syncPreview));
+  form.querySelector("[data-model-market-cancel]").addEventListener("click", closeModal);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    const name = String(formData.get("model_name") || "").trim();
+    const url = String(formData.get("url") || "").trim();
+    const apiKey = String(formData.get("api_key") || "").trim();
+    if (!name) {
+      toast("请填写模型名称");
+      return;
+    }
+    if (!url) {
+      toast("请填写模型 URL");
+      return;
+    }
+    await api("/api/model-market-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        url,
+        api_key: apiKey,
+        model_name: name,
+      }),
+    });
+    state.modelMarketConfigs = await api("/api/model-market-configs");
+    closeModal();
+    renderManagePage();
+    toast("模型配置已添加");
+  });
+}
+
+function modelMarketConfigSample(modelName) {
+  return {
+    URL: "https://your-model-endpoint.example.com/v1/chat/completions",
+    "API Key": "replace-with-your-api-key",
+    "Model Name": modelName || "新模型",
+  };
+}
+
+function parseModelMarketJson(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 function renderColumnPickSection(title, description, name, columns, selected, compact = "") {
@@ -461,7 +625,7 @@ function openResourceModal(key) {
 }
 
 function openDatasetModal() {
-  openModal("数据集", "查看当前场景已导入的数据集，也可以继续导入单个或多个 Excel 文件。", `
+  openModal("算法验证数据集", "查看当前场景已导入的数据集，也可以继续导入单个或多个 Excel 文件。", `
     <section class="dataset-modal-layout">
       <div class="dataset-list-panel">
         <div class="dataset-panel-head">
@@ -498,7 +662,13 @@ function openDatasetModal() {
   bindDatasetSearch();
   document.querySelectorAll("[data-delete-dataset]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const ok = window.confirm(`确认删除数据集“${button.dataset.datasetName}”？删除后该数据集行数据也会同步删除。`);
+      const ok = await confirmAction({
+        title: "删除数据集",
+        message: `确认删除数据集“${button.dataset.datasetName}”？`,
+        details: ["该数据集的行数据会同步删除。"],
+        confirmText: "删除数据集",
+        variant: "danger",
+      });
       if (!ok) return;
       await api(`/api/datasets/${button.dataset.deleteDataset}`, { method: "DELETE" });
       await loadSceneResources();
@@ -612,6 +782,13 @@ function openPromptModal() {
           </div>
         </div>
         <div class="prompt-menu-list">
+          <div class="prompt-menu-card resource-menu-card prompt-draft-card" role="button" tabindex="0" data-prompt-draft-card hidden>
+            <div class="resource-menu-text">
+              <strong id="promptDraftTitle">新建 Prompt</strong>
+              <span id="promptDraftMeta">未设置角色 · 尚未保存</span>
+            </div>
+            <span class="prompt-draft-badge">新增中</span>
+          </div>
           ${state.prompts.map((item) => `
             <div class="prompt-menu-card resource-menu-card" role="button" tabindex="0" data-prompt-id="${escapeHtml(item.id)}">
               <div class="resource-menu-text">
@@ -620,7 +797,7 @@ function openPromptModal() {
               </div>
               <button class="resource-delete-button" type="button" data-delete-prompt="${escapeHtml(item.id)}" data-resource-name="${escapeHtml(item.name)}">删除</button>
             </div>
-          `).join("") || `<div class="empty">当前场景暂无 Prompt。</div>`}
+          `).join("") || `<div class="empty" data-prompt-empty>当前场景暂无 Prompt。</div>`}
         </div>
       </aside>
       <form id="promptForm" class="prompt-editor-form prompt-editor-form-with-rule labeled-form">
@@ -666,6 +843,13 @@ function openKnowledgeModal() {
           </div>
         </div>
         <div class="prompt-menu-list">
+          <div class="prompt-menu-card resource-menu-card prompt-draft-card" role="button" tabindex="0" data-knowledge-draft-card hidden>
+            <div class="resource-menu-text">
+              <strong id="knowledgeDraftTitle">新建知识</strong>
+              <span id="knowledgeDraftMeta">尚未保存</span>
+            </div>
+            <span class="prompt-draft-badge">新增中</span>
+          </div>
           ${state.knowledge.map((item) => `
             <div class="prompt-menu-card resource-menu-card" role="button" tabindex="0" data-knowledge-id="${escapeHtml(item.id)}">
               <div class="resource-menu-text">
@@ -674,7 +858,7 @@ function openKnowledgeModal() {
               </div>
               <button class="resource-delete-button" type="button" data-delete-knowledge="${escapeHtml(item.id)}" data-resource-name="${escapeHtml(item.name)}">删除</button>
             </div>
-          `).join("") || `<div class="empty">当前场景暂无知识。</div>`}
+          `).join("") || `<div class="empty" data-knowledge-empty>当前场景暂无知识。</div>`}
         </div>
       </aside>
       <form id="knowledgeForm" class="prompt-editor-form labeled-form">
@@ -711,6 +895,13 @@ function openErrorSetModal() {
           <button class="ghost-button" type="button" id="newErrorSetButton">新增</button>
         </div>
         <div class="prompt-menu-list">
+          <div class="prompt-menu-card resource-menu-card prompt-draft-card" role="button" tabindex="0" data-error-set-draft-card hidden>
+            <div class="resource-menu-text">
+              <strong id="errorSetDraftTitle">新建fewshots样例</strong>
+              <span id="errorSetDraftMeta">未填写描述 · 尚未保存</span>
+            </div>
+            <span class="prompt-draft-badge">新增中</span>
+          </div>
           ${state.errorSets.map((item) => `
             <div class="prompt-menu-card resource-menu-card" role="button" tabindex="0" data-error-set-id="${escapeHtml(item.id)}">
               <div class="resource-menu-text">
@@ -719,7 +910,7 @@ function openErrorSetModal() {
               </div>
               <button class="resource-delete-button" type="button" data-delete-error-set="${escapeHtml(item.id)}" data-resource-name="${escapeHtml(item.name)}">删除</button>
             </div>
-          `).join("") || `<div class="empty">当前场景暂无fewshots样例。</div>`}
+          `).join("") || `<div class="empty" data-error-set-empty>当前场景暂无fewshots样例。</div>`}
         </div>
       </aside>
       <form id="errorSetForm" class="prompt-editor-form labeled-form">
@@ -824,6 +1015,18 @@ function bindPromptEditor() {
   const newButton = document.querySelector("#newPromptButton");
   const exportButton = document.querySelector("#exportPromptButton");
   const menuCards = [...document.querySelectorAll("[data-prompt-id]")];
+  const draftCard = document.querySelector("[data-prompt-draft-card]");
+  const draftTitle = document.querySelector("#promptDraftTitle");
+  const draftMeta = document.querySelector("#promptDraftMeta");
+  const emptyNode = document.querySelector("[data-prompt-empty]");
+
+  const syncDraftCard = () => {
+    if (!draftCard || draftCard.hidden || idInput.value) return;
+    const name = nameInput.value.trim();
+    const role = roleInput.value.trim();
+    draftTitle.textContent = name || "新建 Prompt";
+    draftMeta.textContent = `${role || "未设置角色"} · 尚未保存`;
+  };
 
   const updatePlaceholderWarning = () => {
     const missing = findUnmappedPromptPlaceholders(contentInput.value);
@@ -843,15 +1046,31 @@ function bindPromptEditor() {
     titleNode.textContent = item ? "编辑 Prompt" : "新增 Prompt";
     metaNode.textContent = item ? "已载入历史内容，可直接修改后保存。" : "填写名称、角色名和 Prompt 内容。";
     submitButton.textContent = item ? "保存 Prompt" : "新增 Prompt";
+    if (draftCard) {
+      draftCard.hidden = Boolean(item);
+      draftCard.classList.toggle("active", !item);
+    }
+    if (emptyNode) {
+      emptyNode.hidden = !item;
+    }
     menuCards.forEach((card) => {
       card.classList.toggle("active", item?.id === card.dataset.promptId);
     });
+    syncDraftCard();
     updatePlaceholderWarning();
   };
 
   contentInput.addEventListener("input", updatePlaceholderWarning);
+  nameInput.addEventListener("input", syncDraftCard);
+  roleInput.addEventListener("input", syncDraftCard);
   newButton?.addEventListener("click", () => setMode());
   exportButton?.addEventListener("click", () => exportSceneResource("prompts"));
+  draftCard?.addEventListener("click", () => setMode());
+  draftCard?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    setMode();
+  });
   menuCards.forEach((card) => {
     card.addEventListener("click", () => {
       const item = state.prompts.find((prompt) => prompt.id === card.dataset.promptId);
@@ -865,10 +1084,17 @@ function bindPromptEditor() {
       if (item) setMode(item);
     });
   });
+  setMode(state.prompts[0] || null);
   document.querySelectorAll("[data-delete-prompt]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
-      const ok = window.confirm(`确认删除 Prompt“${button.dataset.resourceName}”？关联方案中的该 Prompt 引用也会同步移除。`);
+      const ok = await confirmAction({
+        title: "删除 Prompt",
+        message: `确认删除 Prompt“${button.dataset.resourceName}”？`,
+        details: ["关联方案中的该 Prompt 引用会同步移除。"],
+        confirmText: "删除 Prompt",
+        variant: "danger",
+      });
       if (!ok) return;
       await api(`/api/prompts/${encodeURIComponent(button.dataset.deletePrompt)}`, { method: "DELETE" });
       await loadSceneResources();
@@ -882,7 +1108,13 @@ function bindPromptEditor() {
     const form = new FormData(event.currentTarget);
     const missing = updatePlaceholderWarning();
     if (missing.length) {
-      const ok = window.confirm(`以下占位符没有对应的映射值：${missing.map(renderPlaceholderName).join("、")}。点击“确定”继续保存，点击“取消”返回编辑。`);
+      const ok = await confirmAction({
+        title: "继续保存 Prompt",
+        message: "以下占位符没有对应的映射值。",
+        details: [missing.map(renderPlaceholderName).join("、")],
+        confirmText: "继续保存",
+        variant: "warning",
+      });
       if (!ok) return;
     }
     const payload = {
@@ -914,6 +1146,16 @@ function bindKnowledgeEditor() {
   const newButton = document.querySelector("#newKnowledgeButton");
   const exportButton = document.querySelector("#exportKnowledgeButton");
   const menuCards = [...document.querySelectorAll("[data-knowledge-id]")];
+  const draftCard = document.querySelector("[data-knowledge-draft-card]");
+  const draftTitle = document.querySelector("#knowledgeDraftTitle");
+  const draftMeta = document.querySelector("#knowledgeDraftMeta");
+  const emptyNode = document.querySelector("[data-knowledge-empty]");
+
+  const syncDraftCard = () => {
+    if (!draftCard || draftCard.hidden || idInput.value) return;
+    draftTitle.textContent = nameInput.value.trim() || "新建知识";
+    draftMeta.textContent = "尚未保存";
+  };
 
   const setMode = (item = null) => {
     idInput.value = item?.id || "";
@@ -922,13 +1164,28 @@ function bindKnowledgeEditor() {
     titleNode.textContent = item ? "编辑知识" : "新增知识";
     metaNode.textContent = item ? "已载入历史内容，可直接修改后保存。" : "填写知识名称和知识内容。";
     submitButton.textContent = item ? "保存知识" : "新增知识";
+    if (draftCard) {
+      draftCard.hidden = Boolean(item);
+      draftCard.classList.toggle("active", !item);
+    }
+    if (emptyNode) {
+      emptyNode.hidden = !item;
+    }
     menuCards.forEach((card) => {
       card.classList.toggle("active", item?.id === card.dataset.knowledgeId);
     });
+    syncDraftCard();
   };
 
+  nameInput.addEventListener("input", syncDraftCard);
   newButton?.addEventListener("click", () => setMode());
   exportButton?.addEventListener("click", () => exportSceneResource("knowledge"));
+  draftCard?.addEventListener("click", () => setMode());
+  draftCard?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    setMode();
+  });
   menuCards.forEach((card) => {
     card.addEventListener("click", () => {
       const item = state.knowledge.find((knowledge) => knowledge.id === card.dataset.knowledgeId);
@@ -942,10 +1199,17 @@ function bindKnowledgeEditor() {
       if (item) setMode(item);
     });
   });
+  setMode(state.knowledge[0] || null);
   document.querySelectorAll("[data-delete-knowledge]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
-      const ok = window.confirm(`确认删除知识“${button.dataset.resourceName}”？关联方案中的该知识引用也会同步移除。`);
+      const ok = await confirmAction({
+        title: "删除知识",
+        message: `确认删除知识“${button.dataset.resourceName}”？`,
+        details: ["关联方案中的该知识引用会同步移除。"],
+        confirmText: "删除知识",
+        variant: "danger",
+      });
       if (!ok) return;
       await api(`/api/knowledge/${encodeURIComponent(button.dataset.deleteKnowledge)}`, { method: "DELETE" });
       await loadSceneResources();
@@ -984,6 +1248,18 @@ function bindErrorSetEditor() {
   const submitButton = formNode.querySelector("#errorSetSubmitButton");
   const newButton = document.querySelector("#newErrorSetButton");
   const menuCards = [...document.querySelectorAll("[data-error-set-id]")];
+  const draftCard = document.querySelector("[data-error-set-draft-card]");
+  const draftTitle = document.querySelector("#errorSetDraftTitle");
+  const draftMeta = document.querySelector("#errorSetDraftMeta");
+  const emptyNode = document.querySelector("[data-error-set-empty]");
+
+  const syncDraftCard = () => {
+    if (!draftCard || draftCard.hidden || idInput.value) return;
+    const name = nameInput.value.trim();
+    const description = descriptionInput.value.trim();
+    draftTitle.textContent = name || "新建fewshots样例";
+    draftMeta.textContent = `${description || "未填写描述"} · 尚未保存`;
+  };
 
   const setMode = (item = null) => {
     idInput.value = item?.id || "";
@@ -992,12 +1268,28 @@ function bindErrorSetEditor() {
     titleNode.textContent = item ? "编辑fewshots样例" : "新增fewshots样例";
     metaNode.textContent = item ? "已载入历史描述，可直接修改后保存。" : "填写fewshots样例名称和描述。";
     submitButton.textContent = item ? "保存fewshots样例" : "新增fewshots样例";
+    if (draftCard) {
+      draftCard.hidden = Boolean(item);
+      draftCard.classList.toggle("active", !item);
+    }
+    if (emptyNode) {
+      emptyNode.hidden = !item;
+    }
     menuCards.forEach((card) => {
       card.classList.toggle("active", item?.id === card.dataset.errorSetId);
     });
+    syncDraftCard();
   };
 
+  nameInput.addEventListener("input", syncDraftCard);
+  descriptionInput.addEventListener("input", syncDraftCard);
   newButton?.addEventListener("click", () => setMode());
+  draftCard?.addEventListener("click", () => setMode());
+  draftCard?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    setMode();
+  });
   menuCards.forEach((card) => {
     card.addEventListener("click", () => {
       const item = state.errorSets.find((errorSet) => errorSet.id === card.dataset.errorSetId);
@@ -1011,10 +1303,17 @@ function bindErrorSetEditor() {
       if (item) setMode(item);
     });
   });
+  setMode(state.errorSets[0] || null);
   document.querySelectorAll("[data-delete-error-set]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
-      const ok = window.confirm(`确认删除fewshots样例“${button.dataset.resourceName}”？关联方案中的该fewshots样例引用也会同步移除。`);
+      const ok = await confirmAction({
+        title: "删除 fewshots 样例",
+        message: `确认删除 fewshots 样例“${button.dataset.resourceName}”？`,
+        details: ["关联方案中的该 fewshots 样例引用会同步移除。"],
+        confirmText: "删除样例",
+        variant: "danger",
+      });
       if (!ok) return;
       await api(`/api/error-sets/${encodeURIComponent(button.dataset.deleteErrorSet)}`, { method: "DELETE" });
       await loadSceneResources();
@@ -1074,19 +1373,18 @@ async function openSchemeModal(schemeId = "") {
   try {
     promptInitMethods = await api("/api/schemes/prompt-init-methods");
   } catch {
-    promptInitMethods = { custom_default: { name: "自定义 Prompt 初始化", method_name: "build_prompts_custom" } };
+    promptInitMethods = { custom_default: { name: "默认初始化调用", method_name: "build_prompts_custom" } };
   }
   const initType = editingScheme?.prompt_init_type || "auto";
   openModal(editingScheme ? "编辑方案" : "添加方案", "选择 Prompt、初始化方式和标注方法，系统自动生成方案名称。", `
     <form id="schemeForm" class="scheme-form-v2 labeled-form">
       <div class="scheme-two-column-layout">
-        <div class="scheme-column scheme-column-prompt">
+        <div class="scheme-column scheme-column-primary">
           ${renderSchemePromptPicker(state.prompts, selectedResources.prompt)}
 
           <section class="scheme-config-card">
             <div class="scheme-config-title">
-              <strong>Prompt 初始化</strong>
-              <span>决定 Prompt 中占位符的处理方式。</span>
+              <strong>你想怎么构建你的 Prompt</strong>
             </div>
             <div class="scheme-choice-grid">
               <label class="scheme-choice-card">
@@ -1104,49 +1402,41 @@ async function openSchemeModal(schemeId = "") {
                 </span>
               </label>
             </div>
-          </section>
-
-          <section class="scheme-config-card" id="customPromptPanel" hidden>
-            <div class="scheme-config-title">
-              <strong>自定义初始化</strong>
-              <span>手动选择初始化方法、知识库和fewshots样例。</span>
+            <div class="scheme-custom-init-method scheme-custom-only" id="customPromptPanel" hidden>
+              <div class="scheme-config-title">
+                <strong>选择你 Prompt 初始化调用的方法</strong>
+              </div>
+              ${renderSchemeSelect("prompt_init_method_name", "promptInitMethod", promptInitMethods, editingScheme?.prompt_init_method_name)}
             </div>
-            ${renderSchemeSelect("prompt_init_method_name", "promptInitMethod", promptInitMethods, editingScheme?.prompt_init_method_name, "选择 Prompt 初始化后台方法")}
-            <div class="scheme-method-help" id="promptInitMethodHelp"></div>
-            <div class="scheme-custom-resource-grid">
-              ${renderSchemeResourcePicker("知识库", "knowledge_ids", state.knowledge, "content", selectedResources.knowledge, { searchable: true, compact: true })}
-              ${renderSchemeResourcePicker("fewshots样例", "error_set_ids", state.errorSets, "description", selectedResources.error_set, { searchable: true, compact: true })}
-            </div>
-          </section>
-        </div>
-
-        <div class="scheme-column scheme-column-execution">
-          <section class="scheme-config-card" id="autoPromptPanel">
-            <div class="scheme-config-title">
-              <strong>占位符检查</strong>
-              <span>保存前会检查字段和资源引用。</span>
-            </div>
-            <div id="autoPromptValidation"></div>
-            <div class="auto-linked-resources" id="autoLinkedResources"></div>
           </section>
 
           <section class="scheme-config-card">
             <div class="scheme-config-title">
-              <strong>执行配置</strong>
-              <span>选择标注后台方法和并发数量。</span>
+              <strong>标注时你想使用哪一个大模型</strong>
             </div>
-            <div class="scheme-method-grid">
-              ${renderSchemeSelect("method_name", "schemeMethod", methods, editingScheme?.method_name || "call_model", "选择标注后台方法", true)}
-              <label class="scheme-concurrency-field">
-                <span>并发数量</span>
-                <input class="input" type="number" min="1" max="20" name="concurrency" value="${escapeHtml(editingScheme?.concurrency || 5)}" required>
-              </label>
-            </div>
-            <div class="scheme-method-help" id="schemeMethodHelp"></div>
+            ${renderSchemeModelPicker(methods, state.modelMarketConfigs, editingScheme)}
+            <label class="scheme-concurrency-field scheme-concurrency-full">
+              <span>并发数量</span>
+              <input class="input" type="number" min="1" max="20" name="concurrency" value="${escapeHtml(editingScheme?.concurrency || 5)}" required>
+            </label>
           </section>
+        </div>
 
+        <div class="scheme-column scheme-column-custom">
+          ${renderSchemeResourcePicker("知识库", "knowledge_ids", state.knowledge, "content", selectedResources.knowledge, { compact: true, standalone: true, customOnly: true })}
+          ${renderSchemeResourcePicker("fewshots 样例", "error_set_ids", state.errorSets, "description", selectedResources.error_set, { compact: true, standalone: true, customOnly: true })}
+          <section class="scheme-config-card scheme-custom-placeholder" id="customPromptPlaceholder">
+            <span>自动替换占位符将会根据 Prompt 中占位符的内容自动替换知识库和 fewshots。如果你想自己决定使用哪些知识库和 fewshots，或者想自己初始化 Prompt 内容，请选择自定义 Prompt 处理。</span>
+          </section>
         </div>
       </div>
+
+      <section class="scheme-bottom-validation" id="autoPromptPanel" hidden>
+        <div class="scheme-config-title">
+          <strong>占位符检查</strong>
+        </div>
+        <div id="autoPromptValidation"></div>
+      </section>
 
       <div class="scheme-form-actions">
         <div class="scheme-footer-preview" id="schemeExecutionPreview">选择 Prompt 后显示执行配置。</div>
@@ -1175,7 +1465,7 @@ async function openSchemeModal(schemeId = "") {
       body: JSON.stringify({
         scene_id: state.activeSceneId,
         name: buildSchemeAutoName(form),
-        model_key: editingScheme?.model_key || "configured",
+        model_key: form.get("model_key") || "core_model",
         method_name: form.get("method_name"),
         prompt_init_type: promptInitType,
         prompt_init_method_name: promptInitType === "custom" ? form.get("prompt_init_method_name") : "",
@@ -1200,12 +1490,93 @@ function schemeResourceIds(scheme) {
   return ids;
 }
 
+function renderSchemeModelPicker(methods, modelConfigs, editingScheme) {
+  const entries = Object.entries(methods || {});
+  const customMethods = entries.filter(([, item]) => !["call_model", "call_model_market"].includes(item.method_name));
+  const selectedMethod = editingScheme?.method_name || "call_model";
+  const selectedModelKey = editingScheme?.model_key || "core_model";
+  const optionGroups = [
+    {
+      title: "本地模型",
+      options: [
+        {
+          key: "core_model",
+          name: "Core Model",
+          description: "",
+          method_name: "call_model",
+          model_key: "core_model",
+          selected: selectedMethod === "call_model" && selectedModelKey !== "del_model",
+        },
+        {
+          key: "del_model",
+          name: "Del Model",
+          description: "",
+          method_name: "call_model",
+          model_key: "del_model",
+          selected: selectedMethod === "call_model" && selectedModelKey === "del_model",
+        },
+      ],
+    },
+    {
+      title: "模型市场",
+      options: (modelConfigs || []).map((item) => ({
+        key: item.id,
+        name: item.name,
+        description: "",
+        method_name: "call_model_market",
+        model_key: item.id,
+        selected: selectedMethod === "call_model_market" && selectedModelKey === item.id,
+      })),
+      empty: "暂无模型市场配置，请先点击上方“添加模型”。",
+    },
+    {
+      title: "自定义标注方法",
+      options: customMethods.map(([key, item]) => ({
+        key,
+        name: item.name || key,
+        description: "",
+        method_name: item.method_name,
+        model_key: "custom",
+        selected: selectedMethod === item.method_name,
+      })),
+      empty: "暂无自定义标注方法。",
+    },
+  ];
+  let selectedOption = optionGroups.flatMap((group) => group.options).find((item) => item.selected);
+  if (!selectedOption) selectedOption = optionGroups[0].options[0];
+  return `
+    <div class="scheme-model-picker" data-scheme-model-picker>
+      <input type="hidden" name="method_name" id="schemeMethod" value="${escapeHtml(selectedOption.method_name)}">
+      <input type="hidden" name="model_key" id="schemeModelKey" value="${escapeHtml(selectedOption.model_key)}">
+      ${optionGroups.map((group) => `
+        <section class="scheme-model-group">
+          <div class="scheme-model-group-title">${escapeHtml(group.title)}</div>
+          <div class="scheme-model-options">
+            ${group.options.length ? group.options.map((item) => `
+              <button class="scheme-model-option ${item === selectedOption ? "active" : ""}" type="button"
+                data-method-name="${escapeHtml(item.method_name)}"
+                data-model-key="${escapeHtml(item.model_key)}"
+                data-model-label="${escapeHtml(item.name)}">
+                <i aria-hidden="true"></i>
+                <span>
+                  <strong>${escapeHtml(item.name)}</strong>
+                  ${item.description ? `<em>${escapeHtml(item.description)}</em>` : ""}
+                </span>
+              </button>
+            `).join("") : `<div class="scheme-model-empty">${escapeHtml(group.empty || "暂无配置")}</div>`}
+          </div>
+        </section>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderSchemeSelect(name, id, items, selectedValue = "", label = "", required = false) {
   const entries = Object.entries(items);
   const selected = selectedValue || entries[0]?.[1]?.method_name || "";
   return `
     <label class="scheme-select-field">
-      <span>${escapeHtml(label)}</span>
+      ${label ? `<span>${escapeHtml(label)}</span>` : ""}
       <select class="select" name="${name}" id="${id}" ${required ? "required" : ""}>
         ${entries.map(([key, item]) => `<option value="${escapeHtml(item.method_name)}" ${item.method_name === selected ? "selected" : ""} data-method-key="${escapeHtml(key)}">${escapeHtml(item.name || key)} · ${escapeHtml(item.method_name)}</option>`).join("")}
       </select>
@@ -1214,36 +1585,23 @@ function renderSchemeSelect(name, id, items, selectedValue = "", label = "", req
 }
 
 function renderSchemePromptPicker(items, selected = new Set()) {
-  const selectedItems = items.filter((item) => selected.has(item.id));
   return `
     <section class="scheme-prompt-picker scheme-config-card" data-scheme-resource-picker="prompt_ids">
       <div class="scheme-config-title">
         <div>
-          <strong>Prompt 角色</strong>
+          <strong>选择你要用的 Prompt</strong>
           <span>一个方案可选择多个角色 Prompt。</span>
         </div>
-        <span>按角色名快速选择。</span>
-      </div>
-      <div class="scheme-prompt-toolbar">
-        <div class="scheme-prompt-selected" id="schemePromptSelected">
-          <strong>已选 ${selectedItems.length} 个</strong>
-          <div>
-            ${selectedItems.map((item) => `<span>${escapeHtml(item.role_name || item.name)}</span>`).join("") || `<em>选择后会在这里显示角色</em>`}
-          </div>
-        </div>
-        <input class="input scheme-prompt-search" type="search" placeholder="搜索 Prompt / 角色" data-resource-search="prompt_ids">
       </div>
       <div class="scheme-prompt-list">
         ${items.map((item) => {
           const roleLabel = item.role_name || item.name || "未设置角色";
-          const promptLabel = item.name && item.name !== roleLabel ? item.name : "";
           return `
           <label class="scheme-prompt-option" data-resource-option="prompt_ids" data-resource-text="${escapeHtml(`${item.name} ${item.role_name || ""}`.toLowerCase())}">
             <input type="checkbox" name="prompt_ids" value="${escapeHtml(item.id)}" ${selected.has(item.id) ? "checked" : ""}>
             <span class="scheme-prompt-check"></span>
             <span class="scheme-prompt-copy">
               <em>${escapeHtml(roleLabel)}</em>
-              ${promptLabel ? `<strong>${escapeHtml(promptLabel)}</strong>` : ""}
             </span>
           </label>
         `;
@@ -1256,27 +1614,27 @@ function renderSchemePromptPicker(items, selected = new Set()) {
 function renderSchemeResourcePicker(title, name, items, metaField, selected = new Set(), options = {}) {
   const searchable = options.searchable;
   const compact = options.compact ? "compact" : "";
+  const standalone = options.standalone ? "scheme-config-card scheme-resource-card-picker" : "";
+  const customOnly = options.customOnly ? "scheme-custom-only" : "";
   const selectedItems = items.filter((item) => selected.has(item.id));
   return `
-    <section class="scheme-resource-picker ${compact}" data-scheme-resource-picker="${name}">
-      <details class="scheme-resource-dropdown">
-        <summary>
-          <span>
-            <strong>${escapeHtml(title)}</strong>
-            <em>${selectedItems.length ? `已选 ${selectedItems.length} 项` : `选择${escapeHtml(title)}`}</em>
-          </span>
-          <b>⌄</b>
-        </summary>
-        ${searchable ? `<input class="input scheme-resource-search" type="search" placeholder="搜索${escapeHtml(title)}" data-resource-search="${name}">` : ""}
-        <div class="scheme-resource-grid">
-          ${items.map((item) => `
-            <label class="column-chip scheme-resource-option" data-resource-option="${name}" data-resource-text="${escapeHtml(`${item.name} ${item[metaField] || ""}`.toLowerCase())}">
-              <input type="checkbox" name="${name}" value="${escapeHtml(item.id)}" ${selected.has(item.id) ? "checked" : ""}>
-              <span>${escapeHtml(item.name)}${metaField && item[metaField] ? ` · ${escapeHtml(String(item[metaField]).slice(0, 24))}` : ""}</span>
-            </label>
-          `).join("") || `<div class="empty">当前场景暂无${title}资源。</div>`}
-        </div>
-      </details>
+    <section class="scheme-resource-picker ${compact} ${standalone} ${customOnly}" data-scheme-resource-picker="${name}" ${options.customOnly ? "hidden" : ""}>
+      <div class="scheme-resource-headline">
+        <strong>${escapeHtml(title)}</strong>
+        <span data-resource-count="${name}">${selectedItems.length ? `已选 ${selectedItems.length} 项` : "未选择"}</span>
+      </div>
+      ${searchable ? `<input class="input scheme-resource-search" type="search" placeholder="搜索${escapeHtml(title)}" data-resource-search="${name}">` : ""}
+      <div class="scheme-resource-grid">
+        ${items.map((item) => `
+          <label class="scheme-resource-option" data-resource-option="${name}" data-resource-text="${escapeHtml(`${item.name} ${item[metaField] || ""}`.toLowerCase())}">
+            <input type="checkbox" name="${name}" value="${escapeHtml(item.id)}" ${selected.has(item.id) ? "checked" : ""}>
+            <span class="scheme-resource-check"></span>
+            <span class="scheme-resource-copy">
+              <strong>${escapeHtml(item.name)}</strong>
+            </span>
+          </label>
+        `).join("") || `<div class="empty">当前场景暂无${title}资源。</div>`}
+      </div>
     </section>
   `;
 }
@@ -1287,23 +1645,33 @@ function bindSchemeModalControls(methods, promptInitMethods) {
     const formData = new FormData(form);
     const initType = formData.get("prompt_init_type") || "auto";
     const isCustom = initType === "custom";
-    document.querySelector("#autoPromptPanel").hidden = isCustom;
-    document.querySelector("#customPromptPanel").hidden = !isCustom;
-    renderAutoPromptValidation(formData.getAll("prompt_ids"));
-    updateSchemePromptSummary();
+    document.querySelectorAll(".scheme-custom-only").forEach((node) => {
+      node.hidden = !isCustom;
+    });
+    document.querySelector("#customPromptPlaceholder").hidden = isCustom;
+    renderAutoPromptValidation(formData.getAll("prompt_ids"), initType);
     updateSchemeAutoNamePreview(formData);
     updateSchemeExecutionPreview(formData);
-    updateSchemeMethodHelp("#schemeMethod", "#schemeMethodHelp", methods);
-    updateSchemeMethodHelp("#promptInitMethod", "#promptInitMethodHelp", promptInitMethods);
+    updateSchemeResourceCounts();
   };
   form.querySelectorAll('input[name="prompt_init_type"], input[name="prompt_ids"]').forEach((input) => {
     input.addEventListener("change", refresh);
   });
   form.querySelector('input[name="concurrency"]')?.addEventListener("input", refresh);
-  form.querySelector("#schemeMethod")?.addEventListener("change", refresh);
   form.querySelector("#promptInitMethod")?.addEventListener("change", refresh);
+  form.querySelectorAll(".scheme-model-option").forEach((button) => {
+    button.addEventListener("click", () => {
+      form.querySelector("#schemeMethod").value = button.dataset.methodName || "call_model";
+      form.querySelector("#schemeModelKey").value = button.dataset.modelKey || "core_model";
+      form.querySelectorAll(".scheme-model-option").forEach((item) => item.classList.toggle("active", item === button));
+      refresh();
+    });
+  });
   form.querySelectorAll("[data-resource-search]").forEach((input) => {
     input.addEventListener("input", () => filterSchemeResourceOptions(input));
+  });
+  form.querySelectorAll('.scheme-resource-picker input[type="checkbox"]').forEach((input) => {
+    input.addEventListener("change", refresh);
   });
   refresh();
 }
@@ -1339,34 +1707,6 @@ function updateSchemeExecutionPreview(form) {
   node.textContent = `${roles.length || 0} 个 Prompt · ${initType} · ${methodName} · 并发 ${concurrency}`;
 }
 
-function updateSchemePromptSummary() {
-  const summary = document.querySelector("#schemePromptSelected");
-  if (!summary) return;
-  const checked = [...document.querySelectorAll('input[name="prompt_ids"]:checked')];
-  const names = checked.map((input) => {
-    const card = input.closest(".scheme-prompt-option");
-    return card?.querySelector(".scheme-prompt-copy em")?.textContent?.trim()
-      || card?.querySelector(".scheme-prompt-copy strong")?.textContent?.trim()
-      || input.value;
-  });
-  summary.innerHTML = `
-    <strong>已选 ${checked.length} 个</strong>
-    <div>
-      ${names.map((name) => `<span>${escapeHtml(name)}</span>`).join("") || `<em>选择后会在这里显示角色</em>`}
-    </div>
-  `;
-}
-
-function updateSchemeMethodHelp(selectSelector, helpSelector, items) {
-  const select = document.querySelector(selectSelector);
-  const help = document.querySelector(helpSelector);
-  if (!select || !help) return;
-  const item = Object.values(items).find((method) => method.method_name === select.value);
-  help.innerHTML = item
-    ? `<strong>${escapeHtml(item.name || select.value)}</strong><span>${escapeHtml(item.description || "暂无说明")}</span>`
-    : `<span>暂无方法说明。</span>`;
-}
-
 function filterSchemeResourceOptions(input) {
   const keyword = input.value.trim().toLowerCase();
   document.querySelectorAll(`[data-resource-option="${input.dataset.resourceSearch}"]`).forEach((option) => {
@@ -1374,33 +1714,29 @@ function filterSchemeResourceOptions(input) {
   });
 }
 
-function renderAutoPromptValidation(promptIds) {
-  const result = analyzeAutoPromptLinks(promptIds);
-  const validation = document.querySelector("#autoPromptValidation");
-  const linked = document.querySelector("#autoLinkedResources");
-  if (!validation || !linked) return;
-  const messages = [
-    ...result.errors.map((message) => ({ type: "error", message })),
-    ...result.warnings.map((message) => ({ type: "warning", message })),
-  ];
-  validation.innerHTML = messages.length
-    ? `<div class="scheme-validation-list">${messages.map((item) => `<div class="${item.type}">${escapeHtml(item.message)}</div>`).join("")}</div>`
-    : `<div class="scheme-validation-ok">占位符检查通过。自动模式会按引用关联知识库和fewshots样例。</div>`;
-  linked.innerHTML = `
-    ${renderAutoLinkedCard("关联知识库", result.knowledge)}
-    ${renderAutoLinkedCard("关联fewshots样例", result.errorSets)}
-  `;
+function updateSchemeResourceCounts() {
+  document.querySelectorAll("[data-resource-count]").forEach((node) => {
+    const name = node.dataset.resourceCount;
+    const count = document.querySelectorAll(`input[name="${name}"]:checked`).length;
+    node.textContent = count ? `已选 ${count} 项` : "未选择";
+  });
 }
 
-function renderAutoLinkedCard(title, items) {
-  return `
-    <section class="auto-linked-card">
-      <div><strong>${title}</strong><span>${items.length} 项</span></div>
-      <div class="auto-linked-list">
-        ${items.map((item) => `<span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>`).join("") || `<em>当前 Prompt 未引用</em>`}
-      </div>
-    </section>
-  `;
+function renderAutoPromptValidation(promptIds, initType = "auto") {
+  const panel = document.querySelector("#autoPromptPanel");
+  const validation = document.querySelector("#autoPromptValidation");
+  if (!panel || !validation) return;
+  if (initType === "custom" || !promptIds.length) {
+    panel.hidden = true;
+    validation.innerHTML = "";
+    return;
+  }
+  const result = analyzeAutoPromptLinks(promptIds);
+  const messages = result.errors;
+  panel.hidden = messages.length === 0;
+  validation.innerHTML = messages.length
+    ? `<div class="scheme-validation-list">${messages.map((message) => `<div class="warning">${escapeHtml(message)}</div>`).join("")}</div>`
+    : "";
 }
 
 function analyzeAutoPromptLinks(promptIds) {
