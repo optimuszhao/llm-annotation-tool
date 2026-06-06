@@ -11,6 +11,7 @@ let taskEvents = null;
 let metricsTimer = 0;
 let tableReadyForRealtime = false;
 let tableAjaxReadyResolver = null;
+let tableScrollStateCleanup = null;
 let currentDetailRow = null;
 let currentDetailMode = "view";
 let currentDetailKind = "row";
@@ -137,7 +138,7 @@ export function renderWorkbenchPage() {
             全选当前页
           </label>
           <button class="btn" type="button" id="batchAnnotateButton" disabled>批量标注</button>
-          <button class="btn distill-button" type="button" id="modelDistillButton" disabled>模型蒸馏</button>
+          <button class="btn distill-button" type="button" id="modelDistillButton" disabled>知识蒸馏</button>
           <button class="btn primary" type="button" id="fullAnnotateButton">全量标注</button>
         </div>
         <div class="toolbar-right">
@@ -305,16 +306,16 @@ export function renderWorkbenchPage() {
       <section class="modal batch-analysis-modal model-distillation-modal" role="dialog" aria-modal="true" aria-labelledby="modelDistillationTitle">
         <header class="modal-head">
           <div>
-            <p class="eyebrow">模型蒸馏</p>
-            <h2 id="modelDistillationTitle">模型蒸馏</h2>
+            <p class="eyebrow">知识蒸馏</p>
+            <h2 id="modelDistillationTitle">知识蒸馏</h2>
             <p class="card-meta">调用后台自定义方法返回列表，经人工判断后快速插入知识库。</p>
           </div>
-          <button class="icon-btn" type="button" id="modelDistillationClose" aria-label="关闭模型蒸馏弹窗">×</button>
+          <button class="icon-btn" type="button" id="modelDistillationClose" aria-label="关闭知识蒸馏弹窗">×</button>
         </header>
         <div class="batch-analysis-body model-distillation-body">
           <label class="batch-analysis-method">
             <span>蒸馏方法</span>
-            <select class="select" id="modelDistillationMethodSelect" aria-label="选择模型蒸馏方法">
+            <select class="select" id="modelDistillationMethodSelect" aria-label="选择知识蒸馏方法">
               ${renderDistillationMethodOptions()}
             </select>
           </label>
@@ -532,6 +533,11 @@ export function renderWorkbenchPage() {
             </div>
           </div>
           <div class="column-chip-grid compact" id="columnSettingsGrid"></div>
+          <div class="column-settings-loading" id="columnSettingsLoading" hidden>
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <strong>正在加载列信息</strong>
+            <em>正在同步 Excel 列、标注返回列和字段映射配置...</em>
+          </div>
           <div class="modal-actions">
             <button class="btn" type="button" id="cancelColumnSettings">取消</button>
             <button class="btn primary" type="button" id="saveColumnSettings">保存列设置</button>
@@ -715,6 +721,10 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   tableReadyForRealtime = false;
   if (!state.activeDatasetId) {
     if (table) {
+      if (tableScrollStateCleanup) {
+        tableScrollStateCleanup();
+        tableScrollStateCleanup = null;
+      }
       table.destroy();
       table = null;
       tableBuildKey = "";
@@ -748,7 +758,9 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     await reloadCurrentTableData();
     await tableReady;
     if (token !== refreshToken) return;
+    bindTableScrollState();
     restoreTableHorizontalScroll(horizontalScroll);
+    syncRightFrozenColumns();
     updateSortButtons();
     await refreshMetrics();
     syncStatusFilterMenu();
@@ -756,6 +768,10 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     setBatchButtonState();
     await loadLatestTask();
     return;
+  }
+  if (tableScrollStateCleanup) {
+    tableScrollStateCleanup();
+    tableScrollStateCleanup = null;
   }
   if (table) table.destroy();
   tableBuildKey = nextBuildKey;
@@ -840,11 +856,18 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   });
   table.on?.("rowSelectionChanged", setBatchButtonState);
   table.on?.("cellDblClick", (event, cell) => openCellDetail(cell));
-  table.on?.("pageLoaded", scheduleCompactPagination);
-  table.on?.("dataLoaded", scheduleCompactPagination);
+  table.on?.("pageLoaded", () => {
+    scheduleCompactPagination();
+    window.requestAnimationFrame(syncRightFrozenColumns);
+  });
+  table.on?.("dataLoaded", () => {
+    scheduleCompactPagination();
+    window.requestAnimationFrame(syncRightFrozenColumns);
+  });
   document.querySelector("#workbenchTable").ondblclick = handleTableCellDoubleClick;
   await tableReady;
   if (token !== refreshToken) return;
+  bindTableScrollState();
   restoreTableHorizontalScroll(horizontalScroll);
   updateSortButtons();
   scheduleCompactPagination();
@@ -949,9 +972,37 @@ function restoreTableHorizontalScroll(scrollLeft = 0) {
   window.requestAnimationFrame(() => {
     window.requestAnimationFrame(() => {
       const holder = getTableHolder();
-      if (holder) holder.scrollLeft = scrollLeft;
+      if (holder) {
+        holder.scrollLeft = scrollLeft;
+        syncRightFrozenColumns();
+      }
     });
   });
+}
+
+function bindTableScrollState() {
+  if (tableScrollStateCleanup) {
+    tableScrollStateCleanup();
+    tableScrollStateCleanup = null;
+  }
+  const holder = getTableHolder();
+  if (!holder) return;
+  const onScroll = () => syncRightFrozenColumns();
+  holder.addEventListener("scroll", onScroll, { passive: true });
+  tableScrollStateCleanup = () => holder.removeEventListener("scroll", onScroll);
+  syncRightFrozenColumns();
+}
+
+function syncRightFrozenColumns() {
+  const root = document.querySelector("#workbenchTable");
+  const holder = getTableHolder();
+  if (!root || !holder) return;
+  const maxScrollLeft = Math.max(0, holder.scrollWidth - holder.clientWidth);
+  const remainingRight = Math.max(0, maxScrollLeft - holder.scrollLeft);
+  const statusWidth = document.querySelector('#workbenchTable .tabulator-col[tabulator-field="状态"]')?.getBoundingClientRect?.().width || 88;
+  const correction = Math.max(0, Math.min(statusWidth, statusWidth - remainingRight));
+  root.style.setProperty("--right-frozen-correction", `${correction.toFixed(2)}px`);
+  root.classList.toggle("table-scroll-at-right-edge", correction > 0.5);
 }
 
 async function reloadCurrentTableData() {
@@ -1715,7 +1766,7 @@ function setBatchButtonState() {
   const distillButton = document.querySelector("#modelDistillButton");
   if (distillButton) {
     distillButton.disabled = selectedCount === 0;
-    distillButton.textContent = selectedCount > 0 ? `模型蒸馏 ${selectedCount}` : "模型蒸馏";
+    distillButton.textContent = selectedCount > 0 ? `知识蒸馏 ${selectedCount}` : "知识蒸馏";
   }
   const currentPage = document.querySelector("#selectCurrentPage");
   if (currentPage && selectedCount === 0) currentPage.checked = false;
@@ -3292,15 +3343,35 @@ async function openColumnSettings() {
     toast("请先选择场景和数据集");
     return;
   }
+  columnSettingsOriginalFontSize = tableFontSize;
+  setColumnSettingsLoading(true);
+  document.querySelector("#columnSettingsModal").classList.add("open");
   try {
     await refreshAvailableDatasetColumns();
     latestFieldMapping = await api(`/api/field-mapping?scene_id=${encodeURIComponent(state.activeSceneId)}`);
-    columnSettingsOriginalFontSize = tableFontSize;
     renderColumnSettings();
-    document.querySelector("#columnSettingsModal").classList.add("open");
   } catch (error) {
+    closeColumnSettings();
     toast(error.message);
+  } finally {
+    setColumnSettingsLoading(false);
   }
+}
+
+function setColumnSettingsLoading(loading) {
+  const grid = document.querySelector("#columnSettingsGrid");
+  const loadingPanel = document.querySelector("#columnSettingsLoading");
+  const saveButton = document.querySelector("#saveColumnSettings");
+  const selectAllButton = document.querySelector("#selectAllColumns");
+  const clearAllButton = document.querySelector("#clearAllColumns");
+  if (grid) {
+    grid.hidden = loading;
+    if (loading) grid.innerHTML = "";
+  }
+  if (loadingPanel) loadingPanel.hidden = !loading;
+  [saveButton, selectAllButton, clearAllButton].forEach((button) => {
+    if (button) button.disabled = loading;
+  });
 }
 
 async function refreshAvailableDatasetColumns() {

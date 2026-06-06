@@ -1,5 +1,5 @@
 import { renderManagePage } from "/pages/manage.js?v=20260606-model-radio-compact";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260606-model-distillation";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260606-workbench-scroll-right";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
 import { renderChatPage } from "/pages/chat.js?v=20260606-resource-draft";
 import { initComponents } from "/assets/components.js";

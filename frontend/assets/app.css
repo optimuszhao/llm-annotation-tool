@@ -1802,6 +1802,50 @@ button { cursor: pointer; }
   min-height: 0;
   overflow: auto;
 }
+.column-settings-modal #columnSettingsGrid[hidden] {
+  display: none !important;
+}
+.column-settings-loading {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  min-height: 360px;
+  padding: 28px;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--line));
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--primary-soft) 76%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, var(--surface-2)), var(--surface));
+  color: var(--muted);
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
+}
+.column-settings-loading[hidden] {
+  display: none !important;
+}
+.column-settings-loading .loading-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid color-mix(in srgb, var(--primary) 15%, var(--line));
+  border-top-color: var(--primary);
+  border-radius: 999px;
+  animation: columnSettingsSpin .8s linear infinite;
+}
+.column-settings-loading strong {
+  color: var(--text);
+  font-size: 15px;
+}
+.column-settings-loading em {
+  max-width: 360px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.6;
+}
+@keyframes columnSettingsSpin {
+  to { transform: rotate(360deg); }
+}
 .column-settings-modal .column-settings-section {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -6525,6 +6569,7 @@ body.table-focus-active .page.active {
 }
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
   overflow: hidden;
+  transform: translateX(var(--right-frozen-correction, 0px));
 }
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] .row-actions {
   position: relative;
