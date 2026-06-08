@@ -1,12 +1,13 @@
-import { toast } from "/assets/app.js";
+import { api, state, toast } from "/assets/app.js";
 
 let messages = [
   {
     role: "assistant",
-    text: "可以直接输入要测试的内容。当前页面调用独立的对话大模型方法，并按流式结果展示。",
+    text: "可以直接输入要测试的内容。当前页面调用独立的对话大模型方法，并返回完整回复。",
   },
 ];
 let sending = false;
+let selectedModelKey = "local:core_model";
 
 export function renderChatPage() {
   const root = document.querySelector("#page-chat");
@@ -18,14 +19,15 @@ export function renderChatPage() {
           <div>
             <p class="eyebrow">MODEL CHAT</p>
             <h1>对话大模型</h1>
-            <span>独立调用对话 Hook，适合快速测试模型问答、Prompt 表达和流式输出。</span>
+            <span>独立调用对话 Hook，适合快速测试模型问答和 Prompt 表达。</span>
           </div>
           <div class="chat-head-actions">
-            <div class="chat-method-card">
-              <span>调用入口</span>
-              <strong>对话流式方法</strong>
-              <em>user_hooks.llm_dialog_stream_function</em>
-            </div>
+            <label class="chat-model-field">
+              <span>对话模型</span>
+              <select class="select" id="chatModelSelect">
+                ${renderModelOptions()}
+              </select>
+            </label>
             <button class="btn" type="button" id="clearChatButton">清空对话</button>
           </div>
         </header>
@@ -61,6 +63,10 @@ function bindChatEvents() {
   const input = document.querySelector("#chatInput");
   if (!form || !input || form.dataset.ready === "true") return;
   form.dataset.ready = "true";
+  const modelSelect = document.querySelector("#chatModelSelect");
+  modelSelect?.addEventListener("change", () => {
+    selectedModelKey = modelSelect.value || "local:core_model";
+  });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     sendMessage();
@@ -108,23 +114,11 @@ async function sendMessage() {
   sending = true;
   renderChatPage();
   try {
-    const response = await fetch("/api/chat/stream", {
+    const payload = await api("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, model_key: "demo", history }),
+      body: JSON.stringify(buildChatPayload(text, history)),
     });
-    if (!response.ok) {
-      throw new Error(await response.text() || response.statusText);
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      assistantMessage.text += decoder.decode(value, { stream: true });
-      renderChatPage();
-    }
-    assistantMessage.text += decoder.decode();
+    assistantMessage.text = payload.text || payload.message || "";
     if (!assistantMessage.text.trim()) assistantMessage.text = "模型暂未返回内容。";
   } catch (error) {
     assistantMessage.text = `调用失败：${error.message}`;
@@ -133,6 +127,42 @@ async function sendMessage() {
     sending = false;
     renderChatPage();
   }
+}
+
+function renderModelOptions() {
+  const localOptions = [
+    { value: "local:core_model", label: "本地模型 · Core Model" },
+    { value: "local:del_model", label: "本地模型 · Del Model" },
+  ];
+  const marketOptions = (state.modelMarketConfigs || []).map((item) => ({
+    value: `market:${item.id}`,
+    label: `模型市场 · ${item.name}`,
+  }));
+  const groups = [
+    ["本地模型", localOptions],
+    ["模型市场", marketOptions],
+  ];
+  const allOptions = [...localOptions, ...marketOptions];
+  if (!allOptions.some((item) => item.value === selectedModelKey)) {
+    selectedModelKey = allOptions[0]?.value || "local:core_model";
+  }
+  return groups.map(([label, options]) => `
+    <optgroup label="${escapeHtml(label)}">
+      ${options.length
+        ? options.map((item) => `<option value="${escapeHtml(item.value)}" ${item.value === selectedModelKey ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")
+        : `<option value="" disabled>暂无模型市场配置</option>`}
+    </optgroup>
+  `).join("");
+}
+
+function buildChatPayload(text, history) {
+  const [modelType, modelKey] = String(selectedModelKey || "local:core_model").split(":");
+  return {
+    message: text,
+    history,
+    model_type: modelType || "local",
+    model_key: modelKey || "core_model",
+  };
 }
 
 function scrollChatToBottom() {

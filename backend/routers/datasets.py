@@ -61,6 +61,8 @@ def get_rows(
     sort_field: str = "",
     sort_dir: str = "asc",
     root_cause_value: str = "",
+    root_cause_positive: list[str] = Query(default=[]),
+    root_cause_negative: list[str] = Query(default=[]),
 ):
     return get_dataset_rows(
         dataset_id,
@@ -75,6 +77,8 @@ def get_rows(
         sort_field,
         sort_dir,
         root_cause_value,
+        root_cause_positive,
+        root_cause_negative,
     )
 
 

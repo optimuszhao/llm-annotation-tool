@@ -191,6 +191,34 @@ def init_db(recover_interrupted: bool = False) -> None:
                 FOREIGN KEY(scene_id) REFERENCES scenes(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS root_cause_baselines (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT NOT NULL,
+                polarity TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(scene_id, polarity, name),
+                FOREIGN KEY(scene_id) REFERENCES scenes(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS root_cause_row_links (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT NOT NULL,
+                dataset_id TEXT NOT NULL,
+                scheme_id TEXT NOT NULL DEFAULT '',
+                row_id TEXT NOT NULL,
+                role_name TEXT NOT NULL DEFAULT '',
+                polarity TEXT NOT NULL,
+                name TEXT NOT NULL,
+                answer_value TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(scene_id, dataset_id, scheme_id, row_id, role_name, polarity, name),
+                FOREIGN KEY(scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS model_market_configs (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
@@ -298,6 +326,8 @@ def init_db(recover_interrupted: bool = False) -> None:
             CREATE INDEX IF NOT EXISTS idx_evaluation_task_items_annotation ON evaluation_task_items(annotation_task_id);
             CREATE INDEX IF NOT EXISTS idx_row_analysis_history_row ON row_analysis_history(dataset_id, row_id);
             CREATE INDEX IF NOT EXISTS idx_model_market_configs_name ON model_market_configs(name);
+            CREATE INDEX IF NOT EXISTS idx_root_cause_baselines_scene ON root_cause_baselines(scene_id, polarity);
+            CREATE INDEX IF NOT EXISTS idx_root_cause_links_filter ON root_cause_row_links(dataset_id, scheme_id, polarity, name);
             """
         )
         ensure_column(conn, "schemes", "prompt_init_type", "TEXT NOT NULL DEFAULT 'auto'")

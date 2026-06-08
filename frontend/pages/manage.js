@@ -100,7 +100,7 @@ function renderSceneContent(activeScene) {
     { key: "knowledge", title: "知识库", action: "导入知识", meta: "保存业务规则、上下文和补充说明。", count: state.knowledge.length },
     { key: "errorSets", title: "fewshots样例", action: "整理样例", meta: "第一阶段保留结构和基础管理。", count: state.errorSets.length },
     { key: "fieldMapping", title: "算法输入输出字段映射", action: "配置字段", meta: "选择答案列、列表展示列和标注上下文字段。", count: columnOptions().length },
-    { key: "rootCause", title: "根因分类", action: "查看统计", meta: "按字段映射里的根因列统计最新标注结果。", count: state.datasets.length },
+    { key: "rootCause", title: "根因分类基线", action: "维护基线", meta: "维护正例和反例根因名称，用于筛选结果沉淀。", count: state.datasets.length },
   ];
   return `
     <div class="ref-manage-main">
@@ -502,61 +502,121 @@ async function openRootCauseModal() {
     toast("请先选择场景");
     return;
   }
-  openModal("根因分类统计", "统计当前场景下最新标注结果中的根因分类分布。", `
+  openModal("根因分类基线", "维护当前场景的正例、反例根因名称列表。", `
     <div class="root-cause-panel">
-      <div class="root-cause-loading">正在统计根因分类...</div>
+      <div class="root-cause-loading">正在读取根因基线...</div>
     </div>
   `, "modal-xl");
   try {
-    const summary = await api(`/api/root-cause/summary?scene_id=${encodeURIComponent(state.activeSceneId)}`);
+    const summary = await api(`/api/root-cause/baselines?scene_id=${encodeURIComponent(state.activeSceneId)}`);
     const panel = document.querySelector(".root-cause-panel");
-    if (panel) panel.innerHTML = renderRootCauseSummary(summary);
+    if (panel) {
+      panel.innerHTML = renderRootCauseBaselineManager(summary);
+      bindRootCauseBaselineEvents(panel);
+    }
   } catch (error) {
     const panel = document.querySelector(".root-cause-panel");
     if (panel) panel.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
   }
 }
 
-function renderRootCauseSummary(summary) {
-  const items = summary.items || [];
-  if (!summary.root_cause_column) {
-    return `<div class="empty">请先在“算法输入输出字段映射”中填写根因分类列。</div>`;
-  }
-  if (!items.length) {
-    return `<div class="empty">当前场景还没有可统计的根因分类结果。</div>`;
-  }
-  const max = Math.max(...items.map((item) => Number(item.count || 0)), 1);
+function renderRootCauseBaselineManager(summary) {
   return `
-    <section class="root-cause-chart-card">
-      <div class="root-cause-chart-head">
-        <div>
-          <strong>${escapeHtml(summary.root_cause_column)}</strong>
-          <span>共 ${Number(summary.total || 0).toLocaleString()} 条可统计结果</span>
-        </div>
-      </div>
-      <div class="root-cause-bars">
-        ${items.map((item) => {
-          const count = Number(item.count || 0);
-          const width = Math.max(8, Math.round((count / max) * 100));
-          return `
-            <div class="root-cause-bar-row">
-              <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
-              <div class="root-cause-bar-track"><i style="width:${width}%"></i></div>
-              <strong>${count.toLocaleString()}</strong>
-            </div>
-          `;
-        }).join("")}
-      </div>
-    </section>
-    <section class="root-cause-stat-list">
-      ${items.map((item) => `
-        <div class="root-cause-stat-item">
-          <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
-          <strong>${Number(item.count || 0).toLocaleString()}</strong>
-        </div>
-      `).join("")}
+    <section class="root-cause-baseline-grid">
+      ${renderRootCauseBaselineColumn("positive", "正例根因", summary.positive || [])}
+      ${renderRootCauseBaselineColumn("negative", "反例根因", summary.negative || [])}
     </section>
   `;
+}
+
+function renderRootCauseBaselineColumn(polarity, title, items) {
+  return `
+    <article class="root-cause-baseline-column" data-root-cause-baseline-column="${polarity}">
+      <div class="root-cause-baseline-head">
+        <strong>${title}</strong>
+        <span>${items.length} 项</span>
+      </div>
+      <form class="root-cause-baseline-add" data-root-cause-baseline-add="${polarity}">
+        <input class="input" name="name" placeholder="输入根因名称" autocomplete="off">
+        <button class="btn" type="submit" disabled>新增</button>
+      </form>
+      <div class="root-cause-baseline-list">
+        ${items.map((item) => `
+          <div class="root-cause-baseline-item" data-root-cause-baseline-id="${escapeHtml(item.id)}">
+            <input class="input" value="${escapeHtml(item.name)}" data-root-cause-baseline-name>
+            <button class="btn" type="button" data-root-cause-baseline-save>保存</button>
+            <button class="btn danger" type="button" data-root-cause-baseline-delete>删除</button>
+          </div>
+        `).join("") || `<div class="empty">暂无${title}</div>`}
+      </div>
+    </article>
+  `;
+}
+
+function bindRootCauseBaselineEvents(panel) {
+  panel.querySelectorAll("[data-root-cause-baseline-add]").forEach((form) => {
+    const input = form.querySelector('input[name="name"]');
+    const submit = form.querySelector('button[type="submit"]');
+    const syncSubmit = () => {
+      if (submit) submit.disabled = !String(input?.value || "").trim();
+    };
+    input?.addEventListener("input", syncSubmit);
+    syncSubmit();
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const polarity = form.dataset.rootCauseBaselineAdd;
+      const name = new FormData(form).get("name");
+      if (!String(name || "").trim()) return;
+      await api("/api/root-cause/baselines", {
+        method: "POST",
+        body: JSON.stringify({ scene_id: state.activeSceneId, polarity, name }),
+      });
+      await refreshRootCauseBaselineModal();
+      toast("根因基线已新增");
+    });
+  });
+  panel.querySelectorAll("[data-root-cause-baseline-save]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const item = button.closest("[data-root-cause-baseline-id]");
+      const column = button.closest("[data-root-cause-baseline-column]");
+      await api(`/api/root-cause/baselines/${encodeURIComponent(item.dataset.rootCauseBaselineId)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          polarity: column.dataset.rootCauseBaselineColumn,
+          name: item.querySelector("[data-root-cause-baseline-name]").value,
+        }),
+      });
+      await refreshRootCauseBaselineModal();
+      toast("根因基线已保存");
+    });
+  });
+  panel.querySelectorAll("[data-root-cause-baseline-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const item = button.closest("[data-root-cause-baseline-id]");
+      const column = button.closest("[data-root-cause-baseline-column]");
+      const name = item.querySelector("[data-root-cause-baseline-name]")?.value || "";
+      const polarity = column?.dataset.rootCauseBaselineColumn === "negative" ? "反例" : "正例";
+      const ok = await confirmAction({
+        title: "删除根因基线",
+        message: `确认删除${polarity}根因“${name || "未命名根因"}”？`,
+        details: ["删除后不会影响已标注的数据和历史记录。"],
+        confirmText: "删除根因",
+        variant: "danger",
+      });
+      if (!ok) return;
+      await api(`/api/root-cause/baselines/${encodeURIComponent(item.dataset.rootCauseBaselineId)}`, { method: "DELETE" });
+      await refreshRootCauseBaselineModal();
+      toast("根因基线已删除");
+    });
+  });
+}
+
+async function refreshRootCauseBaselineModal() {
+  const panel = document.querySelector(".root-cause-panel");
+  if (!panel || !state.activeSceneId) return;
+  const summary = await api(`/api/root-cause/baselines?scene_id=${encodeURIComponent(state.activeSceneId)}`);
+  panel.innerHTML = renderRootCauseBaselineManager(summary);
+  bindRootCauseBaselineEvents(panel);
 }
 
 function openModelMarketModal() {

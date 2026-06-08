@@ -34,7 +34,7 @@ let drawerResizeCleanup = null;
 let drawerAnalysisSplitCleanup = null;
 let statusFilters = new Set();
 let favoriteOnlyFilter = false;
-let rootCauseFilterValue = "";
+let rootCauseFilters = { positive: new Set(), negative: new Set() };
 let rootCauseSummaryCache = null;
 let columnFilter = { column: "", value: "", empty: false };
 let activeSort = { column: "", dir: "" };
@@ -378,10 +378,8 @@ export function renderWorkbenchPage() {
         </header>
         <div class="detail-drawer-toolbar">
           <div class="drawer-tabs" aria-label="行详情模式">
-            <button type="button" data-drawer-mode="view">查看</button>
             <button type="button" data-drawer-mode="result">标注结果</button>
             <button type="button" data-drawer-mode="analysis">分析</button>
-            <button type="button" data-drawer-mode="edit">编辑</button>
           </div>
           <div class="drawer-actions" id="drawerEditActions" hidden>
             <button class="btn" type="button" id="drawerExitEdit" hidden>退出编辑</button>
@@ -764,7 +762,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     fixedMappingColumns(allConfigurableColumns()).join("\u001f"),
     pageButtonCount,
     `${columnFilter.column}\u001f${columnFilter.value}\u001f${columnFilter.empty ? "empty" : ""}`,
-    rootCauseFilterValue,
+    rootCauseFilterKey(),
   ].join("\u001e");
   if (table && tableBuildKey === nextBuildKey) {
     const tableReady = waitForNextTableAjax();
@@ -1150,7 +1148,8 @@ function buildRowsQuery(page, pageSize, tableParams = {}) {
   params.set("search_column", columnFilter.column || "");
   if (columnFilter.empty) params.set("empty", "true");
   if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
-  if (rootCauseFilterValue) params.set("root_cause_value", rootCauseFilterValue);
+  rootCauseFilters.positive.forEach((value) => params.append("root_cause_positive", value));
+  rootCauseFilters.negative.forEach((value) => params.append("root_cause_negative", value));
   statusFilters.forEach((status) => params.append("statuses", status));
   if (favoriteOnlyFilter) params.set("favorite", "true");
   if (activeSort.column) {
@@ -1409,7 +1408,7 @@ async function saveWorkbenchSourcePreference() {
 function resetWorkbenchQueryState() {
   statusFilters = new Set();
   favoriteOnlyFilter = false;
-  rootCauseFilterValue = "";
+  rootCauseFilters = { positive: new Set(), negative: new Set() };
   rootCauseSummaryCache = null;
   columnFilter = { column: "", value: "", empty: false };
   syncFavoriteFilterButton();
@@ -1878,37 +1877,68 @@ function rootCauseFilterMenuHtml(summary) {
   if (!summary?.root_cause_column) {
     return `<div class="root-cause-filter-empty">请先配置根因分类列</div>`;
   }
-  const items = summary.items || [];
-  if (!items.length) {
-    return `
-      <div class="root-cause-filter-head">
-        <span>${escapeHtml(summary.root_cause_column)}</span>
-        <button type="button" data-root-cause-value="">全部</button>
-      </div>
-      <div class="root-cause-filter-empty">当前数据暂无根因分类结果</div>
-    `;
-  }
+  const positive = summary.positive || [];
+  const negative = summary.negative || [];
   return `
     <div class="root-cause-filter-head">
       <span>${escapeHtml(summary.root_cause_column)}</span>
-      <button type="button" data-root-cause-value="">全部</button>
+      <button type="button" data-root-cause-action="clear">清空</button>
     </div>
-    <div class="root-cause-filter-list">
-      ${items.map((item) => `
-        <button class="${item.name === rootCauseFilterValue ? "active" : ""}" type="button" data-root-cause-value="${escapeHtml(item.name)}">
-          <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
-          <strong>${Number(item.count || 0).toLocaleString()}</strong>
-        </button>
-      `).join("")}
+    <div class="root-cause-filter-columns">
+      ${rootCauseFilterColumnHtml("positive", "正例", positive)}
+      ${rootCauseFilterColumnHtml("negative", "反例", negative)}
+    </div>
+    <div class="root-cause-filter-actions">
+      <button type="button" data-root-cause-action="baseline">一键添加根因基线</button>
+      <button type="button" data-root-cause-action="apply">筛选数据</button>
     </div>
   `;
 }
 
+function rootCauseFilterColumnHtml(polarity, title, items) {
+  const selected = rootCauseFilters[polarity] || new Set();
+  return `
+    <section class="root-cause-filter-column">
+      <div class="root-cause-filter-column-title">
+        <strong>${title}</strong>
+        <span>${items.length} 项</span>
+      </div>
+      <div class="root-cause-filter-list">
+        ${items.map((item) => `
+          <label class="${selected.has(item.name) ? "active" : ""}">
+            <input type="checkbox" value="${escapeHtml(item.name)}" data-root-cause-choice="${polarity}" ${selected.has(item.name) ? "checked" : ""}>
+            <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+            <strong>${Number(item.count || 0).toLocaleString()}</strong>
+          </label>
+        `).join("") || `<div class="root-cause-filter-empty">暂无${title}根因</div>`}
+      </div>
+    </section>
+  `;
+}
+
 async function handleRootCauseFilterMenuClick(event) {
-  const button = event.target.closest("[data-root-cause-value]");
-  if (!button) return;
+  const checkbox = event.target.closest("[data-root-cause-choice]");
+  if (checkbox) {
+    const polarity = checkbox.dataset.rootCauseChoice;
+    if (checkbox.checked) rootCauseFilters[polarity].add(checkbox.value);
+    else rootCauseFilters[polarity].delete(checkbox.value);
+    checkbox.closest("label")?.classList.toggle("active", checkbox.checked);
+    syncRootCauseFilterButton();
+    return;
+  }
+  const action = event.target.closest("[data-root-cause-action]")?.dataset.rootCauseAction;
+  if (!action) return;
   event.preventDefault();
-  rootCauseFilterValue = button.dataset.rootCauseValue || "";
+  if (action === "clear") {
+    rootCauseFilters = { positive: new Set(), negative: new Set() };
+    await loadRootCauseFilterMenu();
+    syncRootCauseFilterButton();
+    return;
+  }
+  if (action === "baseline") {
+    await addSelectedRootCauseBaselines();
+    return;
+  }
   closeMenus();
   syncRootCauseFilterButton();
   await refreshWorkbench();
@@ -1917,8 +1947,40 @@ async function handleRootCauseFilterMenuClick(event) {
 function syncRootCauseFilterButton() {
   const button = document.querySelector("#rootCauseFilterButton");
   if (!button) return;
-  button.textContent = rootCauseFilterValue ? `根因：${rootCauseFilterValue}` : "根因分析筛选";
-  button.classList.toggle("active", Boolean(rootCauseFilterValue));
+  const count = rootCauseFilterCount();
+  button.textContent = count ? `根因筛选 ${count}` : "根因分析筛选";
+  button.classList.toggle("active", count > 0);
+}
+
+function rootCauseFilterCount() {
+  return rootCauseFilters.positive.size + rootCauseFilters.negative.size;
+}
+
+function rootCauseFilterKey() {
+  return [
+    [...rootCauseFilters.positive].sort().join(","),
+    [...rootCauseFilters.negative].sort().join(","),
+  ].join("|");
+}
+
+async function addSelectedRootCauseBaselines() {
+  if (!state.activeSceneId) {
+    toast("请先选择场景");
+    return;
+  }
+  const items = [
+    ...[...rootCauseFilters.positive].map((name) => ({ polarity: "positive", name })),
+    ...[...rootCauseFilters.negative].map((name) => ({ polarity: "negative", name })),
+  ];
+  if (!items.length) {
+    toast("请先选择要加入基线的根因");
+    return;
+  }
+  await api("/api/root-cause/baselines/bulk", {
+    method: "POST",
+    body: JSON.stringify({ scene_id: state.activeSceneId, items }),
+  });
+  toast(`已加入 ${items.length} 个根因基线`);
 }
 
 function toggleStatusFilterMenu(button) {
@@ -2434,9 +2496,9 @@ function fallbackCopyText(content, message = "已复制单元格内容") {
   toast(message);
 }
 
-async function openRowDrawer(rowData, mode = "view") {
+async function openRowDrawer(rowData, mode = "result") {
   if (!rowData?.row_id || !state.activeDatasetId) return;
-  drawerMode = "view";
+  drawerMode = "result";
   drawerEditDirty = false;
   drawerRow = { ...rowData, __is_full: false };
   drawerFullFields = new Set();
@@ -2452,7 +2514,7 @@ async function openRowDrawer(rowData, mode = "view") {
   document.querySelector("#drawerAnalysisResults").innerHTML = `<div class="empty">正在读取分析结果...</div>`;
   initializeDrawerColumns();
   renderDrawerPayload();
-  await setDrawerMode(mode);
+  await setDrawerMode(normalizeDrawerMode(mode));
 }
 
 function closeRowDrawer() {
@@ -2467,9 +2529,16 @@ function closeRowDrawer() {
 function initializeDrawerColumns() {
   const raw = drawerEditableData();
   const keys = Object.keys(raw);
-  const preferred = latestFieldMapping?.visible_columns?.filter((column) => keys.includes(column)) || [];
-  const defaults = preferred.length ? preferred : keys.slice(0, Math.min(keys.length, 10));
+  const resultColumns = new Set([...(availableModelResultColumns || []), ...keys.filter((key) => key.startsWith(ANALYSIS_RESULT_COLUMN_PREFIX))]);
+  const excelColumns = new Set((availableDatasetColumns || []).filter((column) => !resultColumns.has(column)));
+  const excelKeys = keys.filter((key) => excelColumns.has(key));
+  const preferred = latestFieldMapping?.visible_columns?.filter((column) => keys.includes(column) && excelColumns.has(column)) || [];
+  const defaults = preferred.length ? preferred : excelKeys.slice(0, Math.min(excelKeys.length, 10));
   drawerSelectedColumns = new Set(defaults);
+}
+
+function normalizeDrawerMode(mode) {
+  return ["result", "analysis"].includes(mode) ? mode : "result";
 }
 
 function renderDrawerPayload() {
@@ -2488,6 +2557,7 @@ function renderDrawerPayload() {
 
 async function setDrawerMode(mode) {
   if (!drawerRow) return;
+  mode = normalizeDrawerMode(mode);
   drawerMode = mode;
   drawerEditDirty = false;
   document.querySelector("#drawerViewPane").hidden = mode !== "view";
@@ -2507,18 +2577,9 @@ async function setDrawerMode(mode) {
   document.querySelectorAll("[data-drawer-mode]").forEach((button) => {
     button.classList.toggle("active", button.dataset.drawerMode === mode);
   });
-  if (["edit", "result"].includes(mode) && !drawerRow.__is_full) {
-    if (mode === "edit") {
-      document.querySelector("#drawerEditor").value = "正在加载完整行数据...";
-      document.querySelector("#drawerEditStatus").textContent = "加载中";
-    }
+  if (["result"].includes(mode) && !drawerRow.__is_full) {
     await ensureDrawerFullRow();
     if (drawerMode !== mode) return;
-  }
-  if (mode === "edit") {
-    document.querySelector("#drawerEditor").value = JSON.stringify(drawerEditableData(), null, 2);
-    document.querySelector("#drawerEditStatus").textContent = "修改后点击保存";
-    renderDrawerEditAnalysis();
   }
   if (mode === "analysis") {
     renderDrawerAnalysisRaw();
@@ -3790,10 +3851,11 @@ async function stopCurrentTask() {
     return;
   }
   const queued = currentTask.queued_count || 0;
+  const running = currentTask.running_count || 0;
   const ok = await confirmAction({
     title: "停止未完成标注",
     message: "确认停止未完成标注？",
-    details: [`当前还有 ${queued} 条任务正在排队。`],
+    details: [`当前还有 ${queued} 条排队中、${running} 条标注中。`, "标注中的调用会在返回后丢弃结果并保持取消状态。"],
     confirmText: "停止任务",
     variant: "warning",
   });
@@ -3804,7 +3866,7 @@ async function stopCurrentTask() {
     updateTaskStrip(currentTask);
     markRowsCancelled(result.cancelled_row_ids || []);
     scheduleMetricsRefresh(0);
-    toast(`已停止 ${result.cancelled_count || queued} 条排队任务`);
+    toast(`已停止 ${result.cancelled_count || queued + running} 条未完成标注`);
   } catch (error) {
     toast(error.message);
   }
@@ -4261,11 +4323,11 @@ function updateTaskStrip(task) {
 async function handleRowAction(action, rowId) {
   const rowData = getVisibleRowData(rowId);
   if (action === "view") {
-    if (rowData) openRowDrawer(rowData);
+    if (rowData) openRowDrawer(rowData, "result");
     return;
   }
   if (action === "edit") {
-    if (rowData) openRowDrawer(rowData, "edit");
+    if (rowData) openRowDrawer(rowData, "result");
     return;
   }
   if (action === "export") {
@@ -4301,7 +4363,7 @@ async function stopRowTask(rowId) {
   const ok = await confirmAction({
     title: "停止当前行任务",
     message: "确认停止当前行所属任务的未完成标注？",
-    details: [`当前行状态：${status || "未知"}`, "排队中的数据会取消，正在标注的数据会自然完成。"],
+    details: [`当前行状态：${status || "未知"}`, "排队中和标注中的数据都会进入取消状态。"],
     confirmText: "停止任务",
     variant: "warning",
   });
@@ -4313,7 +4375,7 @@ async function stopRowTask(rowId) {
     markRowsCancelled(result.cancelled_row_ids || []);
     await refreshMetrics();
     if (currentTask?.id === result.task?.id) updateTaskStrip(result.task);
-    toast(`已停止 ${result.cancelled_count || 0} 条排队任务`);
+    toast(`已停止 ${result.cancelled_count || 0} 条未完成标注`);
   } catch (error) {
     toast(error.message);
   }

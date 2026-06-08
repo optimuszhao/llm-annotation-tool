@@ -1,7 +1,7 @@
-import { renderManagePage } from "/pages/manage.js?v=20260606-package-label";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260606-workbench-scroll-right";
+import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-confirm";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260608-stop-running-task";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
-import { renderChatPage } from "/pages/chat.js?v=20260606-resource-draft";
+import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
 import { initComponents } from "/assets/components.js";
 
 export const state = {

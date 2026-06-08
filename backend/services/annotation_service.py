@@ -154,18 +154,18 @@ def stop_unfinished(task_id: str) -> dict:
         queued_rows = conn.execute(
             """
             SELECT row_id FROM annotation_task_rows
-            WHERE task_id=? AND status=?
+            WHERE task_id=? AND status IN (?, ?)
             """,
-            (task_id, ROW_STATUS_QUEUED),
+            (task_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING),
         ).fetchall()
         queued_row_ids = [row["row_id"] for row in queued_rows]
         conn.execute(
             """
             UPDATE annotation_task_rows
-            SET status=?, updated_at=?, finished_at=?
-            WHERE task_id=? AND status=?
+            SET status=?, updated_at=?, finished_at=COALESCE(finished_at, ?)
+            WHERE task_id=? AND status IN (?, ?)
             """,
-            (ROW_STATUS_CANCELLED, timestamp, timestamp, task_id, ROW_STATUS_QUEUED),
+            (ROW_STATUS_CANCELLED, timestamp, timestamp, task_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING),
         )
         if queued_row_ids:
             _update_scene_rows_status(conn, table_name, queued_row_ids, ROW_STATUS_CANCELLED, task_id, timestamp)
@@ -848,37 +848,56 @@ def _run_task_row(task_id: str, task_row_id: str) -> None:
 
 
 def _annotate_row(task_id: str, task_row_id: str) -> dict:
+    was_cancelled = False
     with get_db() as conn:
         task = conn.execute("SELECT * FROM annotation_tasks WHERE id=?", (task_id,)).fetchone()
         dataset, scene, scheme = _load_dataset_scene_scheme(conn, task["dataset_id"], task["scheme_id"])
         table_name = scene["data_table_name"]
         task_row = conn.execute("SELECT * FROM annotation_task_rows WHERE id=?", (task_row_id,)).fetchone()
-        row = conn.execute(
-            f"SELECT * FROM {table_name} WHERE id=? AND dataset_id=?",
-            (task_row["row_id"], task["dataset_id"]),
-        ).fetchone()
-        field_mapping = _get_field_mapping(conn, scene["id"])
-        resources = _get_scheme_resources(conn, scheme["id"])
-        model_config = get_model_market_config(scheme.get("model_key", "")) or {}
-        row_data = decode_json(row["raw_data"], {})
+        if not task_row:
+            raise ValueError("标注任务行不存在")
+        was_cancelled = task_row["status"] == ROW_STATUS_CANCELLED
+        if was_cancelled:
+            row = None
+        else:
+            row = conn.execute(
+                f"SELECT * FROM {table_name} WHERE id=? AND dataset_id=?",
+                (task_row["row_id"], task["dataset_id"]),
+            ).fetchone()
+        if was_cancelled:
+            field_mapping = {}
+            resources = []
+            model_config = {}
+            row_data = {}
+        else:
+            field_mapping = _get_field_mapping(conn, scene["id"])
+            resources = _get_scheme_resources(conn, scheme["id"])
+            model_config = get_model_market_config(scheme.get("model_key", "")) or {}
+            row_data = decode_json(row["raw_data"], {})
         context = {
             "task_id": task_id,
             "task_row_id": task_row_id,
             "dataset_id": task["dataset_id"],
             "scheme_id": task["scheme_id"],
-            "row_id": row["id"],
-            "row_index": row["row_index"],
+            "row_id": task_row["row_id"],
+            "row_index": task_row["row_index"],
             "field_mapping": field_mapping,
             "row_data": row_data,
             "model_config": model_config,
             "model_market_config": model_config,
         }
+    if was_cancelled:
+        return _mark_row_cancelled(task_id, task_row_id)
 
     rendered_prompts = _render_prompt(scheme, resources, field_mapping, row_data, context)
     rendered_prompt = encode_json(rendered_prompts)
+    if _is_task_row_cancelled(task_row_id):
+        return _mark_row_cancelled(task_id, task_row_id, rendered_prompt=rendered_prompt)
     model_result = _call_scheme_method(scheme, rendered_prompts, context)
     if not isinstance(model_result, dict):
         raise ValueError("标注方法必须返回 dict")
+    if _is_task_row_cancelled(task_row_id):
+        return _mark_row_cancelled(task_id, task_row_id, rendered_prompt=rendered_prompt)
 
     model_answer_column = field_mapping.get("model_answer_column") or ""
     human_answer_column = field_mapping.get("human_answer_column") or ""
@@ -890,6 +909,8 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
     status = _judge_confusion_status(row_data.get(human_answer_column), model_result.get(model_answer_column))
     timestamp = now_iso()
     model_result["标注耗时"] = _format_annotation_duration(task_row.get("started_at"), timestamp)
+    if _is_task_row_cancelled(task_row_id):
+        return _mark_row_cancelled(task_id, task_row_id, rendered_prompt=rendered_prompt)
 
     with get_db() as conn:
         task = conn.execute("SELECT * FROM annotation_tasks WHERE id=?", (task_id,)).fetchone()
@@ -967,6 +988,8 @@ def _format_annotation_duration(started_at: str | None, finished_at: str | None)
 
 
 def _mark_row_failed(task_id: str, task_row_id: str, error: str) -> dict:
+    if _is_task_row_cancelled(task_row_id):
+        return _mark_row_cancelled(task_id, task_row_id)
     timestamp = now_iso()
     with get_db() as conn:
         task = conn.execute("SELECT * FROM annotation_tasks WHERE id=?", (task_id,)).fetchone()
@@ -996,6 +1019,46 @@ def _mark_row_failed(task_id: str, task_row_id: str, error: str) -> dict:
         "row_id": task_row["row_id"],
         "status": ROW_STATUS_FAILED,
         "error": error,
+        "metrics": get_dataset_metrics(dataset_id, task["scheme_id"]),
+        "task": get_annotation_task(task_id),
+    }
+
+
+def _is_task_row_cancelled(task_row_id: str) -> bool:
+    with get_db() as conn:
+        row = conn.execute("SELECT status FROM annotation_task_rows WHERE id=?", (task_row_id,)).fetchone()
+    return bool(row and row["status"] == ROW_STATUS_CANCELLED)
+
+
+def _mark_row_cancelled(task_id: str, task_row_id: str, rendered_prompt: str = "") -> dict:
+    timestamp = now_iso()
+    with get_db() as conn:
+        task = conn.execute("SELECT * FROM annotation_tasks WHERE id=?", (task_id,)).fetchone()
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (task["scene_id"],)).fetchone()
+        task_row = conn.execute("SELECT * FROM annotation_task_rows WHERE id=?", (task_row_id,)).fetchone()
+        table_name = scene["data_table_name"]
+        conn.execute(
+            """
+            UPDATE annotation_task_rows
+            SET status=?, rendered_prompt=COALESCE(NULLIF(?, ''), rendered_prompt), updated_at=?, finished_at=COALESCE(finished_at, ?)
+            WHERE id=?
+            """,
+            (ROW_STATUS_CANCELLED, rendered_prompt, timestamp, timestamp, task_row_id),
+        )
+        conn.execute(
+            f"""
+            UPDATE {table_name}
+            SET annotation_status=?, annotation_task_id=?, updated_at=?
+            WHERE id=? AND annotation_task_id=?
+            """,
+            (ROW_STATUS_CANCELLED, task_id, timestamp, task_row["row_id"], task_id),
+        )
+        _refresh_task_counts(conn, task_id, timestamp)
+        dataset_id = task["dataset_id"]
+
+    return {
+        "row_id": task_row["row_id"],
+        "status": ROW_STATUS_CANCELLED,
         "metrics": get_dataset_metrics(dataset_id, task["scheme_id"]),
         "task": get_annotation_task(task_id),
     }

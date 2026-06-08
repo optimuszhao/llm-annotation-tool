@@ -76,3 +76,34 @@ def llm_dialog_stream_function(payload: dict) -> Iterator[str]:
     for chunk in chunks:
         time.sleep(0.25)
         yield chunk
+
+
+def llm_dialog_function(payload: dict) -> str:
+    """对话页面普通调用入口。
+
+    这个方法专门给“对话大模型”页面使用，返回完整字符串。
+
+    入参：
+    - `payload["message"]`：用户本次输入。
+    - `payload["history"]`：历史对话列表，元素格式为 {"role": "user" | "assistant", "content": "..."}。
+    - `payload["model_type"]`：local 或 market。
+    - `payload["model_key"]`：本地模型 key 或模型市场配置 id。
+    - `payload["model_config"]`：模型市场配置。选择本地模型时为空 dict。
+
+    正式接入建议：
+    - local/Core Model：在这里转发公司内部本地模型。
+    - market：读取 `payload["model_config"]` 中的 URL、API Key、Model Name 后发起请求。
+    """
+    time.sleep(1)
+    message = payload.get("message", "")
+    model_type = payload.get("model_type") or "local"
+    model_key = payload.get("model_key") or "core_model"
+    model_config = payload.get("model_config") or {}
+    model_name = model_config.get("name") or model_config.get("model_name") or model_key
+    return (
+        "这是对话页面的 Mock 回复。\n"
+        f"模型来源：{model_type}\n"
+        f"模型名称：{model_name}\n"
+        f"当前输入：{message}\n\n"
+        "正式环境请在 user_hooks/llm_chat.py 的 llm_dialog_function 中接入真实对话模型。"
+    )

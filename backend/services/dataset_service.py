@@ -461,6 +461,8 @@ def get_dataset_rows(
     sort_field: str = "",
     sort_dir: str = "asc",
     root_cause_value: str = "",
+    root_cause_positive: Optional[list[str]] = None,
+    root_cause_negative: Optional[list[str]] = None,
 ) -> dict:
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
@@ -616,6 +618,32 @@ def get_dataset_rows(
                     ))=?
                 """
                 params.extend([result_path, raw_path, root_cause_text])
+        root_cause_filter_clauses: list[str] = []
+        root_cause_filter_params: list[Any] = []
+        for polarity, values in (
+            ("positive", root_cause_positive or []),
+            ("negative", root_cause_negative or []),
+        ):
+            names = [str(value).strip() for value in values if str(value).strip()]
+            if not names:
+                continue
+            placeholders = ", ".join(["?"] * len(names))
+            root_cause_filter_clauses.append(
+                f"""
+                {base_alias + '.' if base_alias else ''}id IN (
+                  SELECT row_id
+                  FROM root_cause_row_links
+                  WHERE dataset_id=?
+                    AND scheme_id=?
+                    AND polarity=?
+                    AND name IN ({placeholders})
+                )
+                """
+            )
+            root_cause_filter_params.extend([dataset_id, scheme_id or "", polarity, *names])
+        if root_cause_filter_clauses:
+            where += f" AND ({' OR '.join(root_cause_filter_clauses)})"
+            params.extend(root_cause_filter_params)
         if favorite_only:
             where += f" AND {base_alias + '.' if base_alias else ''}is_favorite=1"
         order_params: list[Any] = []
