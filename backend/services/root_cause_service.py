@@ -134,6 +134,22 @@ def bulk_add_root_cause_baselines(scene_id: str, items: list[dict]) -> dict:
     return list_root_cause_baselines(scene_id)
 
 
+def bulk_delete_root_cause_baselines(scene_id: str, ids: list[str]) -> dict:
+    clean_ids = [str(item or "").strip() for item in ids if str(item or "").strip()]
+    with get_db() as conn:
+        _ensure_scene(conn, scene_id)
+        if clean_ids:
+            placeholders = ", ".join(["?"] * len(clean_ids))
+            conn.execute(
+                f"""
+                DELETE FROM root_cause_baselines
+                WHERE scene_id=? AND id IN ({placeholders})
+                """,
+                (scene_id, *clean_ids),
+            )
+    return list_root_cause_baselines(scene_id)
+
+
 def get_root_cause_summary(scene_id: str, dataset_id: str = "", scheme_id: str = "") -> dict:
     with get_db() as conn:
         scene = conn.execute("SELECT * FROM scenes WHERE id=?", (scene_id,)).fetchone()

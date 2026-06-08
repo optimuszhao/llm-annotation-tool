@@ -4,6 +4,7 @@ from fastapi import APIRouter, Body
 
 from backend.services.root_cause_service import (
     bulk_add_root_cause_baselines,
+    bulk_delete_root_cause_baselines,
     create_root_cause_baseline,
     delete_root_cause_baseline,
     get_root_cause_summary,
@@ -50,3 +51,8 @@ def remove_baseline(baseline_id: str):
 @router.post("/baselines/bulk")
 def post_baselines_bulk(payload: dict = Body(...)):
     return bulk_add_root_cause_baselines(payload.get("scene_id", ""), payload.get("items", []))
+
+
+@router.post("/baselines/bulk-delete")
+def post_baselines_bulk_delete(payload: dict = Body(...)):
+    return bulk_delete_root_cause_baselines(payload.get("scene_id", ""), payload.get("ids", []))

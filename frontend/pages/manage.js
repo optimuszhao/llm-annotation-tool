@@ -537,16 +537,34 @@ function renderRootCauseBaselineColumn(polarity, title, items) {
   return `
     <article class="root-cause-baseline-column" data-root-cause-baseline-column="${polarity}">
       <div class="root-cause-baseline-head">
-        <strong>${title}</strong>
-        <span>${items.length} 项</span>
+        <div>
+          <strong>${title}</strong>
+          <span>${items.length} 项</span>
+        </div>
+        <div class="root-cause-baseline-tools">
+          <button class="btn" type="button" data-root-cause-baseline-import-open>快速导入</button>
+          <button class="btn danger" type="button" data-root-cause-baseline-bulk-delete disabled>批量删除</button>
+        </div>
       </div>
       <form class="root-cause-baseline-add" data-root-cause-baseline-add="${polarity}">
         <input class="input" name="name" placeholder="输入根因名称" autocomplete="off">
         <button class="btn" type="submit" disabled>新增</button>
       </form>
+      <form class="root-cause-baseline-import" data-root-cause-baseline-import="${polarity}" hidden>
+        <textarea class="input" name="names" placeholder="一行一个根因基线，可直接粘贴 Excel 某一列"></textarea>
+        <div class="root-cause-baseline-import-actions">
+          <span>会自动忽略空行和重复项</span>
+          <button class="btn" type="button" data-root-cause-baseline-import-cancel>取消</button>
+          <button class="btn primary" type="submit">批量添加</button>
+        </div>
+      </form>
       <div class="root-cause-baseline-list">
         ${items.map((item) => `
           <div class="root-cause-baseline-item" data-root-cause-baseline-id="${escapeHtml(item.id)}">
+            <label class="root-cause-baseline-check">
+              <input type="checkbox" data-root-cause-baseline-select value="${escapeHtml(item.id)}" aria-label="选择 ${escapeHtml(item.name)}">
+              <span></span>
+            </label>
             <input class="input" value="${escapeHtml(item.name)}" data-root-cause-baseline-name>
             <button class="btn" type="button" data-root-cause-baseline-save>保存</button>
             <button class="btn danger" type="button" data-root-cause-baseline-delete>删除</button>
@@ -558,6 +576,74 @@ function renderRootCauseBaselineColumn(polarity, title, items) {
 }
 
 function bindRootCauseBaselineEvents(panel) {
+  panel.querySelectorAll("[data-root-cause-baseline-column]").forEach((column) => {
+    syncRootCauseBulkDeleteButton(column);
+  });
+  panel.querySelectorAll("[data-root-cause-baseline-select]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const column = checkbox.closest("[data-root-cause-baseline-column]");
+      if (column) syncRootCauseBulkDeleteButton(column);
+    });
+  });
+  panel.querySelectorAll("[data-root-cause-baseline-import-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const column = button.closest("[data-root-cause-baseline-column]");
+      const form = column?.querySelector("[data-root-cause-baseline-import]");
+      if (!form) return;
+      form.hidden = false;
+      form.querySelector("textarea")?.focus();
+    });
+  });
+  panel.querySelectorAll("[data-root-cause-baseline-import-cancel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const form = button.closest("[data-root-cause-baseline-import]");
+      if (!form) return;
+      form.reset();
+      form.hidden = true;
+    });
+  });
+  panel.querySelectorAll("[data-root-cause-baseline-import]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const polarity = form.dataset.rootCauseBaselineImport;
+      const names = parseRootCauseBaselineLines(new FormData(form).get("names"));
+      if (!names.length) {
+        toast("请粘贴需要导入的根因基线");
+        return;
+      }
+      await api("/api/root-cause/baselines/bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          scene_id: state.activeSceneId,
+          items: names.map((name) => ({ polarity, name })),
+        }),
+      });
+      await refreshRootCauseBaselineModal();
+      toast(`已导入 ${names.length} 条根因基线`);
+    });
+  });
+  panel.querySelectorAll("[data-root-cause-baseline-bulk-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const column = button.closest("[data-root-cause-baseline-column]");
+      const ids = selectedRootCauseBaselineIds(column);
+      if (!ids.length) return;
+      const polarity = column?.dataset.rootCauseBaselineColumn === "negative" ? "反例" : "正例";
+      const ok = await confirmAction({
+        title: "批量删除根因基线",
+        message: `确认删除选中的 ${ids.length} 条${polarity}根因基线？`,
+        details: ["删除后不会影响已标注的数据和历史记录。"],
+        confirmText: "批量删除",
+        variant: "danger",
+      });
+      if (!ok) return;
+      await api("/api/root-cause/baselines/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ scene_id: state.activeSceneId, ids }),
+      });
+      await refreshRootCauseBaselineModal();
+      toast(`已删除 ${ids.length} 条根因基线`);
+    });
+  });
   panel.querySelectorAll("[data-root-cause-baseline-add]").forEach((form) => {
     const input = form.querySelector('input[name="name"]');
     const submit = form.querySelector('button[type="submit"]');
@@ -613,6 +699,35 @@ function bindRootCauseBaselineEvents(panel) {
       toast("根因基线已删除");
     });
   });
+}
+
+function parseRootCauseBaselineLines(value) {
+  const seen = new Set();
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((name) => {
+      const key = name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function selectedRootCauseBaselineIds(column) {
+  if (!column) return [];
+  return [...column.querySelectorAll("[data-root-cause-baseline-select]:checked")]
+    .map((input) => input.value)
+    .filter(Boolean);
+}
+
+function syncRootCauseBulkDeleteButton(column) {
+  const button = column?.querySelector("[data-root-cause-baseline-bulk-delete]");
+  if (!button) return;
+  const count = selectedRootCauseBaselineIds(column).length;
+  button.disabled = count === 0;
+  button.textContent = count ? `批量删除 ${count}` : "批量删除";
 }
 
 async function refreshRootCauseBaselineModal() {

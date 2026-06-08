@@ -249,17 +249,18 @@
 .root-cause-baseline-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
   height: 100%;
   min-height: 0;
 }
 
 .root-cause-baseline-column {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 12px;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  align-content: stretch;
+  gap: 10px;
   min-height: 0;
-  padding: 14px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background:
@@ -281,6 +282,12 @@
   gap: 10px;
 }
 
+.root-cause-baseline-head > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
 .root-cause-baseline-head strong {
   color: var(--text);
   font-size: 15px;
@@ -290,6 +297,21 @@
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.root-cause-baseline-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.root-cause-baseline-tools .btn {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .root-cause-baseline-add,
@@ -308,13 +330,101 @@
   opacity: .58;
 }
 
+.root-cause-baseline-import {
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: start;
+  gap: 10px;
+  height: auto;
+  min-height: auto;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--line));
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-soft) 34%, transparent), transparent 64%),
+    color-mix(in srgb, var(--surface) 92%, var(--surface-2));
+}
+
+.root-cause-baseline-import[hidden] {
+  display: none !important;
+}
+
+.root-cause-baseline-import textarea {
+  height: 132px;
+  min-height: 132px;
+  max-height: 220px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.root-cause-baseline-import-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.root-cause-baseline-import-actions span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .root-cause-baseline-item {
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  min-height: 40px;
-  padding: 6px;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+  min-height: 38px;
+  padding: 5px;
   border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+
+.root-cause-baseline-item .btn {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.root-cause-baseline-check {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+
+.root-cause-baseline-check input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.root-cause-baseline-check span {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.65);
+}
+
+.root-cause-baseline-check input:checked + span {
+  border-color: var(--primary);
+  background:
+    linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 70%, var(--accent)));
+}
+
+.root-cause-baseline-check input:checked + span::after {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 4px;
+  margin: 4px 0 0 3px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg);
 }
 
 .root-cause-baseline-list {
@@ -1484,6 +1594,7 @@ button { cursor: pointer; }
   overflow: hidden;
 }
 .root-cause-baseline-modal {
+  width: min(1480px, 96vw);
   height: 88dvh;
   max-height: calc(100dvh - 16px);
 }
@@ -2357,6 +2468,9 @@ button { cursor: pointer; }
 .modal-xl {
   width: min(1180px, 96vw);
   max-height: min(820px, calc(100dvh - 24px));
+}
+#manageModal .root-cause-baseline-modal {
+  width: min(1480px, 96vw);
 }
 .row-detail-modal {
   width: min(980px, 92vw);
