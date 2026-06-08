@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,8 @@ from backend.database import get_db, now_iso
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 EXPORT_DIR = ROOT_DIR / "exports" / "algorithm_packages"
+DEFAULT_MODEL_DIR = ROOT_DIR / "default_model"
+PACKAGE_RESOURCE_DIRS = ("prompt", "knowledge", "fewshots", "root_cause_baselines")
 
 
 def _ensure_scene(conn, scene_id: str) -> None:
@@ -75,6 +78,47 @@ def _unique_txt_path(folder: Path, name: str, fallback: str) -> Path:
         path = folder / f"{stem}_{index}.txt"
         index += 1
     return path
+
+
+def _reset_package_resource_dirs() -> dict[str, Path]:
+    DEFAULT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    folders: dict[str, Path] = {}
+    for name in PACKAGE_RESOURCE_DIRS:
+        folder = DEFAULT_MODEL_DIR / name
+        if folder.exists():
+            shutil.rmtree(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        folders[name] = folder
+    return folders
+
+
+def _write_text_resource(folder: Path, name: str, content: str, fallback: str) -> None:
+    path = _unique_txt_path(folder, name, fallback)
+    path.write_text(content or "", encoding="utf-8")
+
+
+def _write_root_cause_baselines(folder: Path, baselines: list[dict]) -> None:
+    polarity_folders = {
+        "positive": folder / "正例",
+        "negative": folder / "反例",
+    }
+    for polarity_folder in polarity_folders.values():
+        polarity_folder.mkdir(parents=True, exist_ok=True)
+    for index, item in enumerate(baselines, start=1):
+        polarity = item.get("polarity") or "positive"
+        target_folder = polarity_folders.get(polarity, polarity_folders["positive"])
+        name = item.get("name") or f"root_cause_{index}"
+        _write_text_resource(target_folder, name, name, f"root_cause_{index}")
+
+
+def _zip_directory(source_dir: Path, zip_path: Path) -> None:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for folder in source_dir.rglob("*"):
+            if folder.is_dir() and not any(folder.iterdir()):
+                archive.write(folder, folder.relative_to(source_dir.parent))
+        for file_path in source_dir.rglob("*"):
+            if file_path.is_file():
+                archive.write(file_path, file_path.relative_to(source_dir.parent))
 
 
 def _export_resource(table: str, scene_id: Optional[str], export_type: str, fields: list[str]) -> dict:
@@ -186,36 +230,47 @@ def build_algorithm_package(scene_id: str) -> dict:
             "SELECT name, content FROM knowledge_items WHERE scene_id=? ORDER BY created_at DESC",
             (scene_id,),
         ).fetchall()
+        error_sets = conn.execute(
+            "SELECT name, description FROM error_sets WHERE scene_id=? ORDER BY created_at DESC",
+            (scene_id,),
+        ).fetchall()
+        root_cause_baselines = conn.execute(
+            """
+            SELECT polarity, name
+            FROM root_cause_baselines
+            WHERE scene_id=?
+            ORDER BY polarity ASC, name ASC
+            """,
+            (scene_id,),
+        ).fetchall()
 
     scene_stem = _safe_file_stem(scene["name"], scene_id)
-    package_name = f"{scene_stem}_algorithm_package_{timestamp}"
-    package_dir = EXPORT_DIR / package_name
-    prompt_dir = package_dir / "prompt"
-    knowledge_dir = package_dir / "knowledge"
-    prompt_dir.mkdir(parents=True, exist_ok=True)
-    knowledge_dir.mkdir(parents=True, exist_ok=True)
+    folders = _reset_package_resource_dirs()
 
     for index, prompt in enumerate(prompts, start=1):
-        path = _unique_txt_path(prompt_dir, prompt.get("name"), f"prompt_{index}")
-        path.write_text(prompt.get("content") or "", encoding="utf-8")
+        _write_text_resource(folders["prompt"], prompt.get("name"), prompt.get("content") or "", f"prompt_{index}")
 
     for index, knowledge in enumerate(knowledge_items, start=1):
-        path = _unique_txt_path(knowledge_dir, knowledge.get("name"), f"knowledge_{index}")
-        path.write_text(knowledge.get("content") or "", encoding="utf-8")
+        _write_text_resource(folders["knowledge"], knowledge.get("name"), knowledge.get("content") or "", f"knowledge_{index}")
 
-    zip_path = EXPORT_DIR / f"{package_name}.zip"
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for folder in (prompt_dir, knowledge_dir):
-            for file_path in folder.rglob("*"):
-                if file_path.is_file():
-                    archive.write(file_path, file_path.relative_to(package_dir))
+    for index, error_set in enumerate(error_sets, start=1):
+        content = error_set.get("description") or error_set.get("name") or ""
+        _write_text_resource(folders["fewshots"], error_set.get("name"), content, f"fewshot_{index}")
+
+    _write_root_cause_baselines(folders["root_cause_baselines"], root_cause_baselines)
+
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    zip_path = EXPORT_DIR / f"{scene_stem}_default_model_{timestamp}.zip"
+    _zip_directory(DEFAULT_MODEL_DIR, zip_path)
 
     return {
         "filename": zip_path.name,
         "zip_path": zip_path,
-        "package_dir": package_dir,
+        "package_dir": DEFAULT_MODEL_DIR,
         "prompt_count": len(prompts),
         "knowledge_count": len(knowledge_items),
+        "fewshot_count": len(error_sets),
+        "root_cause_baseline_count": len(root_cause_baselines),
     }
 
 

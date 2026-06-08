@@ -32,7 +32,7 @@ FRONTEND_DIR = ROOT_DIR / "frontend"
 
 
 def create_app() -> FastAPI:
-    init_db()
+    init_db(recover_interrupted=True)
     app = FastAPI(title="LLM Annotation Tool", version="0.1.0")
     app.include_router(scenes.router)
     app.include_router(datasets.router)
@@ -62,6 +62,12 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health():
         return {"status": "ok"}
+
+    @app.on_event("startup")
+    def resume_annotation_tasks_on_startup():
+        from backend.services.annotation_service import resume_pending_annotation_tasks
+
+        resume_annotation_tasks_on_startup.last_resumed = resume_pending_annotation_tasks()
 
     return app
 

@@ -604,7 +604,7 @@ function bindWorkbenchEvents() {
   });
   document.querySelector("#modelDistillButton").addEventListener("click", openModelDistillationModal);
   document.querySelector("#fullAnnotateButton").addEventListener("click", () => {
-    startAnnotationTask("all");
+    startAnnotationTask(hasActiveWorkbenchFilters() ? "filtered" : "all");
   });
   document.querySelector("#globalMoreButton").addEventListener("click", (event) => {
     toggleGlobalMenu(event.currentTarget);
@@ -742,6 +742,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     container.innerHTML = `<div class="empty" style="height:100%">请先在数据集与方案管理页创建场景并导入 Excel</div>`;
     document.querySelector("#metricTotal").textContent = "0";
     await refreshMetrics();
+    syncFullAnnotateButton();
     setBatchButtonState();
     return;
   }
@@ -763,6 +764,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     pageButtonCount,
     `${columnFilter.column}\u001f${columnFilter.value}\u001f${columnFilter.empty ? "empty" : ""}`,
     rootCauseFilterKey(),
+    workbenchFilterKey(),
   ].join("\u001e");
   if (table && tableBuildKey === nextBuildKey) {
     const tableReady = waitForNextTableAjax();
@@ -777,6 +779,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     syncStatusFilterMenu();
     syncRootCauseFilterButton();
     syncFavoriteFilterButton();
+    syncFullAnnotateButton();
     setBatchButtonState();
     await loadLatestTask();
     return;
@@ -856,6 +859,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
       }
       scheduleCompactPagination();
       refreshMetrics();
+      syncFullAnnotateButton();
       setBatchButtonState();
       resolveTableAjaxReady();
       return payload;
@@ -888,6 +892,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   syncStatusFilterMenu();
   syncRootCauseFilterButton();
   syncFavoriteFilterButton();
+  syncFullAnnotateButton();
   setBatchButtonState();
   await loadLatestTask();
 }
@@ -1159,6 +1164,41 @@ function buildRowsQuery(page, pageSize, tableParams = {}) {
   return params.toString();
 }
 
+function buildAnnotationFilterPayload() {
+  return {
+    search: columnFilter.value || "",
+    search_column: columnFilter.column || "",
+    empty: Boolean(columnFilter.empty),
+    statuses: [...statusFilters],
+    favorite: Boolean(favoriteOnlyFilter),
+    root_cause_positive: [...rootCauseFilters.positive],
+    root_cause_negative: [...rootCauseFilters.negative],
+  };
+}
+
+function hasActiveWorkbenchFilters() {
+  return Boolean(
+    columnFilter.column && (columnFilter.value || columnFilter.empty)
+  ) || statusFilters.size > 0 || favoriteOnlyFilter || rootCauseFilterCount() > 0;
+}
+
+function workbenchFilterKey() {
+  const payload = buildAnnotationFilterPayload();
+  return [
+    `${payload.search_column}\u001f${payload.search}\u001f${payload.empty ? "empty" : ""}`,
+    payload.statuses.slice().sort().join(","),
+    payload.favorite ? "favorite" : "",
+    payload.root_cause_positive.slice().sort().join(","),
+    payload.root_cause_negative.slice().sort().join(","),
+  ].join("\u001e");
+}
+
+function syncFullAnnotateButton() {
+  const button = document.querySelector("#fullAnnotateButton");
+  if (!button) return;
+  button.textContent = hasActiveWorkbenchFilters() ? "全量标注(已筛选)" : "全量标注";
+}
+
 function schemeQuery(prefix = "?") {
   return state.activeSchemeId ? `${prefix}scheme_id=${encodeURIComponent(state.activeSchemeId)}` : "";
 }
@@ -1413,6 +1453,7 @@ function resetWorkbenchQueryState() {
   columnFilter = { column: "", value: "", empty: false };
   syncFavoriteFilterButton();
   syncRootCauseFilterButton();
+  syncFullAnnotateButton();
   const selectCurrentPage = document.querySelector("#selectCurrentPage");
   if (selectCurrentPage) selectCurrentPage.checked = false;
   tableBuildKey = "";
@@ -1698,6 +1739,7 @@ function syncFavoriteFilterButton() {
 async function toggleFavoriteFilter() {
   favoriteOnlyFilter = !favoriteOnlyFilter;
   syncFavoriteFilterButton();
+  syncFullAnnotateButton();
   await refreshWorkbench();
 }
 
@@ -1924,6 +1966,7 @@ async function handleRootCauseFilterMenuClick(event) {
     else rootCauseFilters[polarity].delete(checkbox.value);
     checkbox.closest("label")?.classList.toggle("active", checkbox.checked);
     syncRootCauseFilterButton();
+    syncFullAnnotateButton();
     return;
   }
   const action = event.target.closest("[data-root-cause-action]")?.dataset.rootCauseAction;
@@ -1933,6 +1976,7 @@ async function handleRootCauseFilterMenuClick(event) {
     rootCauseFilters = { positive: new Set(), negative: new Set() };
     await loadRootCauseFilterMenu();
     syncRootCauseFilterButton();
+    syncFullAnnotateButton();
     return;
   }
   if (action === "baseline") {
@@ -2019,6 +2063,7 @@ function handleStatusFilterMenuClick(event) {
 async function applyStatusFilters() {
   const checked = [...document.querySelectorAll('#statusFilterMenu input[type="checkbox"]:checked')].map((input) => input.value);
   statusFilters = new Set(checked);
+  syncFullAnnotateButton();
   closeMenus();
   try {
     await refreshWorkbench();
@@ -2137,6 +2182,7 @@ async function applyColumnFilter() {
   const column = popover?.dataset.column || "";
   columnFilter = { column, value: input?.value.trim() || "", empty: Boolean(emptyInput?.checked) };
   if (!columnFilter.value && !columnFilter.empty) columnFilter = { column: "", value: "", empty: false };
+  syncFullAnnotateButton();
   closeMenus();
   try {
     await refreshWorkbench();
@@ -2147,6 +2193,7 @@ async function applyColumnFilter() {
 
 async function clearColumnFilter() {
   columnFilter = { column: "", value: "", empty: false };
+  syncFullAnnotateButton();
   const input = document.querySelector("#columnFilterInput");
   const emptyInput = document.querySelector("#columnFilterEmpty");
   if (input) input.value = "";
@@ -3767,8 +3814,8 @@ async function startAnnotationTask(mode, rowIds = []) {
     toast("请先选择数据集和标注方案");
     return;
   }
-  if (mode === "all") {
-    const confirmed = await confirmFullAnnotationTask();
+  if (mode === "all" || mode === "filtered") {
+    const confirmed = await confirmFullAnnotationTask(mode);
     if (!confirmed) return;
   }
   const selectedIds = rowIds.length
@@ -3799,6 +3846,7 @@ async function startAnnotationTask(mode, rowIds = []) {
         scheme_id: state.activeSchemeId,
         row_ids: selectedIds,
         mode,
+        filters: mode === "filtered" ? buildAnnotationFilterPayload() : {},
       }),
     });
     currentTask = task;
@@ -3808,32 +3856,54 @@ async function startAnnotationTask(mode, rowIds = []) {
     table?.deselectRow?.();
     setBatchButtonState();
     scheduleMetricsRefresh(0);
-    toast(mode === "all" ? `全量标注任务已启动，本次 ${task.total_count || 0} 条` : "批量标注任务已启动");
+    const taskLabel = mode === "filtered" ? "筛选数据标注任务" : "全量标注任务";
+    toast(mode === "all" || mode === "filtered" ? `${taskLabel}已启动，本次 ${task.total_count || 0} 条` : "批量标注任务已启动");
   } catch (error) {
     restoreRowsStatus(optimisticStatuses);
     toast(error.message);
   }
 }
 
-async function confirmFullAnnotationTask() {
+async function confirmFullAnnotationTask(mode = "all") {
+  const isFiltered = mode === "filtered";
   try {
-    const metrics = await api(`/api/datasets/${state.activeDatasetId}/metrics${schemeQuery()}`);
-    const queued = Number(metrics.queued || 0);
-    const running = Number(metrics.running || 0);
-    const total = Number(metrics.total || 0);
-    const available = Math.max(total - queued - running, 0);
-    if (!available) {
+    let totalCount = 0;
+    let queued = 0;
+    let running = 0;
+    if (isFiltered) {
+      const preview = await api("/api/annotation-tasks/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          dataset_id: state.activeDatasetId,
+          scheme_id: state.activeSchemeId,
+          row_ids: [],
+          mode,
+          filters: buildAnnotationFilterPayload(),
+        }),
+      });
+      totalCount = Number(preview.total_count || 0);
+      queued = Number(preview.skipped_queued_count || 0);
+      running = Number(preview.skipped_running_count || 0);
+    } else {
+      const metrics = await api(`/api/datasets/${state.activeDatasetId}/metrics${schemeQuery()}`);
+      queued = Number(metrics.queued || 0);
+      running = Number(metrics.running || 0);
+      const total = Number(metrics.total || 0);
+      totalCount = Math.max(total - queued - running, 0);
+    }
+    if (!totalCount) {
       toast("当前没有可创建任务的数据行，排队中和标注中的数据会被跳过");
       return false;
     }
+    const details = [
+      `本次将标注 ${totalCount} 条数据。`,
+      `当前有 ${running} 条标注中、${queued} 条排队中，会自动跳过。`,
+    ];
     return confirmAction({
-      title: "开始全量标注",
-      message: "确认开始全量标注？",
-      details: [
-        `当前有 ${running} 条标注中、${queued} 条排队中。`,
-        `本次会跳过这些数据，并重新标注其余 ${available} 条。`,
-      ],
-      confirmText: "开始全量标注",
+      title: isFiltered ? "全量标注(已筛选)" : "开始全量标注",
+      message: isFiltered ? "确认标注当前筛选条件下的全部数据？" : "确认开始全量标注？",
+      details,
+      confirmText: isFiltered ? "开始标注筛选数据" : "开始全量标注",
       variant: "primary",
     });
   } catch (error) {
@@ -4106,7 +4176,7 @@ function getOptimisticTaskRowIds(mode, selectedIds) {
   const selectedSet = new Set(selectedIds);
   return table.getRows()
     .map((row) => row.getData())
-    .filter((data) => (mode === "all" || selectedSet.has(data.row_id)) && canQueueRow(data))
+    .filter((data) => (mode === "all" || mode === "filtered" || selectedSet.has(data.row_id)) && canQueueRow(data))
     .map((data) => data.row_id);
 }
 

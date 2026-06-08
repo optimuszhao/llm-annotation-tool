@@ -13,7 +13,17 @@ from fastapi import HTTPException
 
 from backend.database import decode_json, encode_json, get_db, now_iso
 from backend.services.model_market_service import get_model_market_config
-from backend.services.dataset_service import build_row_preview_payload, flatten_model_result_for_display, model_result_display_columns
+from backend.services.dataset_service import (
+    build_row_preview_payload,
+    flatten_model_result_for_display,
+    model_result_display_columns,
+    _json_column_path,
+    _model_result_json_path,
+    _normalize_status_filters,
+    _analysis_result_columns,
+    _analysis_method_by_column,
+    _latest_analysis_expr,
+)
 from user_hooks import hooks
 
 
@@ -32,6 +42,8 @@ _subscriber_lock = threading.Lock()
 _subscribers: dict[str, list[queue.Queue]] = {}
 _event_history: dict[str, deque[dict]] = {}
 _EVENT_HISTORY_LIMIT = 2000
+_resume_lock = threading.Lock()
+_resumed_task_ids: set[str] = set()
 
 
 def create_annotation_task(payload: dict) -> dict:
@@ -41,6 +53,7 @@ def create_annotation_task(payload: dict) -> dict:
     mode = payload.get("mode", "all")
     if mode == "selected" and not row_ids:
         raise HTTPException(status_code=400, detail="请选择需要标注的数据行")
+    filters = payload.get("filters") or {}
     task_id = f"task_{uuid4().hex[:12]}"
     timestamp = now_iso()
 
@@ -48,8 +61,9 @@ def create_annotation_task(payload: dict) -> dict:
         dataset, scene, scheme = _load_dataset_scene_scheme(conn, dataset_id, scheme_id)
         table_name = scene["data_table_name"]
         requested_row_ids = row_ids if mode == "selected" else []
-        skipped_counts = _count_active_rows(conn, table_name, dataset_id, requested_row_ids, scheme_id)
-        rows = _select_task_rows(conn, table_name, dataset_id, requested_row_ids, scheme_id)
+        task_filters = filters if mode == "filtered" else {}
+        skipped_counts = _count_active_rows(conn, table_name, dataset_id, requested_row_ids, scheme_id, task_filters)
+        rows = _select_task_rows(conn, table_name, dataset_id, requested_row_ids, scheme_id, task_filters)
         if not rows:
             raise HTTPException(status_code=400, detail="没有可创建任务的数据行，排队中和标注中的数据会被跳过")
 
@@ -112,6 +126,65 @@ def create_annotation_task(payload: dict) -> dict:
     _broadcast(task_id, {"type": "task_created", "task": task})
     threading.Thread(target=_run_task, args=(task_id,), daemon=True).start()
     return task
+
+
+def preview_annotation_task(payload: dict) -> dict:
+    dataset_id = payload["dataset_id"]
+    scheme_id = payload["scheme_id"]
+    row_ids = payload.get("row_ids") or []
+    mode = payload.get("mode", "all")
+    filters = payload.get("filters") or {}
+    if mode == "selected" and not row_ids:
+        return {
+            "total_count": 0,
+            "skipped_queued_count": 0,
+            "skipped_running_count": 0,
+            "skipped_count": 0,
+        }
+    with get_db() as conn:
+        dataset, scene, scheme = _load_dataset_scene_scheme(conn, dataset_id, scheme_id)
+        table_name = scene["data_table_name"]
+        requested_row_ids = row_ids if mode == "selected" else []
+        task_filters = filters if mode == "filtered" else {}
+        skipped_counts = _count_active_rows(conn, table_name, dataset_id, requested_row_ids, scheme_id, task_filters)
+        rows = _select_task_rows(conn, table_name, dataset_id, requested_row_ids, scheme_id, task_filters)
+    queued = skipped_counts.get(ROW_STATUS_QUEUED, 0)
+    running = skipped_counts.get(ROW_STATUS_RUNNING, 0)
+    return {
+        "total_count": len(rows),
+        "skipped_queued_count": queued,
+        "skipped_running_count": running,
+        "skipped_count": queued + running,
+    }
+
+
+def resume_pending_annotation_tasks() -> list[str]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT task.id
+            FROM annotation_tasks task
+            WHERE task.status IN ('queued', 'running')
+              AND EXISTS (
+                  SELECT 1
+                  FROM annotation_task_rows task_row
+                  WHERE task_row.task_id=task.id AND task_row.status=?
+              )
+            ORDER BY task.created_at ASC
+            """,
+            (ROW_STATUS_QUEUED,),
+        ).fetchall()
+    resumed: list[str] = []
+    with _resume_lock:
+        for row in rows:
+            task_id = row["id"]
+            if task_id in _resumed_task_ids:
+                continue
+            _resumed_task_ids.add(task_id)
+            resumed.append(task_id)
+    for task_id in resumed:
+        threading.Thread(target=_run_task, args=(task_id,), daemon=True).start()
+    return resumed
 
 
 def list_annotation_tasks(dataset_id: Optional[str] = None, scheme_id: Optional[str] = None) -> list[dict]:
@@ -1097,21 +1170,31 @@ def _latest_task_row_for_scheme(conn, dataset_id: str, row_id: str, scheme_id: s
     ).fetchone()
 
 
-def _select_task_rows(conn, table_name: str, dataset_id: str, row_ids: list[str], scheme_id: str) -> list[dict]:
+def _select_task_rows(
+    conn,
+    table_name: str,
+    dataset_id: str,
+    row_ids: list[str],
+    scheme_id: str,
+    filters: dict | None = None,
+) -> list[dict]:
     row_filter = ""
     params: list[Any] = [dataset_id, scheme_id, dataset_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING]
     if row_ids:
         placeholders = ", ".join(["?"] * len(row_ids))
         row_filter = f"AND data_row.id IN ({placeholders})"
         params.extend(row_ids)
+    filter_sql, filter_params = _annotation_task_filter_sql(conn, "data_row", "latest", dataset_id, scheme_id, filters or {})
+    params.extend(filter_params)
     return conn.execute(
         f"""
         WITH latest_scheme_rows AS (
-          SELECT row_id, status
+          SELECT row_id, status, model_result
           FROM (
             SELECT
               task_row.row_id,
               task_row.status,
+              task_row.model_result,
               ROW_NUMBER() OVER (
                 PARTITION BY task_row.row_id
                 ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
@@ -1128,27 +1211,38 @@ def _select_task_rows(conn, table_name: str, dataset_id: str, row_ids: list[str]
         WHERE data_row.dataset_id=?
           AND (latest.status IS NULL OR latest.status NOT IN (?, ?))
           {row_filter}
+          {filter_sql}
         ORDER BY data_row.row_index ASC
         """,
         params,
     ).fetchall()
 
 
-def _count_active_rows(conn, table_name: str, dataset_id: str, row_ids: list[str], scheme_id: str) -> dict[str, int]:
+def _count_active_rows(
+    conn,
+    table_name: str,
+    dataset_id: str,
+    row_ids: list[str],
+    scheme_id: str,
+    filters: dict | None = None,
+) -> dict[str, int]:
     params: list[Any] = [dataset_id, scheme_id, dataset_id, ROW_STATUS_QUEUED, ROW_STATUS_RUNNING]
     row_filter = ""
     if row_ids:
         placeholders = ", ".join(["?"] * len(row_ids))
         row_filter = f" AND data_row.id IN ({placeholders})"
         params.extend(row_ids)
+    filter_sql, filter_params = _annotation_task_filter_sql(conn, "data_row", "latest", dataset_id, scheme_id, filters or {})
+    params.extend(filter_params)
     rows = conn.execute(
         f"""
         WITH latest_scheme_rows AS (
-          SELECT row_id, status
+          SELECT row_id, status, model_result
           FROM (
             SELECT
               task_row.row_id,
               task_row.status,
+              task_row.model_result,
               ROW_NUMBER() OVER (
                 PARTITION BY task_row.row_id
                 ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC
@@ -1165,11 +1259,143 @@ def _count_active_rows(conn, table_name: str, dataset_id: str, row_ids: list[str
         WHERE data_row.dataset_id=?
           AND latest.status IN (?, ?)
           {row_filter}
+          {filter_sql}
         GROUP BY latest.status
         """,
         params,
     ).fetchall()
     return {row["annotation_status"]: row["count"] for row in rows}
+
+
+def _annotation_task_filter_sql(
+    conn,
+    data_alias: str,
+    latest_alias: str,
+    dataset_id: str,
+    scheme_id: str,
+    filters: dict,
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    search = str(filters.get("search") or "").strip()
+    search_column = str(filters.get("search_column") or "").strip()
+    search_empty = bool(filters.get("empty"))
+    status_expr = f"COALESCE({latest_alias}.status, '未标注')"
+    analysis_method_by_column = _analysis_method_by_column(_analysis_result_columns(conn, dataset_id))
+
+    if (search or search_empty) and search_column in {"display_index", "row_index", "序号"}:
+        if search:
+            indexes = _parse_index_filter(search)
+            if indexes:
+                placeholders = ", ".join(["?"] * len(indexes))
+                clauses.append(f"{data_alias}.row_index IN ({placeholders})")
+                params.extend(indexes)
+            else:
+                clauses.append("1=0")
+        elif search_empty:
+            clauses.append("1=0")
+    elif search_column == "状态" and (search or search_empty):
+        if search:
+            clauses.append(f"{status_expr} LIKE ?")
+            params.append(f"%{search}%")
+        if search_empty:
+            clauses.append(f"({status_expr} IS NULL OR TRIM(COALESCE(CAST({status_expr} AS TEXT), ''))='')")
+    elif search_column in analysis_method_by_column and (search or search_empty):
+        analysis_expr = _latest_analysis_expr(data_alias)
+        if search:
+            clauses.append(f"COALESCE(CAST({analysis_expr} AS TEXT), '') LIKE ?")
+            params.extend([dataset_id, analysis_method_by_column[search_column], f"%{search}%"])
+        if search_empty:
+            clauses.append(f"TRIM(COALESCE(CAST({analysis_expr} AS TEXT), ''))=''")
+            params.extend([dataset_id, analysis_method_by_column[search_column]])
+    elif search_column and (search or search_empty):
+        raw_path = _json_column_path(search_column)
+        result_path = _model_result_json_path(search_column)
+        parts: list[str] = []
+        if search:
+            parts.append(
+                f"""
+                (
+                  COALESCE(CAST(json_extract({data_alias}.raw_data, ?) AS TEXT), '') LIKE ?
+                  OR COALESCE(CAST(json_extract({latest_alias}.model_result, ?) AS TEXT), '') LIKE ?
+                )
+                """
+            )
+            params.extend([raw_path, f"%{search}%", result_path, f"%{search}%"])
+        if search_empty:
+            parts.append(
+                f"""
+                (
+                  (
+                    json_type({latest_alias}.model_result, ?) IS NOT NULL
+                    AND TRIM(COALESCE(CAST(json_extract({latest_alias}.model_result, ?) AS TEXT), ''))=''
+                  )
+                  OR
+                  (
+                    json_type({latest_alias}.model_result, ?) IS NULL
+                    AND (
+                      json_type({data_alias}.raw_data, ?) IS NULL
+                      OR TRIM(COALESCE(CAST(json_extract({data_alias}.raw_data, ?) AS TEXT), ''))=''
+                    )
+                  )
+                )
+                """
+            )
+            params.extend([result_path, result_path, result_path, raw_path, raw_path])
+        if parts:
+            clauses.append(f"({' OR '.join(parts)})")
+
+    status_values = _normalize_status_filters(filters.get("statuses") or [])
+    if status_values:
+        status_parts: list[str] = []
+        concrete = [status for status in status_values if status != "未标注"]
+        if "未标注" in status_values:
+            status_parts.append(f"({status_expr} IS NULL OR {status_expr}='' OR {status_expr}='未标注')")
+        if concrete:
+            placeholders = ", ".join(["?"] * len(concrete))
+            status_parts.append(f"{status_expr} IN ({placeholders})")
+            params.extend(concrete)
+        clauses.append(f"({' OR '.join(status_parts)})")
+
+    if bool(filters.get("favorite")):
+        clauses.append(f"{data_alias}.is_favorite=1")
+
+    root_parts: list[str] = []
+    for polarity, key in (("positive", "root_cause_positive"), ("negative", "root_cause_negative")):
+        names = [str(value).strip() for value in filters.get(key) or [] if str(value).strip()]
+        if not names:
+            continue
+        placeholders = ", ".join(["?"] * len(names))
+        root_parts.append(
+            f"""
+            {data_alias}.id IN (
+              SELECT row_id
+              FROM root_cause_row_links
+              WHERE dataset_id=?
+                AND scheme_id=?
+                AND polarity=?
+                AND name IN ({placeholders})
+            )
+            """
+        )
+        params.extend([dataset_id, scheme_id or "", polarity, *names])
+    if root_parts:
+        clauses.append(f"({' OR '.join(root_parts)})")
+
+    if not clauses:
+        return "", []
+    return " AND " + " AND ".join(f"({clause})" for clause in clauses), params
+
+
+def _parse_index_filter(value: str) -> list[int]:
+    indexes: list[int] = []
+    for part in re.split(r"[,，\\s]+", value):
+        part = part.strip()
+        if not part:
+            continue
+        if part.isdigit():
+            indexes.append(int(part))
+    return list(dict.fromkeys(indexes))
 
 
 def _update_scene_rows_status(

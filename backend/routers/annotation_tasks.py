@@ -12,6 +12,7 @@ from backend.services.annotation_service import (
     create_annotation_task,
     get_annotation_task,
     list_annotation_tasks,
+    preview_annotation_task,
     stop_unfinished,
     stop_unfinished_by_row,
     subscribe_task_events,
@@ -25,6 +26,11 @@ TERMINAL_TASK_STATUSES = {"done", "stopped", "failed", "interrupted"}
 @router.post("")
 def post_annotation_task(payload: AnnotationTaskCreate):
     return create_annotation_task(payload.dict())
+
+
+@router.post("/preview")
+def post_annotation_task_preview(payload: AnnotationTaskCreate):
+    return preview_annotation_task(payload.dict())
 
 
 @router.get("")

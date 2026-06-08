@@ -366,7 +366,7 @@ def recover_interrupted_annotation_state(conn: sqlite3.Connection) -> None:
         conn.execute(
             f"""
             UPDATE {scene['data_table_name']}
-            SET annotation_status='取消', updated_at=?
+            SET annotation_status='排队中', updated_at=?
             WHERE annotation_status IN ('排队中', '标注中')
             """,
             (timestamp,),
@@ -375,10 +375,13 @@ def recover_interrupted_annotation_state(conn: sqlite3.Connection) -> None:
     conn.execute(
         f"""
         UPDATE annotation_task_rows
-        SET status='取消', updated_at=?, finished_at=?, error='服务重启后未完成任务已中断'
+        SET status='排队中',
+            updated_at=?,
+            finished_at=NULL,
+            error=''
         WHERE status IN ({','.join(['?'] * len(active_row_statuses))})
         """,
-        (timestamp, timestamp, *active_row_statuses),
+        (timestamp, *active_row_statuses),
     )
 
     for task_id in affected_task_ids:
@@ -395,26 +398,38 @@ def recover_interrupted_annotation_state(conn: sqlite3.Connection) -> None:
             ).fetchall()
         }
         done_count = counts.get("TP", 0) + counts.get("FP", 0) + counts.get("TN", 0) + counts.get("FN", 0)
+        queued_count = counts.get("排队中", 0)
+        running_count = counts.get("标注中", 0)
+        failed_count = counts.get("失败", 0)
+        cancelled_count = counts.get("取消", 0)
+        status = "queued" if queued_count or running_count else "done"
+        if not queued_count and not running_count and cancelled_count:
+            status = "stopped"
+        if not queued_count and not running_count and failed_count and not done_count and not cancelled_count:
+            status = "failed"
+        finished_at = timestamp if status in {"done", "stopped", "failed"} else None
         conn.execute(
             """
             UPDATE annotation_tasks
-            SET status='interrupted',
-                queued_count=0,
+            SET status=?,
+                queued_count=?,
                 running_count=0,
                 done_count=?,
                 failed_count=?,
                 cancelled_count=?,
                 updated_at=?,
                 finished_at=?,
-                error='服务重启后未完成任务已中断'
+                error=''
             WHERE id=?
             """,
             (
+                status,
+                queued_count,
                 done_count,
-                counts.get("失败", 0),
-                counts.get("取消", 0),
+                failed_count,
+                cancelled_count,
                 timestamp,
-                timestamp,
+                finished_at,
                 task_id,
             ),
         )

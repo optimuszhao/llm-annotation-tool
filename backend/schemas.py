@@ -72,7 +72,8 @@ class AnnotationTaskCreate(BaseModel):
     dataset_id: str
     scheme_id: str
     row_ids: List[str] = []
-    mode: Literal["all", "selected"] = "all"
+    mode: Literal["all", "selected", "filtered"] = "all"
+    filters: Dict[str, Any] = {}
 
 
 class EvaluationTaskCreate(BaseModel):
