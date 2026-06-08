@@ -1405,6 +1405,8 @@ def _set_rendered_prompt(target: dict, prompt: dict, content: str) -> None:
 
 def _call_scheme_method(scheme: dict, rendered_prompts: dict, context: dict) -> dict:
     method_name = scheme.get("method_name") or "call_model"
+    if method_name == "call_model_market":
+        method_name = "call_model"
     method = getattr(hooks, method_name, None)
     if not method:
         raise ValueError(f"标注方法不存在：{method_name}")

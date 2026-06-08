@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from . import analysis_methods, annotation_methods, prompt_init_methods
-from .llm_chat import llm_chat_function
+from .llm_chat import llm_chat_function, llm_market_chat_function
 from .model_distillation import model_distillation_hooks
 from .prompt_utils import (
     is_yes_answer,
@@ -18,7 +18,9 @@ class UserHooks:
     """业务开发人员扩展入口。
 
     入口分为四类：
-    1. `llm_chat.py`：默认标注方法使用的单 Prompt 大模型调用函数 `llm_chat_function(prompt) -> dict`。
+    1. `llm_chat.py`：默认标注方法使用的单 Prompt 大模型调用函数：
+       - `llm_chat_function(prompt) -> dict`：本地模型调用。
+       - `llm_market_chat_function(model_config, prompt) -> dict`：模型市场调用。
     2. `annotation_methods.py`：自定义标注方法，可以写多个。
     3. `prompt_init_methods.py`：自定义 Prompt 初始化方法。
     4. `analysis_methods.py`：自定义分析方法，可以写多个。
@@ -91,12 +93,19 @@ class UserHooks:
         }
 
     def call_model_with_prompt(self, model_key: str, prompt: dict, context: dict) -> dict:
-        """单个 Prompt 调用入口，默认转发给 `llm_chat_function(prompt)`。"""
+        """单个 Prompt 调用入口。
+
+        有 `context["model_config"]` 时调用模型市场。
+        无模型市场配置时调用本地模型。
+        """
         payload = {
             **(prompt or {}),
             "model_key": model_key,
             "context": context,
         }
+        model_config = context.get("model_config") or context.get("model_market_config") or {}
+        if model_config:
+            return llm_market_chat_function(model_config, payload)
         return llm_chat_function(payload)
 
     def run_analysis_method(self, method_name: str, row_data: dict, model_result: dict, context: dict) -> dict:

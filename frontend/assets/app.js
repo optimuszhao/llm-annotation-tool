@@ -1,4 +1,4 @@
-import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-baseline-height";
+import { renderManagePage } from "/pages/manage.js?v=20260608-model-market-low-level";
 import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260608-stop-running-task";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";

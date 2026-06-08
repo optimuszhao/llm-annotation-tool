@@ -48,6 +48,59 @@ def llm_chat_function(prompt: dict) -> dict:
     }
 
 
+def llm_market_chat_function(model_config: dict, prompt: dict) -> dict:
+    """模型市场单 Prompt 调用入口。
+
+    开发人员主要改这个方法来接入模型市场。
+
+    入参：
+    - `model_config`：当前方案选择的模型市场配置，包含 name 和 config。
+      config 中通常包含 URL、API Key、Model Name。
+    - `prompt`：已经初始化好的单个 Prompt 字典，结构与 `llm_chat_function` 一致。
+
+    返回要求：
+    - 必须返回 dict。
+    - dict 必须包含字段映射中的“标注答案列”。
+
+    正式接入示例：
+    config = model_config["config"]
+    response_text = your_market_client.chat(
+        url=config["URL"],
+        api_key=config["API Key"],
+        model=config["Model Name"],
+        prompt=prompt["content"],
+    )
+    return json.loads(response_text)
+    """
+    time.sleep(2)
+    context = prompt.get("context", {})
+    field_mapping = context.get("field_mapping", {})
+    row_data = context.get("row_data", {})
+    row_index = int(context.get("row_index") or row_data.get("row_index") or 0)
+    model_column = field_mapping.get("model_answer_column") or "GPT4_标注"
+    role_name = prompt.get("role_name") or context.get("prompt_role") or "default"
+    config_payload = model_config.get("config") if isinstance(model_config.get("config"), dict) else {}
+    model_name = config_payload.get("Model Name") or model_config.get("name") or prompt.get("model_key") or "模型市场"
+    model_value = "是" if row_index % 2 == 0 else "否"
+    return {
+        model_column: model_value,
+        "角色名": role_name,
+        "模型来源": "模型市场",
+        "模型名称": model_name,
+        "置信度": 0.84,
+        "模型说明": "Mock 模型市场单 Prompt 返回结果，正式环境请替换 user_hooks/llm_chat.py 中的 llm_market_chat_function。",
+        "raw_output": json.dumps(
+            {
+                "model_config": model_config.get("name") or model_name,
+                "name": prompt.get("name"),
+                "role_name": role_name,
+                "content": prompt.get("content", ""),
+            },
+            ensure_ascii=False,
+        )[:500],
+    }
+
+
 def llm_dialog_stream_function(payload: dict) -> Iterator[str]:
     """对话大模型流式调用入口。
 

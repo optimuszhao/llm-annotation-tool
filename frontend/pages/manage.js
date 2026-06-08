@@ -1644,9 +1644,10 @@ function schemeResourceIds(scheme) {
 
 function renderSchemeModelPicker(methods, modelConfigs, editingScheme) {
   const entries = Object.entries(methods || {});
-  const customMethods = entries.filter(([, item]) => !["call_model", "call_model_market"].includes(item.method_name));
-  const selectedMethod = editingScheme?.method_name || "call_model";
+  const customMethods = entries.filter(([, item]) => item.method_name !== "call_model" && item.method_name !== "call_model_market");
+  const selectedMethod = editingScheme?.method_name === "call_model_market" ? "call_model" : (editingScheme?.method_name || "call_model");
   const selectedModelKey = editingScheme?.model_key || "core_model";
+  const marketModelIds = new Set((modelConfigs || []).map((item) => item.id));
   const optionGroups = [
     {
       title: "本地模型",
@@ -1657,7 +1658,7 @@ function renderSchemeModelPicker(methods, modelConfigs, editingScheme) {
           description: "",
           method_name: "call_model",
           model_key: "core_model",
-          selected: selectedMethod === "call_model" && selectedModelKey !== "del_model",
+          selected: selectedMethod === "call_model" && !marketModelIds.has(selectedModelKey) && selectedModelKey !== "del_model",
         },
         {
           key: "del_model",
@@ -1675,9 +1676,9 @@ function renderSchemeModelPicker(methods, modelConfigs, editingScheme) {
         key: item.id,
         name: item.name,
         description: "",
-        method_name: "call_model_market",
+        method_name: "call_model",
         model_key: item.id,
-        selected: selectedMethod === "call_model_market" && selectedModelKey === item.id,
+        selected: selectedMethod === "call_model" && selectedModelKey === item.id,
       })),
       empty: "暂无模型市场配置，请先点击上方“添加模型”。",
     },
