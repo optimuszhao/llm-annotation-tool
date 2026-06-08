@@ -94,13 +94,15 @@ function renderEmptyScene() {
 }
 
 function renderSceneContent(activeScene) {
+  const positiveRootCauseCount = state.rootCauseBaselines?.positive?.length || 0;
+  const negativeRootCauseCount = state.rootCauseBaselines?.negative?.length || 0;
   const cards = [
     { key: "datasets", title: "算法验证数据集", action: "导入数据集", meta: "Excel 文件入库后，工作台按页读取。", count: state.datasets.length },
     { key: "prompts", title: "Prompt", action: "新增 Prompt", meta: "支持角色名、名称和提示词正文。", count: state.prompts.length },
     { key: "knowledge", title: "知识库", action: "导入知识", meta: "保存业务规则、上下文和补充说明。", count: state.knowledge.length },
     { key: "errorSets", title: "fewshots样例", action: "整理样例", meta: "第一阶段保留结构和基础管理。", count: state.errorSets.length },
     { key: "fieldMapping", title: "算法输入输出字段映射", action: "配置字段", meta: "选择答案列、列表展示列和标注上下文字段。", count: columnOptions().length },
-    { key: "rootCause", title: "根因分类基线", action: "维护基线", meta: "维护正例和反例根因名称，用于筛选结果沉淀。", count: state.datasets.length },
+    { key: "rootCause", title: "根因分类基线", action: "维护基线", meta: "维护正例和反例根因名称，用于筛选结果沉淀。", countText: `${positiveRootCauseCount} 正例根因 · ${negativeRootCauseCount} 反例根因` },
   ];
   return `
     <div class="ref-manage-main">
@@ -115,7 +117,9 @@ function renderSceneContent(activeScene) {
             <h3>${card.title}</h3>
             <p>${card.meta}</p>
             <div class="resource-meta">
-              <span><strong>${card.count}</strong> ${resourceUnit(card.key)}</span>
+              ${card.countText
+                ? `<span class="resource-meta-text">${escapeHtml(card.countText)}</span>`
+                : `<span><strong>${card.count}</strong> ${resourceUnit(card.key)}</span>`}
               <span>${card.action}</span>
             </div>
           </article>
@@ -153,7 +157,7 @@ function resourceIcon(key) {
 }
 
 function resourceUnit(key) {
-  return { datasets: "个文件", prompts: "条", knowledge: "条", errorSets: "个集合", fieldMapping: "个字段", rootCause: "个数据集" }[key] || "项";
+  return { datasets: "个文件", prompts: "条", knowledge: "条", errorSets: "个集合", fieldMapping: "个字段", rootCause: "个根因" }[key] || "项";
 }
 
 function safeExportFilePart(value) {
@@ -615,8 +619,19 @@ async function refreshRootCauseBaselineModal() {
   const panel = document.querySelector(".root-cause-panel");
   if (!panel || !state.activeSceneId) return;
   const summary = await api(`/api/root-cause/baselines?scene_id=${encodeURIComponent(state.activeSceneId)}`);
+  state.rootCauseBaselines = summary || { positive: [], negative: [] };
   panel.innerHTML = renderRootCauseBaselineManager(summary);
   bindRootCauseBaselineEvents(panel);
+  updateRootCauseCardCount();
+}
+
+function updateRootCauseCardCount() {
+  const card = document.querySelector('[data-resource-card="rootCause"] .resource-meta span');
+  if (!card) return;
+  const positive = state.rootCauseBaselines?.positive?.length || 0;
+  const negative = state.rootCauseBaselines?.negative?.length || 0;
+  card.textContent = `${positive} 正例根因 · ${negative} 反例根因`;
+  card.classList.add("resource-meta-text");
 }
 
 function openModelMarketModal() {

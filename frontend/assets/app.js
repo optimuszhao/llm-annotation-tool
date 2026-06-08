@@ -1,4 +1,4 @@
-import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-confirm";
+import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-count";
 import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260608-stop-running-task";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
@@ -12,6 +12,7 @@ export const state = {
   errorSets: [],
   schemes: [],
   modelMarketConfigs: [],
+  rootCauseBaselines: { positive: [], negative: [] },
   analysisMethods: {},
   distillationMethods: {},
   activeSceneId: "",
@@ -148,18 +149,20 @@ export async function loadState() {
 
 export async function loadSceneResources() {
   const sceneParam = state.activeSceneId ? `?scene_id=${encodeURIComponent(state.activeSceneId)}` : "";
-  const [datasets, prompts, knowledge, errorSets, schemes] = await Promise.all([
+  const [datasets, prompts, knowledge, errorSets, schemes, rootCauseBaselines] = await Promise.all([
     api(`/api/datasets${sceneParam}`),
     api(`/api/prompts${sceneParam}`),
     api(`/api/knowledge${sceneParam}`),
     api(`/api/error-sets${sceneParam}`),
     api(`/api/schemes${sceneParam}`),
+    state.activeSceneId ? api(`/api/root-cause/baselines${sceneParam}`).catch(() => ({ positive: [], negative: [] })) : Promise.resolve({ positive: [], negative: [] }),
   ]);
   state.datasets = datasets;
   state.prompts = prompts;
   state.knowledge = knowledge;
   state.errorSets = errorSets;
   state.schemes = schemes;
+  state.rootCauseBaselines = rootCauseBaselines || { positive: [], negative: [] };
   if (!state.datasets.some((item) => item.id === state.activeDatasetId)) {
     state.activeDatasetId = state.datasets[0]?.id || "";
   }

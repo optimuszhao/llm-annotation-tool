@@ -441,11 +441,20 @@
   max-height: min(500px, calc(100vh - 300px));
   padding: 2px 2px 0;
   overflow: auto;
+  align-content: start;
+  grid-auto-rows: 36px;
 }
 
 .root-cause-filter-list label {
+  height: 36px;
   min-height: 36px;
+  max-height: 36px;
   padding: 0 10px;
+}
+
+.root-cause-filter-list label span,
+.root-cause-filter-list label strong {
+  line-height: 1;
 }
 
 .root-cause-filter-actions {
@@ -4830,6 +4839,12 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
 .resource-meta strong {
   color: var(--card-ink);
   font-size: 18px;
+}
+.resource-meta-text {
+  color: var(--card-ink);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
 }
 .ref-scheme-panel {
   min-height: 0;

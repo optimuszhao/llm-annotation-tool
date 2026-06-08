@@ -190,13 +190,13 @@ def _load_model_result_rows(conn, table_name: str, dataset_id: str, scheme_id: s
                 FROM annotation_task_rows task_row
                 JOIN annotation_tasks task ON task.id=task_row.task_id
                 WHERE task.dataset_id=? AND task.scheme_id=?
+                  AND json_valid(task_row.model_result)
+                  AND TRIM(COALESCE(task_row.model_result, '')) NOT IN ('', '{}')
               )
               WHERE rn=1
             )
             SELECT row_id, dataset_id, model_result
             FROM latest_scheme_rows
-            WHERE json_valid(model_result)
-              AND TRIM(COALESCE(model_result, '')) NOT IN ('', '{}')
             """,
             (dataset_id, scheme_id),
         ).fetchall()
@@ -253,7 +253,7 @@ def _link_from_result(
 ) -> dict | None:
     flattened = flatten_model_result_for_display(result)
     answer = _first_text_value(result, flattened, [answer_column, answer_column.split(".")[-1], "answer", "答案"])
-    root_name = _first_text_value(result, flattened, [root_column, root_column.split(".")[-1], "根因分析", "root_cause"])
+    root_name = _first_text_value(result, flattened, [root_column, root_column.split(".")[-1], "根因分析", "根因分类", "root_cause"])
     polarity = _polarity_from_answer(answer)
     if not polarity or not root_name:
         return None
