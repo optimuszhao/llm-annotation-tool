@@ -34,6 +34,8 @@ let drawerResizeCleanup = null;
 let drawerAnalysisSplitCleanup = null;
 let statusFilters = new Set();
 let favoriteOnlyFilter = false;
+let rootCauseFilterValue = "";
+let rootCauseSummaryCache = null;
 let columnFilter = { column: "", value: "", empty: false };
 let activeSort = { column: "", dir: "" };
 let availableDatasetColumns = [];
@@ -143,6 +145,12 @@ export function renderWorkbenchPage() {
         </div>
         <div class="toolbar-right">
           <button class="btn refresh-table-button" type="button" id="refreshTableButton">刷新</button>
+          <div class="dropdown-wrap">
+            <button class="btn root-cause-filter-button" type="button" id="rootCauseFilterButton" aria-expanded="false">根因分析筛选</button>
+            <div class="dropdown-menu root-cause-filter-menu" id="rootCauseFilterMenu" hidden>
+              <div class="root-cause-filter-loading">正在读取根因统计...</div>
+            </div>
+          </div>
           <button class="btn favorite-filter-button" type="button" id="favoriteFilterButton">只看收藏</button>
           <div class="dropdown-wrap">
             <button class="btn status-filter-button" type="button" id="statusFilterButton" aria-expanded="false">状态筛选</button>
@@ -575,6 +583,10 @@ function bindWorkbenchEvents() {
   document.querySelector("#modelDistillationResult").addEventListener("change", syncDistillationSaveButton);
   document.querySelector("#sourceModalBackdrop").addEventListener("click", handleSourceModalClick);
   document.querySelector("#refreshTableButton").addEventListener("click", refreshTableData);
+  document.querySelector("#rootCauseFilterButton").addEventListener("click", (event) => {
+    toggleRootCauseFilterMenu(event.currentTarget);
+  });
+  document.querySelector("#rootCauseFilterMenu").addEventListener("click", handleRootCauseFilterMenuClick);
   document.querySelector("#favoriteFilterButton").addEventListener("click", toggleFavoriteFilter);
   document.querySelector("#tableFocusButton").addEventListener("click", toggleTableFocusMode);
   document.querySelector("#columnFilterPopover").addEventListener("click", handleColumnFilterPopoverClick);
@@ -752,6 +764,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     fixedMappingColumns(allConfigurableColumns()).join("\u001f"),
     pageButtonCount,
     `${columnFilter.column}\u001f${columnFilter.value}\u001f${columnFilter.empty ? "empty" : ""}`,
+    rootCauseFilterValue,
   ].join("\u001e");
   if (table && tableBuildKey === nextBuildKey) {
     const tableReady = waitForNextTableAjax();
@@ -764,6 +777,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     updateSortButtons();
     await refreshMetrics();
     syncStatusFilterMenu();
+    syncRootCauseFilterButton();
     syncFavoriteFilterButton();
     setBatchButtonState();
     await loadLatestTask();
@@ -874,6 +888,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   tableReadyForRealtime = true;
   await refreshMetrics();
   syncStatusFilterMenu();
+  syncRootCauseFilterButton();
   syncFavoriteFilterButton();
   setBatchButtonState();
   await loadLatestTask();
@@ -1135,6 +1150,7 @@ function buildRowsQuery(page, pageSize, tableParams = {}) {
   params.set("search_column", columnFilter.column || "");
   if (columnFilter.empty) params.set("empty", "true");
   if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
+  if (rootCauseFilterValue) params.set("root_cause_value", rootCauseFilterValue);
   statusFilters.forEach((status) => params.append("statuses", status));
   if (favoriteOnlyFilter) params.set("favorite", "true");
   if (activeSort.column) {
@@ -1393,8 +1409,11 @@ async function saveWorkbenchSourcePreference() {
 function resetWorkbenchQueryState() {
   statusFilters = new Set();
   favoriteOnlyFilter = false;
+  rootCauseFilterValue = "";
+  rootCauseSummaryCache = null;
   columnFilter = { column: "", value: "", empty: false };
   syncFavoriteFilterButton();
+  syncRootCauseFilterButton();
   const selectCurrentPage = document.querySelector("#selectCurrentPage");
   if (selectCurrentPage) selectCurrentPage.checked = false;
   tableBuildKey = "";
@@ -1825,6 +1844,83 @@ function syncStatusFilterMenu() {
   button.classList.toggle("active", count > 0);
 }
 
+async function toggleRootCauseFilterMenu(button) {
+  const menu = document.querySelector("#rootCauseFilterMenu");
+  if (!menu) return;
+  const shouldOpen = menu.hidden;
+  closeMenus();
+  if (!shouldOpen) return;
+  menu.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  await loadRootCauseFilterMenu();
+}
+
+async function loadRootCauseFilterMenu() {
+  const menu = document.querySelector("#rootCauseFilterMenu");
+  if (!menu) return;
+  if (!state.activeSceneId) {
+    menu.innerHTML = `<div class="root-cause-filter-empty">请先选择场景</div>`;
+    return;
+  }
+  menu.innerHTML = `<div class="root-cause-filter-loading">正在读取根因统计...</div>`;
+  const params = new URLSearchParams({ scene_id: state.activeSceneId });
+  if (state.activeDatasetId) params.set("dataset_id", state.activeDatasetId);
+  if (state.activeSchemeId) params.set("scheme_id", state.activeSchemeId);
+  try {
+    rootCauseSummaryCache = await api(`/api/root-cause/summary?${params.toString()}`);
+    menu.innerHTML = rootCauseFilterMenuHtml(rootCauseSummaryCache);
+  } catch (error) {
+    menu.innerHTML = `<div class="root-cause-filter-empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function rootCauseFilterMenuHtml(summary) {
+  if (!summary?.root_cause_column) {
+    return `<div class="root-cause-filter-empty">请先配置根因分类列</div>`;
+  }
+  const items = summary.items || [];
+  if (!items.length) {
+    return `
+      <div class="root-cause-filter-head">
+        <span>${escapeHtml(summary.root_cause_column)}</span>
+        <button type="button" data-root-cause-value="">全部</button>
+      </div>
+      <div class="root-cause-filter-empty">当前数据暂无根因分类结果</div>
+    `;
+  }
+  return `
+    <div class="root-cause-filter-head">
+      <span>${escapeHtml(summary.root_cause_column)}</span>
+      <button type="button" data-root-cause-value="">全部</button>
+    </div>
+    <div class="root-cause-filter-list">
+      ${items.map((item) => `
+        <button class="${item.name === rootCauseFilterValue ? "active" : ""}" type="button" data-root-cause-value="${escapeHtml(item.name)}">
+          <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+          <strong>${Number(item.count || 0).toLocaleString()}</strong>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function handleRootCauseFilterMenuClick(event) {
+  const button = event.target.closest("[data-root-cause-value]");
+  if (!button) return;
+  event.preventDefault();
+  rootCauseFilterValue = button.dataset.rootCauseValue || "";
+  closeMenus();
+  syncRootCauseFilterButton();
+  await refreshWorkbench();
+}
+
+function syncRootCauseFilterButton() {
+  const button = document.querySelector("#rootCauseFilterButton");
+  if (!button) return;
+  button.textContent = rootCauseFilterValue ? `根因：${rootCauseFilterValue}` : "根因分析筛选";
+  button.classList.toggle("active", Boolean(rootCauseFilterValue));
+}
+
 function toggleStatusFilterMenu(button) {
   const menu = document.querySelector("#statusFilterMenu");
   if (!menu) return;
@@ -1873,6 +1969,7 @@ async function applyStatusFilters() {
 function closeMenus() {
   document.querySelector("#globalMoreMenu")?.setAttribute("hidden", "");
   document.querySelector("#statusFilterMenu")?.setAttribute("hidden", "");
+  document.querySelector("#rootCauseFilterMenu")?.setAttribute("hidden", "");
   document.querySelector("#columnFilterPopover")?.setAttribute("hidden", "");
   document.querySelector("#rowMoreMenu")?.classList.remove("open");
   document.querySelectorAll('[aria-expanded="true"]').forEach((button) => {
@@ -2043,6 +2140,9 @@ function handleMoreMenu(event) {
     return;
   }
   if (event.target.closest("#statusFilterButton") || event.target.closest("#statusFilterMenu")) {
+    return;
+  }
+  if (event.target.closest("#rootCauseFilterButton") || event.target.closest("#rootCauseFilterMenu")) {
     return;
   }
   if (!event.target.closest("#globalMoreButton") && !event.target.closest("#globalMoreMenu")) {
@@ -3480,11 +3580,12 @@ async function saveColumnSettings() {
     toast("至少保留一列用于列表展示");
     return;
   }
-  const mapping = latestFieldMapping || {
-    human_answer_column: "",
-    model_answer_column: "",
-    annotation_columns: [],
-  };
+    const mapping = latestFieldMapping || {
+      human_answer_column: "",
+      model_answer_column: "",
+      root_cause_column: "",
+      annotation_columns: [],
+    };
   try {
     localStorage.setItem("llm-table-font-size", tableFontSize);
     latestFieldMapping = await api("/api/field-mapping", {
@@ -3493,6 +3594,7 @@ async function saveColumnSettings() {
         scene_id: state.activeSceneId,
         human_answer_column: mapping.human_answer_column || "",
         model_answer_column: mapping.model_answer_column || "",
+        root_cause_column: mapping.root_cause_column || "",
         visible_columns: visibleColumns,
         annotation_columns: mapping.annotation_columns || [],
       }),

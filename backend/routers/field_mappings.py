@@ -23,6 +23,7 @@ def get_field_mapping(scene_id: str = Query(...)):
             "scene_id": scene_id,
             "human_answer_column": "",
             "model_answer_column": "",
+            "root_cause_column": "",
             "visible_columns": [],
             "annotation_columns": [],
         }
@@ -42,14 +43,16 @@ def save_field_mapping(payload: FieldMappingSave):
                 scene_id,
                 human_answer_column,
                 model_answer_column,
+                root_cause_column,
                 visible_columns,
                 annotation_columns,
                 updated_at
             )
-            VALUES(?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(scene_id) DO UPDATE SET
                 human_answer_column=excluded.human_answer_column,
                 model_answer_column=excluded.model_answer_column,
+                root_cause_column=excluded.root_cause_column,
                 visible_columns=excluded.visible_columns,
                 annotation_columns=excluded.annotation_columns,
                 updated_at=excluded.updated_at
@@ -58,6 +61,7 @@ def save_field_mapping(payload: FieldMappingSave):
                 payload.scene_id,
                 payload.human_answer_column,
                 payload.model_answer_column,
+                payload.root_cause_column,
                 encode_json(payload.visible_columns),
                 encode_json(payload.annotation_columns),
                 timestamp,

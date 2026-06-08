@@ -63,6 +63,7 @@ class FieldMappingSave(BaseModel):
     scene_id: str
     human_answer_column: str = ""
     model_answer_column: str = ""
+    root_cause_column: str = ""
     visible_columns: List[str] = []
     annotation_columns: List[str] = []
 

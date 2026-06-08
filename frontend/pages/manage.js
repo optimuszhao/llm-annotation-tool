@@ -100,6 +100,7 @@ function renderSceneContent(activeScene) {
     { key: "knowledge", title: "知识库", action: "导入知识", meta: "保存业务规则、上下文和补充说明。", count: state.knowledge.length },
     { key: "errorSets", title: "fewshots样例", action: "整理样例", meta: "第一阶段保留结构和基础管理。", count: state.errorSets.length },
     { key: "fieldMapping", title: "算法输入输出字段映射", action: "配置字段", meta: "选择答案列、列表展示列和标注上下文字段。", count: columnOptions().length },
+    { key: "rootCause", title: "根因分类", action: "查看统计", meta: "按字段映射里的根因列统计最新标注结果。", count: state.datasets.length },
   ];
   return `
     <div class="ref-manage-main">
@@ -148,11 +149,11 @@ function renderSceneContent(activeScene) {
 }
 
 function resourceIcon(key) {
-  return { datasets: "DS", prompts: "PT", knowledge: "KB", errorSets: "ER", fieldMapping: "FM" }[key] || "RS";
+  return { datasets: "DS", prompts: "PT", knowledge: "KB", errorSets: "ER", fieldMapping: "FM", rootCause: "RC" }[key] || "RS";
 }
 
 function resourceUnit(key) {
-  return { datasets: "个文件", prompts: "条", knowledge: "条", errorSets: "个集合", fieldMapping: "个字段" }[key] || "项";
+  return { datasets: "个文件", prompts: "条", knowledge: "条", errorSets: "个集合", fieldMapping: "个字段", rootCause: "个数据集" }[key] || "项";
 }
 
 function safeExportFilePart(value) {
@@ -313,6 +314,8 @@ function bindManageEvents() {
       }
       if (card.dataset.resourceCard === "fieldMapping") {
         openFieldMappingModal();
+      } else if (card.dataset.resourceCard === "rootCause") {
+        openRootCauseModal();
       } else {
         openResourceModal(card.dataset.resourceCard);
       }
@@ -442,6 +445,7 @@ async function openFieldMappingModal() {
     : ["工单名称", "工单类型", "Summary", "标注数据"].filter((column) => columns.includes(column));
   const humanAnswer = mapping.human_answer_column || (columns.includes("情感分类") ? "情感分类" : columns[0] || "");
   const modelAnswer = mapping.model_answer_column || (columns.includes("GPT4_标注") ? "GPT4_标注" : "");
+  const rootCause = mapping.root_cause_column || "";
 
   openModal("算法输入输出字段映射", "配置当前场景数据集的答案列、列表展示列和标注上下文字段。", `
     <form id="fieldMappingForm" class="field-mapping-form">
@@ -455,6 +459,10 @@ async function openFieldMappingModal() {
         <label>
           <span>标注答案列</span>
           <input class="input" name="model_answer" value="${escapeHtml(modelAnswer)}" placeholder="输入标注答案列名">
+        </label>
+        <label>
+          <span>根因分类列</span>
+          <input class="input" name="root_cause" value="${escapeHtml(rootCause)}" placeholder="输入根因分类列名">
         </label>
       </section>
       ${renderColumnPickSection("默认渲染在列表中的列名", "影响标注工作台首屏表格的列展示。", "visible_columns", columns, selectedDefaults)}
@@ -471,6 +479,7 @@ async function openFieldMappingModal() {
         scene_id: state.activeSceneId,
         human_answer_column: form.get("human_answer"),
         model_answer_column: form.get("model_answer"),
+        root_cause_column: form.get("root_cause"),
         visible_columns: form.getAll("visible_columns"),
         annotation_columns: form.getAll("annotation_columns"),
       }),
@@ -486,6 +495,68 @@ async function openFieldMappingModal() {
       });
     });
   });
+}
+
+async function openRootCauseModal() {
+  if (!state.activeSceneId) {
+    toast("请先选择场景");
+    return;
+  }
+  openModal("根因分类统计", "统计当前场景下最新标注结果中的根因分类分布。", `
+    <div class="root-cause-panel">
+      <div class="root-cause-loading">正在统计根因分类...</div>
+    </div>
+  `, "modal-xl");
+  try {
+    const summary = await api(`/api/root-cause/summary?scene_id=${encodeURIComponent(state.activeSceneId)}`);
+    const panel = document.querySelector(".root-cause-panel");
+    if (panel) panel.innerHTML = renderRootCauseSummary(summary);
+  } catch (error) {
+    const panel = document.querySelector(".root-cause-panel");
+    if (panel) panel.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderRootCauseSummary(summary) {
+  const items = summary.items || [];
+  if (!summary.root_cause_column) {
+    return `<div class="empty">请先在“算法输入输出字段映射”中填写根因分类列。</div>`;
+  }
+  if (!items.length) {
+    return `<div class="empty">当前场景还没有可统计的根因分类结果。</div>`;
+  }
+  const max = Math.max(...items.map((item) => Number(item.count || 0)), 1);
+  return `
+    <section class="root-cause-chart-card">
+      <div class="root-cause-chart-head">
+        <div>
+          <strong>${escapeHtml(summary.root_cause_column)}</strong>
+          <span>共 ${Number(summary.total || 0).toLocaleString()} 条可统计结果</span>
+        </div>
+      </div>
+      <div class="root-cause-bars">
+        ${items.map((item) => {
+          const count = Number(item.count || 0);
+          const width = Math.max(8, Math.round((count / max) * 100));
+          return `
+            <div class="root-cause-bar-row">
+              <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+              <div class="root-cause-bar-track"><i style="width:${width}%"></i></div>
+              <strong>${count.toLocaleString()}</strong>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </section>
+    <section class="root-cause-stat-list">
+      ${items.map((item) => `
+        <div class="root-cause-stat-item">
+          <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+          <strong>${Number(item.count || 0).toLocaleString()}</strong>
+        </div>
+      `).join("")}
+    </section>
+  `;
 }
 
 function openModelMarketModal() {

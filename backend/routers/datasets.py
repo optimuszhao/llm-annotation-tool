@@ -60,8 +60,22 @@ def get_rows(
     favorite: bool = False,
     sort_field: str = "",
     sort_dir: str = "asc",
+    root_cause_value: str = "",
 ):
-    return get_dataset_rows(dataset_id, page, page_size, search, search_column, empty, scheme_id, statuses, favorite, sort_field, sort_dir)
+    return get_dataset_rows(
+        dataset_id,
+        page,
+        page_size,
+        search,
+        search_column,
+        empty,
+        scheme_id,
+        statuses,
+        favorite,
+        sort_field,
+        sort_dir,
+        root_cause_value,
+    )
 
 
 @router.get("/{dataset_id}/export")

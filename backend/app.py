@@ -21,6 +21,7 @@ from backend.routers import (
     model_distillation,
     preferences,
     prompts,
+    root_cause,
     scenes,
     schemes,
 )
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(model_distillation.router)
     app.include_router(preferences.router)
     app.include_router(chat.router)
+    app.include_router(root_cause.router)
 
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
     app.mount("/pages", StaticFiles(directory=FRONTEND_DIR / "pages"), name="pages")

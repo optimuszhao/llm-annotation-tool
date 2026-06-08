@@ -33,6 +33,218 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+.root-cause-panel {
+  display: grid;
+  gap: 14px;
+  min-height: 280px;
+}
+
+.root-cause-loading {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.root-cause-chart-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, #e11d48 18%, var(--line));
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #ffe4e6 54%, transparent), transparent 52%),
+    color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.72);
+}
+
+.root-cause-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.root-cause-chart-head div {
+  display: grid;
+  gap: 4px;
+}
+
+.root-cause-chart-head strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.root-cause-chart-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.root-cause-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.root-cause-bar-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 180px) minmax(160px, 1fr) 70px;
+  align-items: center;
+  gap: 10px;
+}
+
+.root-cause-bar-row > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.root-cause-bar-row strong {
+  color: #be123c;
+  font-size: 13px;
+  text-align: right;
+}
+
+.root-cause-bar-track {
+  height: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #e11d48 16%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, #ffe4e6 52%, var(--surface-2));
+}
+
+.root-cause-bar-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #fb7185, #e11d48);
+  box-shadow: 0 6px 18px rgba(225, 29, 72, .18);
+}
+
+.root-cause-stat-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.root-cause-stat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+}
+
+.root-cause-stat-item span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.root-cause-stat-item strong {
+  color: var(--primary-strong);
+  font-size: 15px;
+}
+
+.root-cause-filter-button.active {
+  border-color: color-mix(in srgb, #e11d48 38%, var(--line));
+  background: color-mix(in srgb, #ffe4e6 64%, var(--surface));
+  color: #be123c;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #e11d48 12%, transparent);
+}
+
+.root-cause-filter-menu {
+  min-width: 260px;
+  max-width: 340px;
+  padding: 8px;
+}
+
+.root-cause-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.root-cause-filter-head span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.root-cause-filter-head button {
+  height: 28px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.root-cause-filter-list {
+  display: grid;
+  gap: 4px;
+  max-height: 300px;
+  overflow: auto;
+  padding-top: 6px;
+}
+
+.root-cause-filter-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.root-cause-filter-list button.active,
+.root-cause-filter-list button:hover {
+  border-color: color-mix(in srgb, #e11d48 18%, var(--line));
+  background: color-mix(in srgb, #ffe4e6 52%, var(--surface));
+  color: #be123c;
+}
+
+.root-cause-filter-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.root-cause-filter-list strong {
+  font-size: 12px;
+}
+
+.root-cause-filter-empty,
+.root-cause-filter-loading {
+  padding: 18px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
 :root[data-theme="blue"] { --primary:#3157d5; --primary-strong:#2546b7; --primary-soft:#e7edff; --bg-aura:rgba(14, 128, 117, .08); }
 :root[data-theme="purple"] { --primary:#7c3aed; --primary-strong:#5b21b6; --primary-soft:#f1e9ff; --accent:#0e8075; --accent-soft:#d9fbf5; --bg-aura:rgba(124, 58, 237, .10); }
 :root[data-theme="orange"] { --primary:#f97316; --primary-strong:#c2410c; --primary-soft:#ffedd5; --accent:#0e8075; --accent-soft:#d9fbf5; --bg-aura:rgba(249, 115, 22, .10); }
@@ -4205,6 +4417,15 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
   --card-soft: rgba(8, 145, 178, .20);
   --card-ink: #67e8f9;
 }
+.ref-resource-card[data-resource-card="rootCause"] {
+  --card-tone: #e11d48;
+  --card-soft: #ffe4e6;
+  --card-ink: #be123c;
+}
+:root[data-mode="dark"] .ref-resource-card[data-resource-card="rootCause"] {
+  --card-soft: rgba(225, 29, 72, .18);
+  --card-ink: #fda4af;
+}
 .ref-resource-card:hover {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--card-tone) 54%, var(--line));
@@ -5442,7 +5663,7 @@ body.is-resizing-drawer-split .drawer-split-resizer::before {
 }
 .mapping-primary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 .mapping-primary label {
@@ -10459,5 +10680,15 @@ body.table-focus-active .app-main {
 
   .workbench-pro .metric-strip .metric-item.muted > strong {
     font-size: 12px;
+  }
+}
+
+.ref-manage-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1366px) {
+  .ref-manage-grid {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
   }
 }

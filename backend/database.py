@@ -184,6 +184,7 @@ def init_db(recover_interrupted: bool = False) -> None:
                 scene_id TEXT PRIMARY KEY,
                 human_answer_column TEXT NOT NULL DEFAULT '',
                 model_answer_column TEXT NOT NULL DEFAULT '',
+                root_cause_column TEXT NOT NULL DEFAULT '',
                 visible_columns TEXT NOT NULL DEFAULT '[]',
                 annotation_columns TEXT NOT NULL DEFAULT '[]',
                 updated_at TEXT NOT NULL,
@@ -301,6 +302,7 @@ def init_db(recover_interrupted: bool = False) -> None:
         )
         ensure_column(conn, "schemes", "prompt_init_type", "TEXT NOT NULL DEFAULT 'auto'")
         ensure_column(conn, "schemes", "prompt_init_method_name", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "field_mappings", "root_cause_column", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "row_analysis_history", "method_name", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "row_analysis_history", "method_label", "TEXT NOT NULL DEFAULT ''")
         for scene in conn.execute("SELECT data_table_name FROM scenes").fetchall():

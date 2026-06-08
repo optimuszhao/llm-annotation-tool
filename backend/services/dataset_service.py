@@ -460,6 +460,7 @@ def get_dataset_rows(
     favorite_only: bool = False,
     sort_field: str = "",
     sort_dir: str = "asc",
+    root_cause_value: str = "",
 ) -> dict:
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
@@ -471,6 +472,11 @@ def get_dataset_rows(
             raise HTTPException(status_code=404, detail="数据集不存在")
         scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
         table_name = scene["data_table_name"]
+        field_mapping = conn.execute(
+            "SELECT root_cause_column FROM field_mappings WHERE scene_id=?",
+            (dataset["scene_id"],),
+        ).fetchone()
+        root_cause_column = (field_mapping["root_cause_column"] if field_mapping else "").strip()
         model_result_columns = _model_result_columns(conn, dataset_id)
         columns = _sync_model_result_columns(conn, dataset, model_result_columns)
         analysis_columns = _analysis_result_columns(conn, dataset_id)
@@ -587,6 +593,29 @@ def get_dataset_rows(
                 clauses.append(f"{status_expr} IN ({placeholders})")
                 params.extend(concrete_statuses)
             where += f" AND ({' OR '.join(clauses)})"
+        root_cause_text = root_cause_value.strip()
+        if root_cause_text and root_cause_column:
+            raw_path = _json_column_path(root_cause_column)
+            result_path = _model_result_json_path(root_cause_column)
+            if scheme_view:
+                where += """
+                    AND TRIM(COALESCE(
+                      CAST(json_extract(latest.scheme_model_result, ?) AS TEXT),
+                      CAST(json_extract(d.model_result, ?) AS TEXT),
+                      CAST(json_extract(d.raw_data, ?) AS TEXT),
+                      ''
+                    ))=?
+                """
+                params.extend([result_path, result_path, raw_path, root_cause_text])
+            else:
+                where += """
+                    AND TRIM(COALESCE(
+                      CAST(json_extract(model_result, ?) AS TEXT),
+                      CAST(json_extract(raw_data, ?) AS TEXT),
+                      ''
+                    ))=?
+                """
+                params.extend([result_path, raw_path, root_cause_text])
         if favorite_only:
             where += f" AND {base_alias + '.' if base_alias else ''}is_favorite=1"
         order_params: list[Any] = []
