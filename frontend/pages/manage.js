@@ -510,7 +510,7 @@ async function openRootCauseModal() {
     <div class="root-cause-panel">
       <div class="root-cause-loading">正在读取根因基线...</div>
     </div>
-  `, "modal-xl");
+  `, "modal-xl root-cause-baseline-modal");
   try {
     const summary = await api(`/api/root-cause/baselines?scene_id=${encodeURIComponent(state.activeSceneId)}`);
     const panel = document.querySelector(".root-cause-panel");

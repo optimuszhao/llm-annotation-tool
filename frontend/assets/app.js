@@ -1,4 +1,4 @@
-import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-count";
+import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-baseline-height";
 import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260608-stop-running-task";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
@@ -175,6 +175,15 @@ function validStateId(items, preferredId) {
   return preferredId && items.some((item) => item.id === preferredId) ? preferredId : items[0]?.id || "";
 }
 
+async function refreshManageOnEnter() {
+  try {
+    await loadSceneResources();
+    renderManagePage();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 function showPage(name) {
   document.querySelectorAll("[data-page]").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.page === name);
@@ -182,6 +191,7 @@ function showPage(name) {
   document.querySelectorAll(".page").forEach((page) => {
     page.classList.toggle("active", page.id === `page-${name}`);
   });
+  if (name === "manage") refreshManageOnEnter();
   if (name === "workbench") refreshWorkbench();
   if (name === "evaluation") renderEvaluationPage();
   if (name === "chat") renderChatPage();
