@@ -21,6 +21,8 @@ def render_prompt_template(
     - `｛knowledge.知识名称｝`：读取指定知识库。
     - `｛error_sets.fewshots样例名称｝`：读取指定fewshots样例。
     - `｛knowledge｝` / `｛error_sets｝`：读取方案关联的全部资源。
+    - `｛root_cause_baselines.正例｝` / `｛root_cause_baselines.反例｝`：读取根因分类基线。
+    - `｛根因基线.正例｝` / `｛根因基线.反例｝`：中文别名。
 
     Prompt 里的 JSON 示例和 `{{...}}` 返回格式提示会原样保留。
     """
@@ -43,6 +45,13 @@ def render_prompt_template(
         if key.startswith("row."):
             column = key[4:].strip()
             return stringify_prompt_value(row_data.get(column, ""))
+        root_cause_name = named_resource_placeholder(key, {"root_cause_baselines", "root_cause_baseline", "根因基线", "根因分类基线"})
+        if root_cause_name:
+            baselines = root_cause_baselines_from_context(extra_context)
+            return "\n".join(baselines.get(normalize_root_cause_baseline_key(root_cause_name), []))
+        if key in {"root_cause_baselines", "root_cause_baseline", "根因基线", "根因分类基线"}:
+            baselines = root_cause_baselines_from_context(extra_context)
+            return stringify_prompt_value(baselines)
         if key in extra_context:
             return stringify_prompt_value(extra_context[key])
         return match.group(0)
@@ -84,6 +93,21 @@ def stringify_prompt_value(value) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, indent=2)
     return str(value)
+
+
+def root_cause_baselines_from_context(extra_context: dict | None) -> dict:
+    extra_context = extra_context or {}
+    context = extra_context.get("context") if isinstance(extra_context.get("context"), dict) else {}
+    value = extra_context.get("root_cause_baselines") or context.get("root_cause_baselines") or {}
+    return {
+        "正例": list(value.get("正例") or value.get("positive") or []),
+        "反例": list(value.get("反例") or value.get("negative") or []),
+    }
+
+
+def normalize_root_cause_baseline_key(value: str) -> str:
+    text = str(value or "").strip().lower()
+    return "反例" if text in {"negative", "neg", "false", "no", "反例", "负例", "否"} else "正例"
 
 
 def named_resource_placeholder(key: str, prefixes: set) -> str:

@@ -868,21 +868,25 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
             field_mapping = {}
             resources = []
             model_config = {}
+            root_cause_baselines = {"正例": [], "反例": []}
             row_data = {}
         else:
             field_mapping = _get_field_mapping(conn, scene["id"])
             resources = _get_scheme_resources(conn, scheme["id"])
             model_config = get_model_market_config(scheme.get("model_key", "")) or {}
+            root_cause_baselines = _get_root_cause_baselines(conn, scene["id"])
             row_data = decode_json(row["raw_data"], {})
         context = {
             "task_id": task_id,
             "task_row_id": task_row_id,
+            "scene_id": scene["id"],
             "dataset_id": task["dataset_id"],
             "scheme_id": task["scheme_id"],
             "row_id": task_row["row_id"],
             "row_index": task_row["row_index"],
             "field_mapping": field_mapping,
             "row_data": row_data,
+            "root_cause_baselines": root_cause_baselines,
             "model_config": model_config,
             "model_market_config": model_config,
         }
@@ -1205,6 +1209,25 @@ def _get_field_mapping(conn, scene_id: str) -> dict:
     return row
 
 
+def _get_root_cause_baselines(conn, scene_id: str) -> dict[str, list[str]]:
+    rows = conn.execute(
+        """
+        SELECT polarity, name
+        FROM root_cause_baselines
+        WHERE scene_id=?
+        ORDER BY polarity ASC, name ASC
+        """,
+        (scene_id,),
+    ).fetchall()
+    baselines = {"正例": [], "反例": []}
+    for row in rows:
+        target = "反例" if row["polarity"] == "negative" else "正例"
+        name = str(row["name"] or "").strip()
+        if name:
+            baselines[target].append(name)
+    return baselines
+
+
 def _get_scheme_resources(conn, scheme_id: str) -> dict[str, list[dict]]:
     resources = {"prompts": [], "knowledge": [], "error_sets": []}
     rows = conn.execute(
@@ -1259,7 +1282,13 @@ def _render_prompt(scheme: dict, resources: dict, field_mapping: dict, row_data:
 
     rendered_prompts = {}
     for prompt in resources["prompts"]:
-        content = _render_prompt_template(prompt, resources["knowledge"], resources["error_sets"], row_data)
+        content = _render_prompt_template(
+            prompt,
+            resources["knowledge"],
+            resources["error_sets"],
+            row_data,
+            context.get("root_cause_baselines", {}),
+        )
         _set_rendered_prompt(rendered_prompts, prompt, content)
     return rendered_prompts
 
@@ -1305,13 +1334,20 @@ def _unique_resource_key(target: dict, base: Any, fallback: Any = "") -> str:
     return f"{key}#{index}"
 
 
-def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: list[dict], row_data: dict) -> str:
+def _render_prompt_template(
+    prompt: dict,
+    knowledge: list[dict],
+    error_sets: list[dict],
+    row_data: dict,
+    root_cause_baselines: dict | None = None,
+) -> str:
     text = prompt.get("content", "")
     knowledge_text = "\n\n".join(item.get("content", "") for item in knowledge)
     error_text = "\n\n".join(
         f"{item.get('name', '')}\n{item.get('description', '')}".strip()
         for item in error_sets
     )
+    root_cause_baselines = root_cause_baselines or {"正例": [], "反例": []}
 
     def replace(match: re.Match) -> str:
         key = match.group(1).strip()
@@ -1327,9 +1363,25 @@ def _render_prompt_template(prompt: dict, knowledge: list[dict], error_sets: lis
             return _lookup_named_resource_text(error_sets, error_match, "description")
         if key.startswith("row."):
             return str(row_data.get(key[4:].strip(), ""))
+        root_cause_match = _named_resource_placeholder(key, {"root_cause_baselines", "root_cause_baseline", "根因基线", "根因分类基线"})
+        if root_cause_match:
+            polarity = _normalize_root_cause_baseline_key(root_cause_match)
+            return "\n".join(root_cause_baselines.get(polarity, []))
+        if key in {"root_cause_baselines", "root_cause_baseline", "根因基线", "根因分类基线"}:
+            return (
+                "正例：\n"
+                + "\n".join(root_cause_baselines.get("正例", []))
+                + "\n\n反例：\n"
+                + "\n".join(root_cause_baselines.get("反例", []))
+            ).strip()
         return match.group(0)
 
     return re.sub(r"｛\s*([^｛｝]+?)\s*｝", replace, text)
+
+
+def _normalize_root_cause_baseline_key(value: str) -> str:
+    text = str(value or "").strip().lower()
+    return "反例" if text in {"negative", "neg", "false", "no", "反例", "负例", "否"} else "正例"
 
 
 def _named_resource_placeholder(key: str, prefixes: set[str]) -> str:

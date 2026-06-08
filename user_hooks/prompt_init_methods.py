@@ -28,6 +28,7 @@ def build_prompts_custom(
     - prompt_contents: {角色名: Prompt对象}
     - knowledge: {知识名称: 知识内容}
     - error_sets: {fewshots样例名称: fewshots样例内容}
+    - context["root_cause_baselines"]: {"正例": [名称1, 名称2], "反例": [名称1, 名称2]}
 
     原始资源列表仍保存在 context["resource_lists"]，需要 id、排序等元数据时可以读取。
     返回结构必须是 `{角色名: Prompt对象}`。
@@ -35,6 +36,7 @@ def build_prompts_custom(
     extra_context = {
         "field_mapping": field_mapping,
         "context": context,
+        "root_cause_baselines": context.get("root_cause_baselines", {}),
     }
     rendered_prompts = {}
     for role_name, prompt in iter_prompt_items(prompt_contents):

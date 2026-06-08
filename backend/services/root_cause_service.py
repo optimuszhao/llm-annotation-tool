@@ -14,6 +14,29 @@ POLARITY_LABELS = {
     POSITIVE: "正例",
     NEGATIVE: "反例",
 }
+INVALID_ROOT_CAUSE_NAMES = {
+    "",
+    "-",
+    "--",
+    "/",
+    "\\",
+    "n",
+    "no",
+    "na",
+    "n/a",
+    "none",
+    "null",
+    "nil",
+    "nan",
+    "空",
+    "空字",
+    "无",
+    "暂无",
+    "未知",
+    "未填写",
+    "未提供",
+    "不适用",
+}
 
 
 def list_root_cause_baselines(scene_id: str) -> dict:
@@ -253,7 +276,9 @@ def _link_from_result(
 ) -> dict | None:
     flattened = flatten_model_result_for_display(result)
     answer = _first_text_value(result, flattened, [answer_column, answer_column.split(".")[-1], "answer", "答案"])
-    root_name = _first_text_value(result, flattened, [root_column, root_column.split(".")[-1], "根因分析", "根因分类", "root_cause"])
+    root_name = _clean_root_cause_name(
+        _first_text_value(result, flattened, [root_column, root_column.split(".")[-1], "根因分析", "根因分类", "root_cause"])
+    )
     polarity = _polarity_from_answer(answer)
     if not polarity or not root_name:
         return None
@@ -282,6 +307,15 @@ def _first_text_value(raw: dict, flattened: dict, keys: list[str]) -> str:
         if text:
             return text
     return ""
+
+
+def _clean_root_cause_name(value: str) -> str:
+    text = str(value or "").strip()
+    normalized = text.strip(" \t\r\n'\"`，。；;:：[]【】()（）{}｛｝").strip().lower()
+    compact = "".join(normalized.split())
+    if compact in INVALID_ROOT_CAUSE_NAMES:
+        return ""
+    return text
 
 
 def _polarity_from_answer(value: str) -> str:
