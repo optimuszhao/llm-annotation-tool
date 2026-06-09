@@ -686,7 +686,7 @@ function renderAddDialog() {
             <h2>添加对比项</h2>
             <p class="card-meta">最多并列展示 4 个任务，候选项来自当前场景和当前数据集。</p>
           </div>
-          <button class="icon-btn" type="button" data-close-dialog aria-label="关闭">×</button>
+          <button class="icon-btn" type="button" data-close-dialog aria-label="关闭"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </header>
         <div class="eval-add-list">
           ${candidates.map((task) => `

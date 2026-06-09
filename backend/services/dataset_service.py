@@ -779,6 +779,8 @@ def _model_result_projection_expr(source_column: str, columns: list[str], alias:
     selected = _dedupe_columns([column for column in columns if column])
     if not selected:
         return f"{source_column} AS {alias}", []
+    if len(selected) > 40:
+        return f"{source_column} AS {alias}", []
     parts = ["json_object("]
     params: list[Any] = []
     for index, column in enumerate(selected):
@@ -1103,6 +1105,7 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
     if scheme_view:
         model_result = decode_json(row.get("scheme_model_result"), {})
         display_result = flatten_model_result_for_display(model_result)
+        display_result = {key: value for key, value in display_result.items() if value is not None}
         if preview:
             display_result = {key: _preview(value) for key, value in display_result.items()}
         raw_data = {**raw_data, **display_result}
@@ -1110,6 +1113,7 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
     else:
         model_result = decode_json(row.get("model_result"), {})
         display_result = flatten_model_result_for_display(model_result)
+        display_result = {key: value for key, value in display_result.items() if value is not None}
         if preview:
             display_result = {key: _preview(value) for key, value in display_result.items()}
         raw_data = {**raw_data, **display_result}

@@ -1036,7 +1036,7 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
             SET status=?, model_result=?, rendered_prompt=?, error=?, updated_at=?, finished_at=?
             WHERE id=?
             """,
-            (status, encode_json(model_result), rendered_prompt, validation_error or None, timestamp, timestamp, task_row_id),
+            (status, encode_json(model_result), rendered_prompt, validation_error, timestamp, timestamp, task_row_id),
         )
         _refresh_task_counts(conn, task_id, timestamp)
 

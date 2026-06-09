@@ -20,7 +20,7 @@ export function renderManagePage() {
           <h2>数据集与方案管理</h2>
           <p>场景驱动资源沉淀，组合 Prompt、知识库、fewshots样例和数据集后形成标注方案。</p>
         </div>
-        ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button">导出标注算法包</button>` : ""}
+        ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button"><span class="ui-icon ui-icon-package" aria-hidden="true"></span>导出标注算法包</button>` : ""}
       </section>
       ${renderModelMarketPanel()}
       <div class="ref-scene-tabs" role="tablist" aria-label="场景列表">
@@ -28,7 +28,7 @@ export function renderManagePage() {
           <div class="ref-scene-tab-list">
             ${state.scenes.map((scene) => `<button class="scene-tab ${scene.id === state.activeSceneId ? "active" : ""}" type="button" data-scene-id="${scene.id}">${escapeHtml(scene.name)}</button>`).join("")}
           </div>
-          <button class="scene-create" id="addSceneButton" type="button" aria-label="新增场景"><span aria-hidden="true">+</span> 新增场景</button>
+          <button class="scene-create" id="addSceneButton" type="button" aria-label="新增场景"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增场景</button>
         </div>
         ${activeScene ? `<button class="scene-delete" id="deleteSceneButton" type="button">删除选中的场景</button>` : ""}
       </div>
@@ -61,7 +61,7 @@ function renderModelMarketPanel() {
           <strong>可用模型</strong>
           <span>Core Model 与模型市场配置统一展示，创建方案时选择具体调用方式。</span>
         </div>
-        <button class="model-market-add" id="addModelMarketButton" type="button">添加模型</button>
+        <button class="model-market-add" id="addModelMarketButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>添加模型</button>
       </div>
       <div class="model-market-list">
         ${models.map((model) => `
@@ -153,7 +153,15 @@ function renderSceneContent(activeScene) {
 }
 
 function resourceIcon(key) {
-  return { datasets: "DS", prompts: "PT", knowledge: "KB", errorSets: "ER", fieldMapping: "FM", rootCause: "RC" }[key] || "RS";
+  const icons = {
+    datasets: "database",
+    prompts: "prompt",
+    knowledge: "book",
+    errorSets: "fewshot",
+    fieldMapping: "mapping",
+    rootCause: "root-cause",
+  };
+  return `<span class="ui-icon ui-icon-${icons[key] || "database"} ui-icon-lg" aria-hidden="true"></span>`;
 }
 
 function resourceUnit(key) {
@@ -273,7 +281,7 @@ function renderModal() {
         <div class="modal-head">
           <div class="modal-title-block"><h2 id="modalTitle">资源管理</h2><p class="card-meta" id="modalMeta">当前场景资源</p></div>
           <div class="scheme-title-name" id="schemeTitleName" hidden></div>
-          <button class="icon-btn" id="closeModal">×</button>
+          <button class="icon-btn" id="closeModal" aria-label="关闭"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </div>
         <div class="modal-body" id="modalBody"></div>
       </div>
@@ -951,7 +959,7 @@ function renderDatasetForm() {
       </div>
       <label class="file-picker">
         <input type="file" name="files" accept=".xlsx,.xls" multiple required>
-        <span class="file-picker-icon">+</span>
+        <span class="file-picker-icon"><span class="ui-icon ui-icon-plus" aria-hidden="true"></span></span>
         <span>
           <strong>选择 Excel 文件</strong>
           <em id="datasetFileSummary">尚未选择文件</em>

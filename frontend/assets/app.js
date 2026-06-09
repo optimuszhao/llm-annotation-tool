@@ -1,6 +1,6 @@
-import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-bulk";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260609-db-maintenance";
-import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
+import { renderManagePage } from "/pages/manage.js?v=20260609-icon-polish";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260609-icon-polish";
+import { renderEvaluationPage } from "/pages/evaluation.js?v=20260609-icon-polish";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
 import { initComponents } from "/assets/components.js";
 
@@ -28,17 +28,20 @@ export async function api(path, options = {}) {
     headers: options.body instanceof FormData ? {} : { "Content-Type": "application/json" },
     ...options,
   });
-  if (!response.ok) {
-    let detail = response.statusText;
+  const text = await response.text();
+  let payload = null;
+  if (text) {
     try {
-      const payload = await response.json();
-      detail = payload.detail || detail;
+      payload = JSON.parse(text);
     } catch {
-      detail = await response.text();
+      payload = text;
     }
+  }
+  if (!response.ok) {
+    const detail = typeof payload === "object" && payload ? payload.detail || response.statusText : payload || response.statusText;
     throw new Error(detail);
   }
-  return response.json();
+  return payload;
 }
 
 export function toast(message) {
@@ -104,7 +107,7 @@ function ensureConfirmDialog() {
             <p class="eyebrow">二次确认</p>
             <h2 id="confirmDialogTitle">确认操作</h2>
           </div>
-          <button class="icon-btn" type="button" data-confirm-cancel aria-label="关闭">×</button>
+          <button class="icon-btn" type="button" data-confirm-cancel aria-label="关闭"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </header>
         <div class="confirm-dialog-body">
           <div class="confirm-dialog-message" id="confirmDialogMessage"></div>
@@ -278,7 +281,7 @@ function ensureLagHelperModal() {
             <h2 id="lagHelperTitle">卡顿助手</h2>
             <p class="card-meta">为已导入的老数据生成列表预览缓存，提升列表、查看和双击单元格的响应速度。</p>
           </div>
-          <button class="icon-btn" type="button" data-lag-helper-close aria-label="关闭">×</button>
+          <button class="icon-btn" type="button" data-lag-helper-close aria-label="关闭"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </header>
         <div class="modal-body lag-helper-body">
           <div class="lag-helper-note">

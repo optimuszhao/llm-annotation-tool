@@ -224,7 +224,7 @@ export function renderWorkbenchPage() {
           <div class="source-modal-title-row">
             <p class="eyebrow" id="sourceModalTitle">切换数据源与方案</p>
           </div>
-          <button class="icon-btn" type="button" id="sourceModalClose" aria-label="关闭切换弹窗">×</button>
+          <button class="icon-btn" type="button" id="sourceModalClose" aria-label="关闭切换弹窗"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </header>
         <div class="source-modal-body">
           <div class="source-flow-bar" aria-label="选择流程">
@@ -263,7 +263,7 @@ export function renderWorkbenchPage() {
             <h2 id="batchAnalysisTitle">批量执行分析方法</h2>
             <p class="card-meta">后台会按单线程顺序处理，不显示任务进度。</p>
           </div>
-          <button class="icon-btn" type="button" id="batchAnalysisClose" aria-label="关闭批量分析弹窗">×</button>
+          <button class="icon-btn" type="button" id="batchAnalysisClose" aria-label="关闭批量分析弹窗"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </header>
         <div class="batch-analysis-body">
           <label class="batch-analysis-method">
@@ -324,7 +324,7 @@ export function renderWorkbenchPage() {
             <h2 id="modelDistillationTitle">知识蒸馏</h2>
             <p class="card-meta">调用后台自定义方法返回列表，经人工判断后快速插入知识库。</p>
           </div>
-          <button class="icon-btn" type="button" id="modelDistillationClose" aria-label="关闭知识蒸馏弹窗">×</button>
+          <button class="icon-btn" type="button" id="modelDistillationClose" aria-label="关闭知识蒸馏弹窗"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </header>
         <div class="batch-analysis-body model-distillation-body">
           <label class="batch-analysis-method">
@@ -360,7 +360,7 @@ export function renderWorkbenchPage() {
             <button class="btn" type="button" id="cellFormatButton">格式化 JSON</button>
             <button class="btn primary" type="button" id="cellCopyButton">复制内容</button>
             <button class="btn primary" type="button" id="cellSaveButton">保存修改</button>
-            <button class="icon-btn" id="closeRowDetail">×</button>
+          <button class="icon-btn" id="closeRowDetail" aria-label="关闭"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
           </div>
         </div>
         <div class="modal-body cell-detail-body">
@@ -380,7 +380,7 @@ export function renderWorkbenchPage() {
             <h2 id="drawerTitle">行详情</h2>
             <p class="card-meta" id="drawerMeta">查看当前行完整数据。</p>
           </div>
-          <button class="icon-btn" type="button" id="drawerClose" aria-label="关闭行详情">×</button>
+          <button class="icon-btn" type="button" id="drawerClose" aria-label="关闭行详情"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </header>
         <div class="detail-drawer-toolbar">
           <div class="drawer-tabs" aria-label="行详情模式">
@@ -510,7 +510,7 @@ export function renderWorkbenchPage() {
             <h2>列设置</h2>
             <p class="card-meta">配置当前场景默认渲染在工作台列表中的列。</p>
           </div>
-          <button class="icon-btn" id="closeColumnSettings">×</button>
+          <button class="icon-btn" id="closeColumnSettings" aria-label="关闭列设置"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </div>
         <div class="modal-body">
           <div class="column-settings-toolbar">
@@ -1224,7 +1224,7 @@ function buildColumns(columns, sampleRows = []) {
             <button class="action-mini ${annotateButton.className}" data-row-action="annotate" data-row-id="${rowId}" ${annotateDisabled}>${annotateButton.label}</button>
             <button class="action-mini info" data-row-action="view" data-row-id="${rowId}">查看</button>
             <button class="action-mini ${favoriteButton.className}" data-row-action="favorite" data-row-id="${rowId}">${favoriteButton.label}</button>
-            <button class="action-mini more" data-row-more data-row-id="${rowId}" aria-label="更多操作" aria-expanded="false">⋯</button>
+            <button class="action-mini more" data-row-more data-row-id="${rowId}" aria-label="更多操作" aria-expanded="false"><span class="ui-icon ui-icon-more ui-icon-sm" aria-hidden="true"></span></button>
           </div>
         `;
       },
@@ -1969,7 +1969,7 @@ function applyTableFocusMode() {
 
 function selectVisibleRows(checked) {
   if (!table) return;
-  table.getRows("visible").forEach((row) => {
+  table.getRows().forEach((row) => {
     if (checked) row.select();
     else row.deselect();
   });
