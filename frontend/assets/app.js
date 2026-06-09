@@ -1,5 +1,5 @@
 import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-bulk";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260608-filtered-full-count";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260609-table-layout-repair";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
 import { initComponents } from "/assets/components.js";

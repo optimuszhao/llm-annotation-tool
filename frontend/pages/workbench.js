@@ -12,6 +12,7 @@ let metricsTimer = 0;
 let tableReadyForRealtime = false;
 let tableAjaxReadyResolver = null;
 let tableScrollStateCleanup = null;
+let tableLayoutRepairTimer = null;
 let currentDetailRow = null;
 let currentDetailMode = "view";
 let currentDetailKind = "row";
@@ -735,6 +736,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
         tableScrollStateCleanup();
         tableScrollStateCleanup = null;
       }
+      clearTableLayoutRepair();
       table.destroy();
       table = null;
       tableBuildKey = "";
@@ -788,6 +790,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     tableScrollStateCleanup();
     tableScrollStateCleanup = null;
   }
+  clearTableLayoutRepair();
   if (table) table.destroy();
   tableBuildKey = nextBuildKey;
   const tableReady = waitForNextTableAjax();
@@ -1023,6 +1026,26 @@ function syncRightFrozenColumns() {
   root.classList.toggle("table-scroll-at-right-edge", correction > 0.5);
 }
 
+function scheduleTableLayoutRepair(delay = 80) {
+  window.clearTimeout(tableLayoutRepairTimer);
+  tableLayoutRepairTimer = window.setTimeout(() => {
+    if (!table) return;
+    const scrollLeft = getTableHorizontalScroll();
+    try {
+      table.redraw?.(true);
+    } catch {
+      // 表格切页或销毁过程中无需处理。
+    }
+    restoreTableHorizontalScroll(scrollLeft);
+    window.requestAnimationFrame(syncRightFrozenColumns);
+  }, delay);
+}
+
+function clearTableLayoutRepair() {
+  window.clearTimeout(tableLayoutRepairTimer);
+  tableLayoutRepairTimer = null;
+}
+
 async function reloadCurrentTableData() {
   if (!table) return;
   tableReadyForRealtime = false;
@@ -1039,6 +1062,7 @@ async function reloadCurrentTableData() {
     if (result && typeof result.then === "function") await result;
   } finally {
     tableReadyForRealtime = true;
+    scheduleTableLayoutRepair(0);
   }
 }
 
@@ -4321,6 +4345,7 @@ function refreshTableRow(row) {
   try {
     row.reformat?.();
     row.normalizeHeight?.();
+    scheduleTableLayoutRepair();
   } catch {
     // Tabulator 在远程分页切换时可能已移除该行，忽略即可。
   }
@@ -4331,21 +4356,7 @@ async function ensureDynamicResultColumns(result) {
   const dynamicColumns = modelResultDisplayColumns(result);
   mergeAvailableDatasetColumns(dynamicColumns);
   mergeAvailableModelResultColumns(dynamicColumns);
-  if (!table || !tableReadyForRealtime) return;
-  const existing = new Set(
-    table.getColumns?.()
-      .map((column) => column.getField?.())
-      .filter(Boolean) || [],
-  );
-  for (const key of dynamicColumns) {
-    if (!key || existing.has(key) || key === "row_id" || key === "状态") continue;
-    try {
-      await table.addColumn(dataColumnDef(key), true, "状态");
-      existing.add(key);
-    } catch {
-      // 当前表格实例不支持动态插列时，下一次切换/搜索会从列结构重建。
-    }
-  }
+  scheduleTableLayoutRepair();
 }
 
 function modelResultDisplayColumns(result) {
