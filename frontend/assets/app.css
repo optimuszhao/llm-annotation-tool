@@ -7161,12 +7161,16 @@ body.table-focus-active .page.active {
   white-space: nowrap;
 }
 .cell-preview-dot {
+  display: none;
   width: 6px;
   height: 6px;
   flex: 0 0 auto;
   border-radius: 999px;
   background: color-mix(in srgb, var(--primary) 58%, var(--line));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-soft) 52%, transparent);
+}
+.cell-preview-text.has-overflow .cell-preview-dot {
+  display: inline-block;
 }
 .workbench-pro .tabulator .tabulator-row .tabulator-cell.answer-cell {
   padding-right: 4px;
@@ -7241,9 +7245,6 @@ body.table-focus-active .page.active {
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"] {
   background: linear-gradient(180deg, var(--surface-3), color-mix(in srgb, var(--surface-3) 72%, var(--surface))) !important;
 }
-.workbench-pro .tabulator .tabulator-header .tabulator-col:not(.tabulator-frozen) {
-  transform: translateX(var(--table-header-scroll-x, 0px));
-}
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="状态"],
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
   background: color-mix(in srgb, var(--surface) 94%, var(--surface-2)) !important;
@@ -7251,7 +7252,6 @@ body.table-focus-active .page.active {
 }
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
   overflow: hidden;
-  transform: translateX(var(--right-frozen-correction, 0px));
 }
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] .row-actions {
   position: relative;

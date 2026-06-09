@@ -11,21 +11,6 @@ from openpyxl import load_workbook
 
 from backend.database import decode_json, encode_json, get_db, insert_many, now_iso
 
-PREVIEW_FIELDS = {
-    "API Order",
-    "API Part 1",
-    "API Part 2",
-    "API Part 3",
-    "API Part 4",
-    "API Part 5",
-    "API Part 6",
-    "API Part 7",
-    "Summary",
-    "标注数据",
-    "分析数据",
-    "模型说明",
-    "raw_output",
-}
 ROLE_RESULT_KEY = "角色标注结果"
 ROLE_ANSWER_KEY = "角色标注答案"
 ROLE_RESULT_COLUMN_SEPARATOR = "."
@@ -61,7 +46,7 @@ def build_row_preview_payload(row_data: dict[str, Any]) -> tuple[str, str]:
     large_fields = [
         key
         for key, value in row_data.items()
-        if key in PREVIEW_FIELDS or _is_large_value(value)
+        if _is_large_value(value)
     ]
     return encode_json(preview_data), encode_json(large_fields)
 
@@ -1102,7 +1087,7 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
     infer_large_fields = preview and not large_fields
     for column in columns:
         value = raw_data.get(column, "")
-        if infer_large_fields and (column in PREVIEW_FIELDS or _is_large_value(value)):
+        if infer_large_fields and _is_large_value(value):
             large_fields.add(column)
         item[column] = _preview(value) if preview else value
     item["is_favorite"] = bool(row.get("is_favorite"))

@@ -1,5 +1,5 @@
 import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-bulk";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260609-table-scroll-scheduler-5";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260609-dynamic-overflow-dot";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
 import { initComponents } from "/assets/components.js";
@@ -291,6 +291,7 @@ function ensureLagHelperModal() {
             <div class="lag-helper-clean-actions">
               <button class="btn danger-soft" id="lagHelperPruneAnnotationButton" type="button">清理历史标注数据</button>
               <button class="btn danger-soft" id="lagHelperPruneAnalysisButton" type="button">清理历史分析数据</button>
+              <button class="btn danger-soft" id="lagHelperPruneColumnsButton" type="button">清理无效标注返回列</button>
             </div>
           </div>
           <div class="lag-helper-result" id="lagHelperResult">
@@ -313,6 +314,7 @@ function ensureLagHelperModal() {
   backdrop.querySelector("#lagHelperRunButton").addEventListener("click", runLagHelper);
   backdrop.querySelector("#lagHelperPruneAnnotationButton").addEventListener("click", () => runLagHistoryCleanup("annotation"));
   backdrop.querySelector("#lagHelperPruneAnalysisButton").addEventListener("click", () => runLagHistoryCleanup("analysis"));
+  backdrop.querySelector("#lagHelperPruneColumnsButton").addEventListener("click", runLagColumnCleanup);
   return backdrop;
 }
 
@@ -418,6 +420,42 @@ async function runLagHistoryCleanup(type) {
   }
 }
 
+async function runLagColumnCleanup() {
+  const ok = await confirmAction({
+    title: "清理无效标注返回列",
+    message: "确认清理已经没有被最新标注结果引用的返回列？",
+    details: [
+      "系统会保留 Excel 原始列和当前最新标注结果仍在使用的返回列。",
+      "废弃返回列会从列设置和列表行数据中移除。",
+    ],
+    confirmText: "清理无效列",
+    variant: "danger",
+  });
+  if (!ok) return;
+  const button = document.querySelector("#lagHelperPruneColumnsButton");
+  const resultNode = document.querySelector("#lagHelperResult");
+  button.disabled = true;
+  button.textContent = "清理列中...";
+  resultNode.innerHTML = `<span class="lag-helper-loading">正在清理无效标注返回列...</span>`;
+  try {
+    const result = await api("/api/maintenance/model-result-columns/prune", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    renderLagColumnCleanupResult(result);
+    toast(`无效标注返回列已清理：删除 ${result.removed_columns_count || 0} 列`);
+    await loadState();
+    renderManagePage();
+    if (document.querySelector("#page-workbench.active")) refreshWorkbench();
+  } catch (error) {
+    resultNode.innerHTML = `<span class="lag-helper-error">${escapeHtml(error.message)}</span>`;
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "清理无效标注返回列";
+  }
+}
+
 function renderLagCleanupResult(result) {
   const node = document.querySelector("#lagHelperResult");
   if (!node) return;
@@ -430,6 +468,30 @@ function renderLagCleanupResult(result) {
     </section>
     <section class="lag-helper-scenes">
       <span>${escapeHtml(result.keep_rule || "保留最近一条历史记录")}</span>
+    </section>
+  `;
+}
+
+function renderLagColumnCleanupResult(result) {
+  const node = document.querySelector("#lagHelperResult");
+  if (!node) return;
+  const datasets = (result.datasets || [])
+    .slice(0, 6)
+    .map((dataset) => `
+      <div>
+        <strong>${escapeHtml(dataset.dataset_name || dataset.dataset_id)}</strong>
+        <span>删除 ${dataset.removed_count || 0} 列：${escapeHtml((dataset.removed_columns || []).slice(0, 6).join("、"))}</span>
+      </div>
+    `).join("");
+  node.innerHTML = `
+    <section class="lag-helper-summary">
+      <div><span>检查数据集</span><strong>${result.checked_datasets || 0}</strong></div>
+      <div><span>变更数据集</span><strong>${result.changed_datasets || 0}</strong></div>
+      <div><span>删除列数</span><strong>${result.removed_columns_count || 0}</strong></div>
+      <div><span>更新行数</span><strong>${result.updated_rows || 0}</strong></div>
+    </section>
+    <section class="lag-helper-scenes">
+      ${datasets || "<span>当前没有需要清理的无效标注返回列。</span>"}
     </section>
   `;
 }

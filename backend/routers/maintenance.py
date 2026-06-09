@@ -8,6 +8,7 @@ from backend.services.maintenance_service import (
     backfill_preview_cache,
     prune_analysis_history,
     prune_annotation_history,
+    prune_unused_model_result_columns,
 )
 
 
@@ -27,3 +28,8 @@ def post_prune_annotation_history():
 @router.post("/analysis-history/prune")
 def post_prune_analysis_history():
     return prune_analysis_history()
+
+
+@router.post("/model-result-columns/prune")
+def post_prune_model_result_columns():
+    return prune_unused_model_result_columns()

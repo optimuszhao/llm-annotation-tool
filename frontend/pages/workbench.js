@@ -14,9 +14,6 @@ let tableAjaxReadyResolver = null;
 let tableScrollStateCleanup = null;
 let tableLayoutRepairTimer = null;
 let tableScrollIdleTimer = null;
-let tableScrollSyncFrame = 0;
-let tableScrollWatchTimer = null;
-let lastTableScrollLeft = 0;
 let tableUserScrolling = false;
 let pendingLayoutRepairAfterScroll = false;
 let pendingRealtimeFlushTimer = null;
@@ -784,7 +781,6 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     if (token !== refreshToken) return;
     bindTableScrollState();
     restoreTableHorizontalScroll(horizontalScroll);
-    syncRightFrozenColumns();
     updateSortButtons();
     await refreshMetrics();
     syncStatusFilterMenu();
@@ -806,7 +802,6 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   const tableReady = waitForNextTableAjax();
   table = new Tabulator("#workbenchTable", {
     height: "100%",
-    renderHorizontal: "virtual",
     layout: "fitColumns",
     movableColumns: true,
     nestedFieldSeparator: false,
@@ -888,20 +883,16 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   table.on?.("pageLoaded", () => {
     scheduleCompactPagination();
     bindTableScrollState();
-    window.requestAnimationFrame(syncRightFrozenColumns);
   });
   table.on?.("dataLoaded", () => {
     scheduleCompactPagination();
     bindTableScrollState();
-    window.requestAnimationFrame(syncRightFrozenColumns);
   });
   table.on?.("renderComplete", () => {
     bindTableScrollState();
-    window.requestAnimationFrame(syncRightFrozenColumns);
   });
   table.on?.("scrollHorizontal", () => {
     markTableScrolling();
-    requestRightFrozenSync(true);
   });
   bindTableScrollState();
   document.querySelector("#workbenchTable").ondblclick = handleTableCellDoubleClick;
@@ -1016,7 +1007,6 @@ function restoreTableHorizontalScroll(scrollLeft = 0) {
       const holder = getTableHolder();
       if (holder) {
         holder.scrollLeft = scrollLeft;
-        syncRightFrozenColumns();
       }
     });
   });
@@ -1036,36 +1026,11 @@ function bindTableScrollState(attempt = 0) {
   }
   const onScroll = () => {
     markTableScrolling();
-    requestRightFrozenSync(true);
   };
   holder.addEventListener("scroll", onScroll, { passive: true });
-  startTableScrollWatch();
   tableScrollStateCleanup = () => {
     holder.removeEventListener("scroll", onScroll);
-    stopTableScrollWatch();
   };
-  syncRightFrozenColumns();
-}
-
-function startTableScrollWatch() {
-  stopTableScrollWatch();
-  lastTableScrollLeft = getTableHorizontalScroll();
-  const watch = () => {
-    const nextScrollLeft = getTableHorizontalScroll();
-    if (Math.abs(nextScrollLeft - lastTableScrollLeft) > 0.5) {
-      lastTableScrollLeft = nextScrollLeft;
-      markTableScrolling();
-      requestRightFrozenSync(true);
-    }
-  };
-  watch();
-  tableScrollWatchTimer = window.setInterval(watch, 50);
-}
-
-function stopTableScrollWatch() {
-  if (!tableScrollWatchTimer) return;
-  window.clearInterval(tableScrollWatchTimer);
-  tableScrollWatchTimer = null;
 }
 
 function markTableScrolling() {
@@ -1074,38 +1039,11 @@ function markTableScrolling() {
   tableScrollIdleTimer = window.setTimeout(() => {
     tableUserScrolling = false;
     flushPendingRealtimeRowUpdates();
-    syncRightFrozenColumns();
     if (pendingLayoutRepairAfterScroll) {
       pendingLayoutRepairAfterScroll = false;
       scheduleTableLayoutRepair(80);
     }
   }, 220);
-}
-
-function requestRightFrozenSync(duringScroll = false) {
-  if (tableScrollSyncFrame) return;
-  tableScrollSyncFrame = window.requestAnimationFrame(() => {
-    tableScrollSyncFrame = 0;
-    syncRightFrozenColumns({ duringScroll });
-  });
-}
-
-function syncRightFrozenColumns(options = {}) {
-  const root = document.querySelector("#workbenchTable");
-  const holder = getTableHolder();
-  if (!root || !holder) return;
-  root.style.setProperty("--table-header-scroll-x", `${(-holder.scrollLeft).toFixed(2)}px`);
-  if (options.duringScroll) {
-    root.style.setProperty("--right-frozen-correction", "0px");
-    root.classList.remove("table-scroll-at-right-edge");
-    return;
-  }
-  const maxScrollLeft = Math.max(0, holder.scrollWidth - holder.clientWidth);
-  const remainingRight = Math.max(0, maxScrollLeft - holder.scrollLeft);
-  const statusWidth = document.querySelector('#workbenchTable .tabulator-col[tabulator-field="状态"]')?.getBoundingClientRect?.().width || 88;
-  const correction = Math.max(0, Math.min(statusWidth, statusWidth - remainingRight));
-  root.style.setProperty("--right-frozen-correction", `${correction.toFixed(2)}px`);
-  root.classList.toggle("table-scroll-at-right-edge", correction > 0.5);
 }
 
 function scheduleTableLayoutRepair(delay = 80) {
@@ -1123,7 +1061,6 @@ function scheduleTableLayoutRepair(delay = 80) {
       // 表格切页或销毁过程中无需处理。
     }
     restoreTableHorizontalScroll(scrollLeft);
-    window.requestAnimationFrame(syncRightFrozenColumns);
   }, delay);
 }
 
@@ -1143,12 +1080,7 @@ function clearTableInteractionState() {
   tableUserScrolling = false;
   window.clearTimeout(tableScrollIdleTimer);
   tableScrollIdleTimer = null;
-  if (tableScrollSyncFrame) {
-    window.cancelAnimationFrame(tableScrollSyncFrame);
-    tableScrollSyncFrame = 0;
-  }
   clearRealtimeRowQueue();
-  stopTableScrollWatch();
 }
 
 function queueRealtimeRowUpdate(rowId, patch) {
@@ -1170,7 +1102,6 @@ function flushPendingRealtimeRowUpdates() {
   const patches = [...pendingRealtimeRowPatches.entries()];
   pendingRealtimeRowPatches.clear();
   patches.forEach(([rowId, patch]) => updateVisibleRow(rowId, patch, { repairLayout: false }));
-  requestRightFrozenSync();
 }
 
 async function reloadCurrentTableData() {
@@ -3894,32 +3825,35 @@ function applyTableFontSize() {
   syncTableFontSizeSegment();
 }
 
-function previewColumn(column) {
-  const text = String(column || "");
-  const compact = text.toLowerCase().replace(/[\s_-]+/g, "");
-  return (
-    isAnalysisResultColumn(text)
-    || /API Part|API Order|Summary|标注数据|分析数据|模型说明|raw_output|抽检人/.test(text)
-    || compact.includes("apiorder")
-    || compact.includes("apiorderinfo")
-    || /^api数据part[1-7]$/.test(compact)
-    || /^apidata(part)?[1-7]$/.test(compact)
-    || compact.includes("rootcause")
-    || compact.includes("jbreport")
-  );
-}
-
-function textPreviewFormatter(cell) {
+function textCellFormatter(cell) {
   const value = cell.getValue();
   if (value === null || value === undefined) return "";
   const text = String(value);
-  const preview = text.length > 72 ? `${text.slice(0, 72)}...` : text;
+  const overflow = shouldMarkOverflowCell(cell, text);
+  const className = overflow ? "cell-preview-text has-overflow" : "cell-preview-text";
   return `
-    <span class="cell-preview-text" title="${escapeHtml(text)}">
+    <span class="${className}" title="${escapeHtml(text)}">
       <i class="cell-preview-dot" aria-hidden="true"></i>
-      <span>${escapeHtml(preview)}</span>
+      <span>${escapeHtml(text)}</span>
     </span>
   `;
+}
+
+function shouldMarkOverflowCell(cell, text) {
+  if (!text) return false;
+  const field = cell.getField?.();
+  const largeFields = cell.getData?.()?.__large_fields || [];
+  if (field && Array.isArray(largeFields) && largeFields.includes(field)) return true;
+  const columnWidth = Number(cell.getColumn?.()?.getWidth?.() || 0);
+  if (!columnWidth) return measureTextUnits(text) > 24;
+  const availableWidth = Math.max(columnWidth - 34, 24);
+  return measureTextUnits(text) * textUnitPixel() > availableWidth;
+}
+
+function textUnitPixel() {
+  if (tableFontSize === "small") return 6.7;
+  if (tableFontSize === "large") return 8.2;
+  return 7.4;
 }
 
 function escapeHtml(value) {
@@ -4230,19 +4164,20 @@ function scheduleMetricsRefresh(delay = 220) {
 function dataColumnDef(column, sampleRows = []) {
   const mappedAnswer = fixedMappingColumns().includes(column);
   const title = mappedAnswerTitle(column) || column;
+  const maxWidth = mappedAnswer ? 108 : 220;
   return {
     title,
     titleFormatter: () => columnHeaderHtml(title, column),
     field: column,
     minWidth: mappedAnswer ? 96 : 104,
     width: mappedAnswer ? 96 : estimateColumnWidth(column, sampleRows),
-    maxWidth: mappedAnswer ? 108 : (previewColumn(column) ? 320 : 220),
+    maxWidth,
     widthGrow: 0,
     widthShrink: 0,
     frozen: mappedAnswer,
     headerSort: false,
-    formatter: mappedAnswer ? answerValueFormatter : (previewColumn(column) ? textPreviewFormatter : undefined),
-    cssClass: [mappedAnswer ? "answer-cell" : "", previewColumn(column) ? "cell-preview" : ""].filter(Boolean).join(" "),
+    formatter: mappedAnswer ? answerValueFormatter : textCellFormatter,
+    cssClass: [mappedAnswer ? "answer-cell" : "", mappedAnswer ? "" : "cell-preview"].filter(Boolean).join(" "),
   };
 }
 
@@ -4302,7 +4237,7 @@ function estimateColumnWidth(column, sampleRows = []) {
   );
   const headerWidth = Math.ceil(measureTextUnits(mappedAnswerTitle(column) || column) * 7.4 + 112);
   const rawWidth = Math.ceil(maxContentUnits * 7.4 + 78);
-  const maxWidth = previewColumn(column) ? 320 : 220;
+  const maxWidth = 220;
   const minWidth = compactColumn(column) ? 104 : 116;
   return Math.max(minWidth, Math.min(Math.max(rawWidth, headerWidth), maxWidth));
 }
