@@ -7241,6 +7241,9 @@ body.table-focus-active .page.active {
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"] {
   background: linear-gradient(180deg, var(--surface-3), color-mix(in srgb, var(--surface-3) 72%, var(--surface))) !important;
 }
+.workbench-pro .tabulator .tabulator-header .tabulator-col:not(.tabulator-frozen) {
+  transform: translateX(var(--table-header-scroll-x, 0px));
+}
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="状态"],
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
   background: color-mix(in srgb, var(--surface) 94%, var(--surface-2)) !important;

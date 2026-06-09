@@ -13,6 +13,14 @@ let tableReadyForRealtime = false;
 let tableAjaxReadyResolver = null;
 let tableScrollStateCleanup = null;
 let tableLayoutRepairTimer = null;
+let tableScrollIdleTimer = null;
+let tableScrollSyncFrame = 0;
+let tableScrollWatchTimer = null;
+let lastTableScrollLeft = 0;
+let tableUserScrolling = false;
+let pendingLayoutRepairAfterScroll = false;
+let pendingRealtimeFlushTimer = null;
+const pendingRealtimeRowPatches = new Map();
 let currentDetailRow = null;
 let currentDetailMode = "view";
 let currentDetailKind = "row";
@@ -737,6 +745,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
         tableScrollStateCleanup = null;
       }
       clearTableLayoutRepair();
+      clearTableInteractionState();
       table.destroy();
       table = null;
       tableBuildKey = "";
@@ -791,6 +800,7 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     tableScrollStateCleanup = null;
   }
   clearTableLayoutRepair();
+  clearTableInteractionState();
   if (table) table.destroy();
   tableBuildKey = nextBuildKey;
   const tableReady = waitForNextTableAjax();
@@ -877,12 +887,23 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
   table.on?.("cellDblClick", (event, cell) => openCellDetail(cell));
   table.on?.("pageLoaded", () => {
     scheduleCompactPagination();
+    bindTableScrollState();
     window.requestAnimationFrame(syncRightFrozenColumns);
   });
   table.on?.("dataLoaded", () => {
     scheduleCompactPagination();
+    bindTableScrollState();
     window.requestAnimationFrame(syncRightFrozenColumns);
   });
+  table.on?.("renderComplete", () => {
+    bindTableScrollState();
+    window.requestAnimationFrame(syncRightFrozenColumns);
+  });
+  table.on?.("scrollHorizontal", () => {
+    markTableScrolling();
+    requestRightFrozenSync(true);
+  });
+  bindTableScrollState();
   document.querySelector("#workbenchTable").ondblclick = handleTableCellDoubleClick;
   await tableReady;
   if (token !== refreshToken) return;
@@ -1001,23 +1022,84 @@ function restoreTableHorizontalScroll(scrollLeft = 0) {
   });
 }
 
-function bindTableScrollState() {
+function bindTableScrollState(attempt = 0) {
   if (tableScrollStateCleanup) {
     tableScrollStateCleanup();
     tableScrollStateCleanup = null;
   }
   const holder = getTableHolder();
-  if (!holder) return;
-  const onScroll = () => syncRightFrozenColumns();
+  if (!holder) {
+    if (attempt < 12) {
+      window.setTimeout(() => bindTableScrollState(attempt + 1), 80);
+    }
+    return;
+  }
+  const onScroll = () => {
+    markTableScrolling();
+    requestRightFrozenSync(true);
+  };
   holder.addEventListener("scroll", onScroll, { passive: true });
-  tableScrollStateCleanup = () => holder.removeEventListener("scroll", onScroll);
+  startTableScrollWatch();
+  tableScrollStateCleanup = () => {
+    holder.removeEventListener("scroll", onScroll);
+    stopTableScrollWatch();
+  };
   syncRightFrozenColumns();
 }
 
-function syncRightFrozenColumns() {
+function startTableScrollWatch() {
+  stopTableScrollWatch();
+  lastTableScrollLeft = getTableHorizontalScroll();
+  const watch = () => {
+    const nextScrollLeft = getTableHorizontalScroll();
+    if (Math.abs(nextScrollLeft - lastTableScrollLeft) > 0.5) {
+      lastTableScrollLeft = nextScrollLeft;
+      markTableScrolling();
+      requestRightFrozenSync(true);
+    }
+  };
+  watch();
+  tableScrollWatchTimer = window.setInterval(watch, 50);
+}
+
+function stopTableScrollWatch() {
+  if (!tableScrollWatchTimer) return;
+  window.clearInterval(tableScrollWatchTimer);
+  tableScrollWatchTimer = null;
+}
+
+function markTableScrolling() {
+  tableUserScrolling = true;
+  window.clearTimeout(tableScrollIdleTimer);
+  tableScrollIdleTimer = window.setTimeout(() => {
+    tableUserScrolling = false;
+    flushPendingRealtimeRowUpdates();
+    syncRightFrozenColumns();
+    if (pendingLayoutRepairAfterScroll) {
+      pendingLayoutRepairAfterScroll = false;
+      scheduleTableLayoutRepair(80);
+    }
+  }, 220);
+}
+
+function requestRightFrozenSync(duringScroll = false) {
+  if (tableScrollSyncFrame) return;
+  tableScrollSyncFrame = window.requestAnimationFrame(() => {
+    tableScrollSyncFrame = 0;
+    syncRightFrozenColumns({ duringScroll });
+  });
+}
+
+function syncRightFrozenColumns(options = {}) {
   const root = document.querySelector("#workbenchTable");
   const holder = getTableHolder();
   if (!root || !holder) return;
+  root.style.setProperty("--table-header-scroll-x", `${(-holder.scrollLeft).toFixed(2)}px`);
+  if (options.duringScroll) {
+    root.style.setProperty("--right-frozen-correction", "0px");
+    root.classList.remove("table-scroll-at-right-edge");
+    return;
+  }
   const maxScrollLeft = Math.max(0, holder.scrollWidth - holder.clientWidth);
   const remainingRight = Math.max(0, maxScrollLeft - holder.scrollLeft);
   const statusWidth = document.querySelector('#workbenchTable .tabulator-col[tabulator-field="状态"]')?.getBoundingClientRect?.().width || 88;
@@ -1027,6 +1109,10 @@ function syncRightFrozenColumns() {
 }
 
 function scheduleTableLayoutRepair(delay = 80) {
+  if (tableUserScrolling) {
+    pendingLayoutRepairAfterScroll = true;
+    return;
+  }
   window.clearTimeout(tableLayoutRepairTimer);
   tableLayoutRepairTimer = window.setTimeout(() => {
     if (!table) return;
@@ -1044,6 +1130,47 @@ function scheduleTableLayoutRepair(delay = 80) {
 function clearTableLayoutRepair() {
   window.clearTimeout(tableLayoutRepairTimer);
   tableLayoutRepairTimer = null;
+  pendingLayoutRepairAfterScroll = false;
+}
+
+function clearRealtimeRowQueue() {
+  pendingRealtimeRowPatches.clear();
+  window.clearTimeout(pendingRealtimeFlushTimer);
+  pendingRealtimeFlushTimer = null;
+}
+
+function clearTableInteractionState() {
+  tableUserScrolling = false;
+  window.clearTimeout(tableScrollIdleTimer);
+  tableScrollIdleTimer = null;
+  if (tableScrollSyncFrame) {
+    window.cancelAnimationFrame(tableScrollSyncFrame);
+    tableScrollSyncFrame = 0;
+  }
+  clearRealtimeRowQueue();
+  stopTableScrollWatch();
+}
+
+function queueRealtimeRowUpdate(rowId, patch) {
+  if (!rowId || !patch) return;
+  if (tableUserScrolling) {
+    const previous = pendingRealtimeRowPatches.get(rowId) || {};
+    pendingRealtimeRowPatches.set(rowId, { ...previous, ...patch });
+    window.clearTimeout(pendingRealtimeFlushTimer);
+    pendingRealtimeFlushTimer = window.setTimeout(flushPendingRealtimeRowUpdates, 260);
+    return;
+  }
+  updateVisibleRow(rowId, patch, { repairLayout: false });
+}
+
+function flushPendingRealtimeRowUpdates() {
+  if (tableUserScrolling || !pendingRealtimeRowPatches.size) return;
+  window.clearTimeout(pendingRealtimeFlushTimer);
+  pendingRealtimeFlushTimer = null;
+  const patches = [...pendingRealtimeRowPatches.entries()];
+  pendingRealtimeRowPatches.clear();
+  patches.forEach(([rowId, patch]) => updateVisibleRow(rowId, patch, { repairLayout: false }));
+  requestRightFrozenSync();
 }
 
 async function reloadCurrentTableData() {
@@ -4266,13 +4393,13 @@ function markRowsCancelled(rowIds) {
 async function applyTaskEventToTable(payload) {
   if (!table || !payload?.type || !tableReadyForRealtime) return;
   if (payload.type === "row_started") {
-    updateVisibleRow(payload.row_id, { 状态: payload.status || "标注中" });
+    queueRealtimeRowUpdate(payload.row_id, { 状态: payload.status || "标注中" });
     return;
   }
-    if (payload.type === "row_updated") {
-      const result = payload.model_result || {};
-      const flattenedResult = flattenModelResultForDisplay(result);
-      let status = payload.status || (payload.error ? "失败" : "");
+  if (payload.type === "row_updated") {
+    const result = payload.model_result || {};
+    const flattenedResult = flattenModelResultForDisplay(result);
+    let status = payload.status || (payload.error ? "失败" : "");
     let fullRow = null;
     if (!status && state.activeDatasetId && payload.row_id) {
       try {
@@ -4283,7 +4410,7 @@ async function applyTaskEventToTable(payload) {
       }
     }
     await ensureDynamicResultColumns(result);
-    updateVisibleRow(payload.row_id, { ...(fullRow || {}), ...result, ...flattenedResult, ...(status ? { 状态: status } : {}) });
+    queueRealtimeRowUpdate(payload.row_id, { ...(fullRow || {}), ...result, ...flattenedResult, ...(status ? { 状态: status } : {}) });
     if (drawerRow?.row_id === payload.row_id) {
       const latestResult = Object.keys(result).length ? result : fullRow?.model_result || drawerRow.model_result || {};
       drawerRow = {
@@ -4304,7 +4431,7 @@ async function applyTaskEventToTable(payload) {
   }
   if (payload.type === "row_analyzed") {
     await ensureDynamicResultColumns({ 分析数据: payload.analysis_data || {} });
-    updateVisibleRow(payload.row_id, { 分析数据: payload.analysis_data || {} });
+    updateVisibleRow(payload.row_id, { 分析数据: payload.analysis_data || {} }, { repairLayout: false });
     await refreshWorkbench();
     if (drawerRow?.row_id === payload.row_id) {
       drawerRow = { ...drawerRow, analysis_data: payload.analysis_data || {}, 分析数据: payload.analysis_data || {} };
@@ -4318,22 +4445,22 @@ async function applyTaskEventToTable(payload) {
   }
 }
 
-function updateVisibleRow(rowId, patch) {
+function updateVisibleRow(rowId, patch, options = {}) {
   if (!table || !rowId || !patch) return;
   try {
     const row = (table.getRows?.("visible") || table.getRows?.() || [])
       .find((item) => item.getData?.()?.row_id === rowId);
     if (row) {
-      updateTableRow(row, patch);
+      updateTableRow(row, patch, options);
     }
   } catch {
     // 行不在当前页时无需处理，切页时会从后端读取最新状态。
   }
 }
 
-function updateTableRow(row, patch) {
+function updateTableRow(row, patch, options = {}) {
   const result = row.update(patch);
-  const refresh = () => refreshTableRow(row);
+  const refresh = () => refreshTableRow(row, options);
   if (result && typeof result.then === "function") {
     result.then(refresh).catch(refresh);
   } else {
@@ -4341,11 +4468,11 @@ function updateTableRow(row, patch) {
   }
 }
 
-function refreshTableRow(row) {
+function refreshTableRow(row, options = {}) {
   try {
     row.reformat?.();
     row.normalizeHeight?.();
-    scheduleTableLayoutRepair();
+    if (options.repairLayout) scheduleTableLayoutRepair();
   } catch {
     // Tabulator 在远程分页切换时可能已移除该行，忽略即可。
   }
@@ -4356,7 +4483,6 @@ async function ensureDynamicResultColumns(result) {
   const dynamicColumns = modelResultDisplayColumns(result);
   mergeAvailableDatasetColumns(dynamicColumns);
   mergeAvailableModelResultColumns(dynamicColumns);
-  scheduleTableLayoutRepair();
 }
 
 function modelResultDisplayColumns(result) {
