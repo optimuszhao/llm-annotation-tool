@@ -448,6 +448,8 @@ def get_dataset_rows(
     root_cause_value: str = "",
     root_cause_positive: Optional[list[str]] = None,
     root_cause_negative: Optional[list[str]] = None,
+    result_columns: Optional[list[str]] = None,
+    include_model_result_columns: bool = False,
 ) -> dict:
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
@@ -464,8 +466,14 @@ def get_dataset_rows(
             (dataset["scene_id"],),
         ).fetchone()
         root_cause_column = (field_mapping["root_cause_column"] if field_mapping else "").strip()
-        model_result_columns = _model_result_columns(conn, dataset_id)
-        columns = _sync_model_result_columns(conn, dataset, model_result_columns)
+        requested_result_columns = _dedupe_columns([str(column).strip() for column in (result_columns or []) if str(column).strip()])
+        should_project_model_result = bool(requested_result_columns)
+        model_result_columns = _model_result_columns(conn, dataset_id) if include_model_result_columns else []
+        columns = (
+            _sync_model_result_columns(conn, dataset, model_result_columns)
+            if include_model_result_columns
+            else _current_dataset_columns(dataset)
+        )
         analysis_columns = _analysis_result_columns(conn, dataset_id)
         analysis_method_by_column = _analysis_method_by_column(analysis_columns)
         all_columns = [*columns, *[item["column"] for item in analysis_columns]]
@@ -654,8 +662,13 @@ def get_dataset_rows(
             order_by = f"{base_alias + '.' if base_alias else ''}row_index ASC"
 
         if scheme_view:
-            latest_cte = _latest_scheme_rows_cte()
+            latest_cte = _latest_scheme_rows_cte(include_payloads=not should_project_model_result)
             latest_params = [dataset_id, scheme_id]
+            scheme_model_result_expr, scheme_model_result_params = _model_result_projection_expr(
+                "latest.scheme_model_result",
+                requested_result_columns,
+                "scheme_model_result",
+            )
             total = conn.execute(
                 f"""
                 {latest_cte}
@@ -676,18 +689,22 @@ def get_dataset_rows(
                     d.large_fields,
                     d.is_favorite,
                     d.annotation_status,
-                    d.model_result,
                     latest.scheme_status,
-                    latest.scheme_model_result
+                    {scheme_model_result_expr}
                 FROM {table_name} d
                 LEFT JOIN latest_scheme_rows latest ON latest.row_id=d.id
                 WHERE {where}
                 ORDER BY {order_by}
                 LIMIT ? OFFSET ?
                 """,
-                [*latest_params, *params, *order_params, page_size, offset],
+                [*latest_params, *scheme_model_result_params, *params, *order_params, page_size, offset],
             ).fetchall()
         else:
+            model_result_expr, model_result_params = _model_result_projection_expr(
+                "model_result",
+                requested_result_columns,
+                "model_result",
+            )
             total = conn.execute(
                 f"SELECT COUNT(*) AS total FROM {table_name} WHERE {where}",
                 params,
@@ -701,13 +718,13 @@ def get_dataset_rows(
                     large_fields,
                     is_favorite,
                     annotation_status,
-                    model_result
+                    {model_result_expr}
                 FROM {table_name}
                 WHERE {where}
                 ORDER BY {order_by}
                 LIMIT ? OFFSET ?
                 """,
-                [*params, *order_params, page_size, offset],
+                [*model_result_params, *params, *order_params, page_size, offset],
             ).fetchall()
 
         data = [_format_row(row, columns, preview=True, scheme_view=bool(scheme_id)) for row in rows]
@@ -724,6 +741,7 @@ def get_dataset_rows(
         "last_page": max(math.ceil(total / page_size), 1),
         "columns": all_columns,
         "model_result_columns": model_result_columns,
+        "model_result_columns_included": include_model_result_columns,
     }
 
 
@@ -755,6 +773,30 @@ def _model_result_json_path(column: str) -> str:
         parts = [ROLE_RESULT_KEY, role_name, *[part for part in result_key.split(ROLE_RESULT_COLUMN_SEPARATOR) if part]]
         return _json_path_from_parts(parts)
     return _json_column_path(column)
+
+
+def _model_result_projection_expr(source_column: str, columns: list[str], alias: str) -> tuple[str, list[Any]]:
+    selected = _dedupe_columns([column for column in columns if column])
+    if not selected:
+        return f"{source_column} AS {alias}", []
+    parts = ["json_object("]
+    params: list[Any] = []
+    for index, column in enumerate(selected):
+        if index:
+            parts.append(", ")
+        parts.append("?, json_extract(")
+        parts.append(source_column)
+        parts.append(", ?)")
+        params.extend([column, _model_result_json_path(column)])
+    parts.append(f") AS {alias}")
+    return "".join(parts), params
+
+
+def _current_dataset_columns(dataset: dict) -> list[str]:
+    current = decode_json(dataset.get("column_schema"), [])
+    if not isinstance(current, list):
+        return []
+    return [column for column in current if column and column not in MODEL_RESULT_INTERNAL_KEYS]
 
 
 def _json_path_from_parts(parts: list[str]) -> str:
@@ -1221,17 +1263,23 @@ def clear_dataset_rows_favorite(dataset_id: str, payload: dict) -> dict:
     }
 
 
-def _latest_scheme_rows_cte() -> str:
-    return """
+def _latest_scheme_rows_cte(include_payloads: bool = True) -> str:
+    payload_columns = (
+        "task_row.analysis_data AS scheme_analysis_data,\n"
+        "          task_row.rendered_prompt AS scheme_rendered_prompt,"
+        if include_payloads
+        else ""
+    )
+    outer_payload_columns = ", scheme_analysis_data, scheme_rendered_prompt" if include_payloads else ""
+    return f"""
     WITH latest_scheme_rows AS (
-      SELECT row_id, scheme_status, scheme_model_result, scheme_analysis_data, scheme_rendered_prompt
+      SELECT row_id, scheme_status, scheme_model_result{outer_payload_columns}
       FROM (
         SELECT
           task_row.row_id,
           task_row.status AS scheme_status,
           task_row.model_result AS scheme_model_result,
-          task_row.analysis_data AS scheme_analysis_data,
-          task_row.rendered_prompt AS scheme_rendered_prompt,
+          {payload_columns}
           ROW_NUMBER() OVER (
             PARTITION BY task_row.row_id
             ORDER BY COALESCE(task_row.finished_at, task_row.updated_at, task_row.created_at) DESC

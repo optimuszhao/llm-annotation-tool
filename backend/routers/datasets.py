@@ -63,6 +63,8 @@ def get_rows(
     root_cause_value: str = "",
     root_cause_positive: list[str] = Query(default=[]),
     root_cause_negative: list[str] = Query(default=[]),
+    result_columns: list[str] = Query(default=[]),
+    include_model_result_columns: bool = False,
 ):
     return get_dataset_rows(
         dataset_id,
@@ -79,6 +81,8 @@ def get_rows(
         root_cause_value,
         root_cause_positive,
         root_cause_negative,
+        result_columns,
+        include_model_result_columns,
     )
 
 

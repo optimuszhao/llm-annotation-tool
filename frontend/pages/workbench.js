@@ -754,11 +754,14 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
     setBatchButtonState();
     return;
   }
+  await loadLatestFieldMappingForWorkbench();
   const response = await api(`/api/datasets/${state.activeDatasetId}/rows?${buildRowsQuery(1, table?.getPageSize?.() || 20)}`);
   if (token !== refreshToken) return;
   document.querySelector("#metricTotal").textContent = response.total.toLocaleString();
   availableDatasetColumns = response.columns.length ? response.columns : defaultColumns;
-  availableModelResultColumns = Array.isArray(response.model_result_columns) ? response.model_result_columns : [];
+  if (response.model_result_columns_included && Array.isArray(response.model_result_columns)) {
+    availableModelResultColumns = response.model_result_columns;
+  }
   fillSearchColumnOptions(allConfigurableColumns());
   const visibleColumns = await resolveVisibleColumns(allConfigurableColumns());
   const columns = buildColumns(visibleColumns, response.data || []);
@@ -862,7 +865,9 @@ async function refreshWorkbenchInner(token, horizontalScroll = 0) {
       document.querySelector("#metricTotal").textContent = payload.total.toLocaleString();
       if (Array.isArray(payload.columns)) {
         availableDatasetColumns = payload.columns.length ? payload.columns : availableDatasetColumns;
-        availableModelResultColumns = Array.isArray(payload.model_result_columns) ? payload.model_result_columns : availableModelResultColumns;
+        if (payload.model_result_columns_included && Array.isArray(payload.model_result_columns)) {
+          availableModelResultColumns = payload.model_result_columns;
+        }
         fillSearchColumnOptions(allConfigurableColumns());
       }
       scheduleCompactPagination();
@@ -1227,7 +1232,7 @@ function buildColumns(columns, sampleRows = []) {
   ];
 }
 
-function buildRowsQuery(page, pageSize, tableParams = {}) {
+function buildRowsQuery(page, pageSize, tableParams = {}, options = {}) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("page_size", String(pageSize));
@@ -1243,7 +1248,31 @@ function buildRowsQuery(page, pageSize, tableParams = {}) {
     params.set("sort_field", activeSort.column);
     params.set("sort_dir", activeSort.dir || "asc");
   }
+  if (options.includeModelResultColumns) params.set("include_model_result_columns", "true");
+  for (const column of modelResultColumnsForRowsQuery()) {
+    params.append("result_columns", column);
+  }
   return params.toString();
+}
+
+async function loadLatestFieldMappingForWorkbench() {
+  if (!state.activeSceneId) {
+    latestFieldMapping = null;
+    return null;
+  }
+  latestFieldMapping = await api(`/api/field-mapping?scene_id=${encodeURIComponent(state.activeSceneId)}`);
+  return latestFieldMapping;
+}
+
+function modelResultColumnsForRowsQuery() {
+  const columns = [];
+  const visible = Array.isArray(latestFieldMapping?.visible_columns) ? latestFieldMapping.visible_columns : [];
+  if (visible.length) columns.push(...visible);
+  if (latestFieldMapping?.model_answer_column) columns.push(latestFieldMapping.model_answer_column);
+  if (latestFieldMapping?.root_cause_column) columns.push(latestFieldMapping.root_cause_column);
+  if (columnFilter.column) columns.push(columnFilter.column);
+  if (activeSort.column) columns.push(activeSort.column);
+  return uniqueColumns(columns);
 }
 
 function buildAnnotationFilterPayload() {
@@ -3666,7 +3695,7 @@ function setColumnSettingsLoading(loading) {
 
 async function refreshAvailableDatasetColumns() {
   if (!state.activeDatasetId) return;
-  const payload = await api(`/api/datasets/${state.activeDatasetId}/rows?page=1&page_size=1${state.activeSchemeId ? `&scheme_id=${encodeURIComponent(state.activeSchemeId)}` : ""}`);
+  const payload = await api(`/api/datasets/${state.activeDatasetId}/rows?${buildRowsQuery(1, 1, {}, { includeModelResultColumns: true })}`);
   if (Array.isArray(payload.columns) && payload.columns.length) {
     mergeAvailableDatasetColumns(payload.columns);
   }
