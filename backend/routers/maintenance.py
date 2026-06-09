@@ -6,6 +6,8 @@ from fastapi import APIRouter, Body
 
 from backend.services.maintenance_service import (
     backfill_preview_cache,
+    compact_database,
+    database_storage_diagnostics,
     prune_analysis_history,
     prune_annotation_history,
     prune_unused_model_result_columns,
@@ -33,3 +35,13 @@ def post_prune_analysis_history():
 @router.post("/model-result-columns/prune")
 def post_prune_model_result_columns():
     return prune_unused_model_result_columns()
+
+
+@router.get("/storage-diagnostics")
+def get_storage_diagnostics():
+    return database_storage_diagnostics()
+
+
+@router.post("/database/compact")
+def post_compact_database():
+    return compact_database()

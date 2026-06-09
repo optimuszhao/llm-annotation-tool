@@ -677,12 +677,8 @@ def get_dataset_rows(
                     d.is_favorite,
                     d.annotation_status,
                     d.model_result,
-                    d.analysis_data,
-                    d.rendered_prompt,
                     latest.scheme_status,
-                    latest.scheme_model_result,
-                    latest.scheme_analysis_data,
-                    latest.scheme_rendered_prompt
+                    latest.scheme_model_result
                 FROM {table_name} d
                 LEFT JOIN latest_scheme_rows latest ON latest.row_id=d.id
                 WHERE {where}

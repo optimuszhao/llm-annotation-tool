@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
+from pathlib import Path
 from typing import Any
 
-from backend.database import create_scene_data_table, decode_json, encode_json, get_db, now_iso
+from backend.database import DB_PATH, create_scene_data_table, decode_json, encode_json, get_db, now_iso
 from backend.services.dataset_service import build_row_preview_payload, flatten_model_result_for_display
 
 
@@ -328,6 +330,200 @@ def prune_unused_model_result_columns() -> dict[str, Any]:
         "datasets": dataset_results[:20],
         "keep_rule": "保留 Excel 原始列和当前最新标注结果仍在使用的返回列",
     }
+
+
+def database_storage_diagnostics() -> dict[str, Any]:
+    """统计数据库文件、空闲页和主要大字段占用，辅助定位卡顿来源。"""
+    with get_db() as conn:
+        page_count = _pragma_int(conn, "page_count")
+        page_size = _pragma_int(conn, "page_size")
+        freelist_count = _pragma_int(conn, "freelist_count")
+        scene_tables = _scene_table_storage(conn)
+        history_tables = _history_table_storage(conn)
+        dbstat_tables = _dbstat_table_storage(conn)
+
+    files = _database_files(DB_PATH)
+    free_bytes = freelist_count * page_size
+    return {
+        "ok": True,
+        "files": files,
+        "pages": {
+            "page_count": page_count,
+            "page_size": page_size,
+            "freelist_count": freelist_count,
+            "free_bytes": free_bytes,
+            "used_estimate_bytes": max(page_count * page_size - free_bytes, 0),
+        },
+        "scene_tables": scene_tables,
+        "history_tables": history_tables,
+        "dbstat_tables": dbstat_tables,
+        "advice": [
+            "清理历史记录后执行压缩数据库，可以释放 SQLite 空闲页并缩小 annotation.db 文件。",
+            "列表页会优先读取 preview_data，完整 raw_data、rendered_prompt 和 analysis_data 保留在查看详情时读取。",
+        ],
+    }
+
+
+def compact_database() -> dict[str, Any]:
+    """执行 WAL 截断、VACUUM 和 PRAGMA optimize，让清理后的空间真正归还给文件系统。"""
+    before = database_storage_diagnostics()
+    before_free_bytes = before.get("pages", {}).get("free_bytes", 0) or 0
+    before_wal_bytes = before.get("files", {}).get("wal_bytes", 0) or 0
+    with sqlite3.connect(DB_PATH, timeout=120, isolation_level=None) as conn:
+        active_count = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM annotation_tasks
+            WHERE status IN ('queued', 'running')
+            """
+        ).fetchone()[0]
+        if active_count:
+            return {
+                "ok": False,
+                "active_tasks": active_count,
+                "detail": "当前存在运行中或排队中的标注任务，等待任务结束后再压缩数据库。",
+                "before": before,
+            }
+        if before_free_bytes <= 0 and before_wal_bytes <= 0:
+            return {
+                "ok": True,
+                "skipped": True,
+                "detail": "当前数据库没有可释放的空闲页，已跳过压缩。",
+                "before": before,
+                "after": before,
+                "saved_bytes": 0,
+            }
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("VACUUM")
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    after = database_storage_diagnostics()
+    return {
+        "ok": True,
+        "before": before,
+        "after": after,
+        "saved_bytes": max(before["files"]["total_bytes"] - after["files"]["total_bytes"], 0),
+    }
+
+
+def _pragma_int(conn, name: str) -> int:
+    row = conn.execute(f"PRAGMA {name}").fetchone()
+    if isinstance(row, dict):
+        return int(next(iter(row.values())) or 0)
+    return int(row[0] or 0)
+
+
+def _database_files(db_path: Path) -> dict[str, Any]:
+    db = Path(db_path)
+    wal = Path(f"{db_path}-wal")
+    shm = Path(f"{db_path}-shm")
+    sizes = {
+        "database_bytes": _file_size(db),
+        "wal_bytes": _file_size(wal),
+        "shm_bytes": _file_size(shm),
+    }
+    sizes["total_bytes"] = sum(sizes.values())
+    return sizes
+
+
+def _file_size(path: Path) -> int:
+    return path.stat().st_size if path.exists() else 0
+
+
+def _scene_table_storage(conn) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT id, name, data_table_name FROM scenes ORDER BY created_at ASC"
+    ).fetchall()
+    results: list[dict[str, Any]] = []
+    for scene in rows:
+        table_name = scene["data_table_name"]
+        create_scene_data_table(conn, table_name)
+        stat = conn.execute(
+            f"""
+            SELECT
+              COUNT(*) AS row_count,
+              COALESCE(SUM(LENGTH(raw_data)), 0) AS raw_data_bytes,
+              COALESCE(SUM(LENGTH(preview_data)), 0) AS preview_data_bytes,
+              COALESCE(SUM(LENGTH(model_result)), 0) AS model_result_bytes,
+              COALESCE(SUM(LENGTH(rendered_prompt)), 0) AS rendered_prompt_bytes,
+              COALESCE(SUM(LENGTH(analysis_data)), 0) AS analysis_data_bytes
+            FROM {table_name}
+            """
+        ).fetchone()
+        total = sum(
+            int(stat[key] or 0)
+            for key in (
+                "raw_data_bytes",
+                "preview_data_bytes",
+                "model_result_bytes",
+                "rendered_prompt_bytes",
+                "analysis_data_bytes",
+            )
+        )
+        results.append(
+            {
+                "scene_id": scene["id"],
+                "scene_name": scene["name"],
+                "table_name": table_name,
+                "row_count": stat["row_count"],
+                "raw_data_bytes": stat["raw_data_bytes"],
+                "preview_data_bytes": stat["preview_data_bytes"],
+                "model_result_bytes": stat["model_result_bytes"],
+                "rendered_prompt_bytes": stat["rendered_prompt_bytes"],
+                "analysis_data_bytes": stat["analysis_data_bytes"],
+                "tracked_text_bytes": total,
+            }
+        )
+    return sorted(results, key=lambda item: item["tracked_text_bytes"], reverse=True)
+
+
+def _history_table_storage(conn) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for table_name, columns in (
+        ("annotation_task_rows", ("model_result", "rendered_prompt", "analysis_data")),
+        ("row_analysis_history", ("analysis_data",)),
+    ):
+        if not _table_exists(conn, table_name):
+            continue
+        expressions = ", ".join(
+            f"COALESCE(SUM(LENGTH({column})), 0) AS {column}_bytes"
+            for column in columns
+        )
+        stat = conn.execute(f"SELECT COUNT(*) AS row_count, {expressions} FROM {table_name}").fetchone()
+        total = sum(int(stat[f"{column}_bytes"] or 0) for column in columns)
+        results.append(
+            {
+                "table_name": table_name,
+                "row_count": stat["row_count"],
+                "tracked_text_bytes": total,
+                **{f"{column}_bytes": stat[f"{column}_bytes"] for column in columns},
+            }
+        )
+    return sorted(results, key=lambda item: item["tracked_text_bytes"], reverse=True)
+
+
+def _dbstat_table_storage(conn) -> list[dict[str, Any]]:
+    try:
+        rows = conn.execute(
+            """
+            SELECT name AS table_name, COALESCE(SUM(pgsize), 0) AS bytes
+            FROM dbstat
+            GROUP BY name
+            ORDER BY bytes DESC
+            LIMIT 30
+            """
+        ).fetchall()
+    except Exception:
+        return []
+    return [{"table_name": row["table_name"], "bytes": row["bytes"]} for row in rows]
+
+
+def _table_exists(conn, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
 
 
 def _dedupe(values: list[str]) -> list[str]:

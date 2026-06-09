@@ -1,5 +1,5 @@
 import { renderManagePage } from "/pages/manage.js?v=20260608-root-cause-bulk";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260609-dynamic-overflow-dot";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260609-db-maintenance";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260606-evaluation-matrix-unified";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
 import { initComponents } from "/assets/components.js";
@@ -294,6 +294,14 @@ function ensureLagHelperModal() {
               <button class="btn danger-soft" id="lagHelperPruneColumnsButton" type="button">清理无效标注返回列</button>
             </div>
           </div>
+          <div class="lag-helper-note">
+            <strong>数据库体积</strong>
+            <span>查看 annotation.db、WAL、空闲页和大字段占用。清理历史后可压缩数据库，让文件体积真正下降。</span>
+            <div class="lag-helper-clean-actions">
+              <button class="btn" id="lagHelperStorageButton" type="button">查看数据库体积</button>
+              <button class="btn danger-soft" id="lagHelperCompactButton" type="button">压缩数据库</button>
+            </div>
+          </div>
           <div class="lag-helper-result" id="lagHelperResult">
             <span>建议在空闲时执行一次。数据量较大时需要等待一会儿。</span>
           </div>
@@ -315,6 +323,8 @@ function ensureLagHelperModal() {
   backdrop.querySelector("#lagHelperPruneAnnotationButton").addEventListener("click", () => runLagHistoryCleanup("annotation"));
   backdrop.querySelector("#lagHelperPruneAnalysisButton").addEventListener("click", () => runLagHistoryCleanup("analysis"));
   backdrop.querySelector("#lagHelperPruneColumnsButton").addEventListener("click", runLagColumnCleanup);
+  backdrop.querySelector("#lagHelperStorageButton").addEventListener("click", runLagStorageDiagnostics);
+  backdrop.querySelector("#lagHelperCompactButton").addEventListener("click", runLagDatabaseCompact);
   return backdrop;
 }
 
@@ -494,6 +504,147 @@ function renderLagColumnCleanupResult(result) {
       ${datasets || "<span>当前没有需要清理的无效标注返回列。</span>"}
     </section>
   `;
+}
+
+async function runLagStorageDiagnostics() {
+  const button = document.querySelector("#lagHelperStorageButton");
+  const resultNode = document.querySelector("#lagHelperResult");
+  button.disabled = true;
+  button.textContent = "统计中...";
+  resultNode.innerHTML = `<span class="lag-helper-loading">正在统计数据库体积...</span>`;
+  try {
+    const result = await api("/api/maintenance/storage-diagnostics");
+    renderLagStorageDiagnostics(result);
+  } catch (error) {
+    resultNode.innerHTML = `<span class="lag-helper-error">${escapeHtml(error.message)}</span>`;
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "查看数据库体积";
+  }
+}
+
+async function runLagDatabaseCompact() {
+  const ok = await confirmAction({
+    title: "压缩数据库",
+    message: "确认压缩 annotation.db？",
+    details: [
+      "建议在没有标注任务运行时执行。",
+      "系统会执行 WAL 截断、VACUUM 和数据库优化，数据量较大时需要等待一会儿。",
+    ],
+    confirmText: "开始压缩",
+    variant: "danger",
+  });
+  if (!ok) return;
+  const button = document.querySelector("#lagHelperCompactButton");
+  const resultNode = document.querySelector("#lagHelperResult");
+  button.disabled = true;
+  button.textContent = "压缩中...";
+  resultNode.innerHTML = `<span class="lag-helper-loading">正在压缩数据库，请保持服务运行...</span>`;
+  try {
+    const result = await api("/api/maintenance/database/compact", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    renderLagCompactResult(result);
+    toast(result.ok ? `数据库压缩完成：释放 ${formatBytes(result.saved_bytes || 0)}` : (result.detail || "当前暂时无法压缩"));
+  } catch (error) {
+    resultNode.innerHTML = `<span class="lag-helper-error">${escapeHtml(error.message)}</span>`;
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "压缩数据库";
+  }
+}
+
+function renderLagStorageDiagnostics(result) {
+  const node = document.querySelector("#lagHelperResult");
+  if (!node) return;
+  const topScenes = (result.scene_tables || []).slice(0, 5).map((scene) => `
+    <div>
+      <strong>${escapeHtml(scene.scene_name || scene.table_name)}</strong>
+      <span>${scene.row_count || 0} 行 · 原始 ${formatBytes(scene.raw_data_bytes)} · Prompt ${formatBytes(scene.rendered_prompt_bytes)} · 分析 ${formatBytes(scene.analysis_data_bytes)}</span>
+    </div>
+  `).join("");
+  const histories = (result.history_tables || []).map((table) => `
+    <div>
+      <strong>${escapeHtml(table.table_name)}</strong>
+      <span>${table.row_count || 0} 行 · 文本 ${formatBytes(table.tracked_text_bytes)}</span>
+    </div>
+  `).join("");
+  const dbstat = (result.dbstat_tables || []).slice(0, 6).map((table) => `
+    <div>
+      <strong>${escapeHtml(table.table_name)}</strong>
+      <span>${formatBytes(table.bytes)}</span>
+    </div>
+  `).join("");
+  node.innerHTML = `
+    <section class="lag-helper-summary">
+      <div><span>数据库</span><strong>${formatBytes(result.files?.database_bytes)}</strong></div>
+      <div><span>WAL</span><strong>${formatBytes(result.files?.wal_bytes)}</strong></div>
+      <div><span>空闲页</span><strong>${formatBytes(result.pages?.free_bytes)}</strong></div>
+      <div><span>合计</span><strong>${formatBytes(result.files?.total_bytes)}</strong></div>
+    </section>
+    <section class="lag-helper-scenes">
+      <span>场景大字段占用</span>
+      ${topScenes || "<span>暂无场景数据。</span>"}
+      <span>历史表占用</span>
+      ${histories || "<span>暂无历史表数据。</span>"}
+      ${dbstat ? `<span>SQLite 页面占用 Top</span>${dbstat}` : ""}
+    </section>
+  `;
+}
+
+function renderLagCompactResult(result) {
+  const node = document.querySelector("#lagHelperResult");
+  if (!node) return;
+  if (!result.ok) {
+    node.innerHTML = `
+      <section class="lag-helper-scenes">
+        <span class="lag-helper-error">${escapeHtml(result.detail || "当前无法压缩数据库")}</span>
+        <div><strong>运行中任务</strong><span>${result.active_tasks || 0} 个</span></div>
+      </section>
+    `;
+    return;
+  }
+  if (result.skipped) {
+    node.innerHTML = `
+      <section class="lag-helper-summary">
+        <div><span>当前体积</span><strong>${formatBytes(result.before?.files?.total_bytes)}</strong></div>
+        <div><span>空闲页</span><strong>${formatBytes(result.before?.pages?.free_bytes)}</strong></div>
+        <div><span>释放空间</span><strong>${formatBytes(0)}</strong></div>
+        <div><span>状态</span><strong>跳过</strong></div>
+      </section>
+      <section class="lag-helper-scenes">
+        <span>${escapeHtml(result.detail || "当前数据库没有可释放空间。")}</span>
+      </section>
+    `;
+    return;
+  }
+  node.innerHTML = `
+    <section class="lag-helper-summary">
+      <div><span>压缩前</span><strong>${formatBytes(result.before?.files?.total_bytes)}</strong></div>
+      <div><span>压缩后</span><strong>${formatBytes(result.after?.files?.total_bytes)}</strong></div>
+      <div><span>释放空间</span><strong>${formatBytes(result.saved_bytes)}</strong></div>
+      <div><span>空闲页</span><strong>${formatBytes(result.after?.pages?.free_bytes)}</strong></div>
+    </section>
+    <section class="lag-helper-scenes">
+      <span>数据库压缩完成。后续导入、清理历史后可以再次执行。</span>
+    </section>
+  `;
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = bytes / 1024;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[index]}`;
 }
 
 function escapeHtml(value) {
