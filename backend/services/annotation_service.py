@@ -978,12 +978,15 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
 
     model_answer_column = field_mapping.get("model_answer_column") or ""
     human_answer_column = field_mapping.get("human_answer_column") or ""
+    validation_error = ""
     if not model_answer_column or model_answer_column not in model_result:
-        raise ValueError(f"标注结果缺少标注答案列：{model_answer_column or '未配置'}")
-    if not human_answer_column or _is_blank(row_data.get(human_answer_column)):
-        raise ValueError(f"人工答案列为空或未配置：{human_answer_column or '未配置'}")
-
-    status = _judge_confusion_status(row_data.get(human_answer_column), model_result.get(model_answer_column))
+        validation_error = f"标注结果缺少标注答案列：{model_answer_column or '未配置'}"
+        status = ROW_STATUS_FAILED
+    elif not human_answer_column or _is_blank(row_data.get(human_answer_column)):
+        validation_error = f"人工答案列为空或未配置：{human_answer_column or '未配置'}"
+        status = ROW_STATUS_FAILED
+    else:
+        status = _judge_confusion_status(row_data.get(human_answer_column), model_result.get(model_answer_column))
     timestamp = now_iso()
     model_result["标注耗时"] = _format_annotation_duration(task_row.get("started_at"), timestamp)
     if _is_task_row_cancelled(task_row_id):
@@ -1030,10 +1033,10 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
         conn.execute(
             """
             UPDATE annotation_task_rows
-            SET status=?, model_result=?, rendered_prompt=?, updated_at=?, finished_at=?
+            SET status=?, model_result=?, rendered_prompt=?, error=?, updated_at=?, finished_at=?
             WHERE id=?
             """,
-            (status, encode_json(model_result), rendered_prompt, timestamp, timestamp, task_row_id),
+            (status, encode_json(model_result), rendered_prompt, validation_error or None, timestamp, timestamp, task_row_id),
         )
         _refresh_task_counts(conn, task_id, timestamp)
 
@@ -1043,6 +1046,7 @@ def _annotate_row(task_id: str, task_row_id: str) -> dict:
         "model_result": model_result,
         "rendered_prompt": rendered_prompt,
         "rendered_prompts": rendered_prompts,
+        "error": validation_error,
         "metrics": get_dataset_metrics(context["dataset_id"], task["scheme_id"]),
         "task": get_annotation_task(task_id),
     }
