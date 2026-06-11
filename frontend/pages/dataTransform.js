@@ -15,6 +15,8 @@ const aggregateLabels = {
 let session = null;
 let config = { version: 1, granularity_table: "", relations: [], output_fields: [] };
 let previewRows = [];
+let relationDraft = null;
+let selectedFiles = [];
 
 export async function renderDataTransformPage() {
   const root = document.querySelector("#page-data-transform");
@@ -28,62 +30,58 @@ export async function renderDataTransformPage() {
 function renderPage() {
   return `
     <div class="data-transform-page">
-      <section class="data-transform-head">
+      <section class="transform-upload-hero">
         <div class="transform-head-copy">
-          <p class="eyebrow">JSONL TO EXCEL</p>
-          <h1>数据转换</h1>
-          <p>上传多个 JSONL 表数据，配置字段映射、输出颗粒度和聚合方式，导出可运行的 Python 转换算法包。</p>
+          <strong>数据转换</strong>
+          <span>把多张 JSONL 表配置成一个可导出的 Excel 转换算法包。</span>
         </div>
-        <div class="transform-head-kpis" aria-label="数据转换流程">
-          <span>上传表数据</span>
-          <span>配置关系</span>
-          <span>导出 Excel</span>
+        <div class="transform-status-strip" aria-label="转换配置状态">
+          <div><span>表</span><strong id="transformStatusTables">0</strong></div>
+          <div><span>关系</span><strong id="transformStatusRelations">0</strong></div>
+          <div><span>字段</span><strong id="transformStatusFields">0</strong></div>
+          <div><span>预览</span><strong id="transformStatusPreview">0</strong></div>
         </div>
-        <div class="transform-actions">
-          <button class="btn" id="saveTransformConfigButton" type="button">保存配置</button>
-          <button class="btn primary" id="exportTransformPackageButton" type="button">导出算法包</button>
-        </div>
-      </section>
-
-      <section class="transform-upload-panel">
-        <div class="transform-upload-copy">
-          <strong>上传 JSONL 表数据</strong>
-          <span>每个文件代表一张表，系统会按文件名生成表名并自动识别外键关系。</span>
-        </div>
-        <form id="transformUploadForm">
-          <input type="file" id="transformJsonlFiles" name="files" accept=".jsonl" multiple required>
-          <button class="btn primary" type="submit">解析 JSONL</button>
+        <form id="transformUploadForm" class="transform-upload-form">
+          <label class="transform-file-picker" for="transformJsonlFiles">
+            <input type="file" id="transformJsonlFiles" name="files" accept=".jsonl" multiple required>
+            <span class="transform-file-icon" aria-hidden="true">JSONL</span>
+            <span class="transform-file-copy">
+              <strong id="transformFileTitle">选择 JSONL 文件</strong>
+              <em id="transformFileMeta">支持多个文件，每个文件对应一张表</em>
+            </span>
+          </label>
+          <button class="btn transform-parse-button" type="submit">解析 JSONL</button>
         </form>
+        <div class="transform-actions">
+          <button class="btn transform-save-button" id="saveTransformConfigButton" type="button">保存配置</button>
+          <button class="btn transform-export-button" id="exportTransformPackageButton" type="button">导出算法包</button>
+        </div>
       </section>
 
-      <div class="transform-grid">
-        <section class="transform-panel source-panel">
-          <header>
-            <h2>1. 表与字段</h2>
-            <span id="transformTableCount">未上传</span>
-          </header>
-          <div class="transform-table-list" id="transformTableList"></div>
-        </section>
+      <section class="transform-panel source-panel">
+        <header>
+          <div>
+            <h2>设置数据库表关联</h2>
+            <span>点击两张表里的字段建立一条关联关系，系统也会自动识别常见外键。</span>
+          </div>
+          <span id="transformTableCount">未上传</span>
+        </header>
+        <div class="transform-table-list" id="transformTableList"></div>
+        <div class="relation-list" id="relationList"></div>
+      </section>
 
-        <section class="transform-panel relation-panel">
-          <header>
-            <h2>2. 字段关系</h2>
-            <button class="btn small" id="addRelationButton" type="button">新增关系</button>
-          </header>
-          <div class="relation-list" id="relationList"></div>
-        </section>
-
+      <div class="transform-config-grid">
         <section class="transform-panel granularity-panel">
           <header>
-            <h2>3. 输出颗粒度</h2>
-            <span>决定 Excel 一行代表哪张表的一条数据</span>
+            <h2>Excel 以哪一个列表数据为基准</h2>
+            <span>决定 Excel 的每一行来自哪张表</span>
           </header>
           <select class="select" id="granularitySelect"></select>
         </section>
 
         <section class="transform-panel output-panel">
           <header>
-            <h2>4. Excel 输出字段</h2>
+            <h2>转换后 Excel 包含字段</h2>
             <button class="btn small" id="addOutputFieldButton" type="button">新增字段</button>
           </header>
           <div class="output-field-list" id="outputFieldList"></div>
@@ -92,7 +90,7 @@ function renderPage() {
 
       <section class="transform-panel preview-panel">
         <header>
-          <h2>5. 结果预览</h2>
+          <h2>转换预览</h2>
           <button class="btn" id="previewTransformButton" type="button">预览前 20 行</button>
         </header>
         <div class="preview-table-wrap" id="transformPreview"></div>
@@ -103,9 +101,9 @@ function renderPage() {
 
 function bindEvents(root) {
   root.querySelector("#transformUploadForm").addEventListener("submit", handleUpload);
+  root.querySelector("#transformJsonlFiles").addEventListener("change", handleFileSelection);
   root.querySelector("#saveTransformConfigButton").addEventListener("click", saveConfig);
   root.querySelector("#exportTransformPackageButton").addEventListener("click", exportPackage);
-  root.querySelector("#addRelationButton").addEventListener("click", addRelation);
   root.querySelector("#addOutputFieldButton").addEventListener("click", addOutputField);
   root.querySelector("#previewTransformButton").addEventListener("click", previewTransform);
   root.querySelector("#granularitySelect").addEventListener("change", (event) => {
@@ -113,6 +111,29 @@ function bindEvents(root) {
     normalizeAggregates();
     renderWorkspace();
   });
+}
+
+function handleFileSelection(event) {
+  selectedFiles = Array.from(event.target.files || []).map((file) => ({
+    name: file.name,
+    size: file.size,
+  }));
+  renderFileSelection();
+}
+
+function renderFileSelection() {
+  const title = document.querySelector("#transformFileTitle");
+  const meta = document.querySelector("#transformFileMeta");
+  if (!title || !meta) return;
+  if (!selectedFiles.length) {
+    title.textContent = "选择 JSONL 文件";
+    meta.textContent = "支持多个文件，每个文件对应一张表";
+    return;
+  }
+  title.textContent = `已选择 ${selectedFiles.length} 个 JSONL`;
+  const names = selectedFiles.slice(0, 2).map((file) => file.name).join("、");
+  const more = selectedFiles.length > 2 ? ` 等 ${selectedFiles.length} 个文件` : "";
+  meta.textContent = `${names}${more}`;
 }
 
 async function loadSavedConfig() {
@@ -137,6 +158,9 @@ async function handleUpload(event) {
   try {
     session = await api("/api/data-transform/upload", { method: "POST", body: formData });
     config = mergeConfig(session.default_config || {}, config);
+    event.target.reset();
+    selectedFiles = [];
+    renderFileSelection();
     renderWorkspace();
     toast(`已解析 ${session.tables.length} 张表`);
   } catch (error) {
@@ -160,11 +184,23 @@ function mergeConfig(defaultConfig, savedConfig) {
 }
 
 function renderWorkspace() {
+  renderStatusStrip();
   renderTables();
   renderRelations();
   renderGranularity();
   renderOutputFields();
   renderPreview();
+}
+
+function renderStatusStrip() {
+  const setText = (selector, value) => {
+    const node = document.querySelector(selector);
+    if (node) node.textContent = String(value);
+  };
+  setText("#transformStatusTables", tables().length);
+  setText("#transformStatusRelations", (config.relations || []).length);
+  setText("#transformStatusFields", (config.output_fields || []).length);
+  setText("#transformStatusPreview", previewRows.length);
 }
 
 function tables() {
@@ -187,49 +223,132 @@ function renderTables() {
     list.innerHTML = `<div class="transform-empty">上传 JSONL 后展示字段、类型和样例。</div>`;
     return;
   }
-  list.innerHTML = tables().map((table) => `
-    <article class="transform-table-card">
-      <div class="transform-table-title">
-        <strong>${escapeHtml(table.name)}</strong>
-        <span>${table.row_count} 行 · 主键 ${escapeHtml(table.primary_key)}</span>
-      </div>
-      <div class="field-chip-list">
-        ${table.fields.map((field) => `
-          <span class="field-chip" title="${escapeHtml(String(field.sample ?? ""))}">
-            ${escapeHtml(field.name)} <em>${escapeHtml(field.type)}</em>
-          </span>
-        `).join("")}
-      </div>
-    </article>
-  `).join("");
+  list.innerHTML = `
+    <div class="field-column-grid">
+      ${tables().map((table) => `
+        <article class="field-column">
+          <div class="field-column-head">
+            <strong>${escapeHtml(table.name)}</strong>
+            <span>${table.row_count} 行 · 主键 ${escapeHtml(table.primary_key)}</span>
+          </div>
+          <div class="field-column-list">
+            ${table.fields.map((field) => renderFieldNode(table, field)).join("")}
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+  list.querySelectorAll("[data-field-node]").forEach((button) => {
+    button.addEventListener("click", handleFieldNodeClick);
+  });
 }
 
 function renderRelations() {
   const list = document.querySelector("#relationList");
   if (!tables().length) {
-    list.innerHTML = `<div class="transform-empty">上传后自动识别表名_id 关系。</div>`;
+    list.innerHTML = "";
     return;
   }
   config.relations = config.relations || [];
-  list.innerHTML = config.relations.map((relation, index) => `
-    <div class="relation-row" data-relation-index="${index}">
-      ${tableSelect("parent_table", relation.parent_table)}
-      ${fieldSelect(relation.parent_table, "parent_field", relation.parent_field)}
-      <span>一对多</span>
-      ${tableSelect("child_table", relation.child_table)}
-      ${fieldSelect(relation.child_table, "child_field", relation.child_field)}
-      <button class="icon-btn" type="button" data-remove-relation="${index}" aria-label="删除关系">×</button>
+  const draft = relationDraft
+    ? `<div class="relation-draft-tip active"><strong>起点</strong><span>${escapeHtml(relationDraft.table)}.${escapeHtml(relationDraft.field)}</span><em>选择另一张表字段完成关系</em></div>`
+    : `<div class="relation-draft-tip"><strong>关系配置</strong><span>选择两个不同表字段</span><em>自动识别结果可继续手动补充</em></div>`;
+  const lines = config.relations.map((relation, index) => `
+    <div class="relation-line-row">
+      <span>${escapeHtml(relation.parent_table)}.${escapeHtml(relation.parent_field)}</span>
+      <b>关联</b>
+      <span>${escapeHtml(relation.child_table)}.${escapeHtml(relation.child_field)}</span>
+      <button class="icon-btn" type="button" data-remove-relation="${index}" aria-label="删除关系"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
     </div>
-  `).join("") || `<div class="transform-empty">暂未识别到关系，可以手动新增。</div>`;
-  list.querySelectorAll("select").forEach((select) => {
-    select.addEventListener("change", handleRelationChange);
-  });
+  `).join("");
+  list.innerHTML = `
+    ${draft}
+    <div class="relation-line-wrap">
+      ${lines || `<div class="relation-line-empty">暂无字段关系</div>`}
+    </div>
+  `;
   list.querySelectorAll("[data-remove-relation]").forEach((button) => {
     button.addEventListener("click", () => {
       config.relations.splice(Number(button.dataset.removeRelation), 1);
       renderWorkspace();
     });
   });
+}
+
+function renderFieldNode(table, field) {
+  const selected = relationDraft?.table === table.name && relationDraft?.field === field.name;
+  const linked = relationUsesField(table.name, field.name);
+  return `
+    <button
+      class="field-node ${selected ? "is-draft" : ""} ${linked ? "is-linked" : ""}"
+      type="button"
+      data-field-node
+      data-table-name="${escapeHtml(table.name)}"
+      data-field-name="${escapeHtml(field.name)}"
+      title="${escapeHtml(String(field.sample ?? ""))}"
+    >
+      <span class="field-node-check" aria-hidden="true"></span>
+      <strong>${escapeHtml(field.name)}</strong>
+      <em>${escapeHtml(field.type)}</em>
+    </button>
+  `;
+}
+
+function relationUsesField(tableName, fieldName) {
+  return (config.relations || []).some((relation) => (
+    (relation.parent_table === tableName && relation.parent_field === fieldName)
+    || (relation.child_table === tableName && relation.child_field === fieldName)
+  ));
+}
+
+function handleFieldNodeClick(event) {
+  const next = {
+    table: event.currentTarget.dataset.tableName,
+    field: event.currentTarget.dataset.fieldName,
+  };
+  if (!relationDraft) {
+    relationDraft = next;
+    renderTables();
+    renderRelations();
+    return;
+  }
+  if (relationDraft.table === next.table && relationDraft.field === next.field) {
+    relationDraft = null;
+    renderTables();
+    renderRelations();
+    return;
+  }
+  if (relationDraft.table === next.table) {
+    relationDraft = next;
+    renderTables();
+    renderRelations();
+    toast("已切换连线起点，请选择另一张表字段");
+    return;
+  }
+  const exists = (config.relations || []).some((relation) => {
+    const sameDirection = relation.parent_table === relationDraft.table
+      && relation.parent_field === relationDraft.field
+      && relation.child_table === next.table
+      && relation.child_field === next.field;
+    const reverseDirection = relation.parent_table === next.table
+      && relation.parent_field === next.field
+      && relation.child_table === relationDraft.table
+      && relation.child_field === relationDraft.field;
+    return sameDirection || reverseDirection;
+  });
+  if (!exists) {
+    config.relations = config.relations || [];
+    config.relations.push({
+      parent_table: relationDraft.table,
+      parent_field: relationDraft.field,
+      child_table: next.table,
+      child_field: next.field,
+    });
+  } else {
+    toast("该字段关系已存在");
+  }
+  relationDraft = null;
+  renderWorkspace();
 }
 
 function renderGranularity() {
@@ -252,11 +371,23 @@ function renderOutputFields() {
       .join("");
     return `
       <div class="output-field-row" data-output-index="${index}">
-        <input class="input" data-output-key="name" value="${escapeHtml(field.name || "")}" placeholder="Excel 字段名">
-        ${tableSelect("source_table", field.source_table)}
-        ${fieldSelect(field.source_table, "source_field", field.source_field)}
-        <select class="select" data-output-key="aggregate">${aggregateOptions}</select>
-        <button class="icon-btn" type="button" data-remove-output="${index}" aria-label="删除字段">×</button>
+        <label>
+          <span>Excel 字段</span>
+          <input class="input" data-output-key="name" value="${escapeHtml(field.name || "")}" placeholder="字段名">
+        </label>
+        <label>
+          <span>来源表</span>
+          ${tableSelect("source_table", field.source_table)}
+        </label>
+        <label>
+          <span>来源字段</span>
+          ${fieldSelect(field.source_table, "source_field", field.source_field)}
+        </label>
+        <label>
+          <span>取值方式</span>
+          <select class="select" data-output-key="aggregate">${aggregateOptions}</select>
+        </label>
+        <button class="icon-btn" type="button" data-remove-output="${index}" aria-label="删除字段"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
       </div>
     `;
   }).join("");
@@ -269,6 +400,7 @@ function renderOutputFields() {
     button.addEventListener("click", () => {
       config.output_fields.splice(Number(button.dataset.removeOutput), 1);
       renderOutputFields();
+      renderStatusStrip();
     });
   });
 }
@@ -355,6 +487,7 @@ function addOutputField() {
     aggregate: "direct",
   });
   renderOutputFields();
+  renderStatusStrip();
 }
 
 function normalizeAggregates() {
@@ -386,6 +519,7 @@ async function previewTransform() {
     });
     previewRows = result.rows || [];
     renderPreview();
+    renderStatusStrip();
     toast(`已生成 ${previewRows.length} 行预览`);
   } catch (error) {
     toast(error.message);

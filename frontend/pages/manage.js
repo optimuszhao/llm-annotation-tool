@@ -11,6 +11,48 @@ const defaultColumns = [
   "Claude_结果",
 ];
 
+const PROMPT_SKELETON_FALLBACK_KEY = "globalPromptSkeleton";
+const KNOWLEDGE_SKELETON_FALLBACK_KEY = "globalKnowledgeSkeleton";
+const ERROR_SET_SKELETON_FALLBACK_KEY = "globalErrorSetSkeleton";
+const DEFAULT_PROMPT_SKELETON = `你是一名专业的数据标注专家，请根据输入数据、知识库和fewshots样例完成判断。
+
+可用占位符：
+- 数据列请使用全角大括号包裹 row.列名。
+- 知识库请使用全角大括号包裹 knowledge.知识名称。
+- fewshots样例请使用全角大括号包裹 error_sets.fewshots样例名称。
+
+标注要求：
+1. 只基于给定材料判断。
+2. 说明关键依据。
+3. 输出必须是可以被 JSON 解析的对象。
+
+输出格式：
+{
+  "answer": "",
+  "reason": "",
+  "confidence": 0
+}`;
+const DEFAULT_KNOWLEDGE_SKELETON = `请在这里维护当前业务知识、规则口径和判断依据。
+
+建议结构：
+1. 适用场景：
+2. 判断规则：
+3. 特殊例外：
+4. 术语说明：
+5. 输出约束：`;
+const DEFAULT_ERROR_SET_SKELETON = `请在这里维护运行态数据的 cot 样例，用于 fewshots 参考。
+
+建议结构：
+1. 样例输入：
+2. 正确判断：
+3. 推理过程：
+4. 易错点：
+5. 可复用经验：`;
+
+let promptSkeletonCache = null;
+let knowledgeSkeletonCache = null;
+let errorSetSkeletonCache = null;
+
 export function renderManagePage() {
   const activeScene = getActiveScene();
   const activeGroup = getActiveGroup();
@@ -49,9 +91,9 @@ export function renderManagePage() {
 function renderModelMarketPanel(activeScene) {
   const models = [
     {
-      name: "Core Model",
-      type: "本地模型",
-      description: "默认 Core Model，对应当前后台 call_model 逻辑。",
+      name: "Local Model",
+      type: "本地调用",
+      description: "默认本地大模型调用，对应当前后台 call_model 逻辑。",
       locked: true,
     },
     ...state.modelMarketConfigs.map((item) => ({
@@ -66,7 +108,7 @@ function renderModelMarketPanel(activeScene) {
       <div class="model-market-head">
         <div class="model-market-title">
           <strong>可用模型</strong>
-          <span>Core Model 与模型市场配置统一展示，创建方案时选择具体调用方式。</span>
+          <span>Local Model 与模型市场配置统一展示，创建方案时选择具体调用方式。</span>
         </div>
         <div class="model-market-list">
           ${models.map((model) => `
@@ -82,8 +124,7 @@ function renderModelMarketPanel(activeScene) {
           `).join("")}
         </div>
         <div class="model-market-actions">
-          ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button"><span class="ui-icon ui-icon-package" aria-hidden="true"></span>导出标注算法包</button>` : ""}
-          <button class="model-market-add" id="addModelMarketButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>添加模型</button>
+          <button class="model-market-add manage-light-action" id="addModelMarketButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>添加模型</button>
         </div>
       </div>
     </section>
@@ -153,7 +194,10 @@ function renderSceneContent(activeScene) {
             <h3>标注方案</h3>
             <p class="card-meta">${escapeHtml(activeScene.name)} · 当前场景独立方案。</p>
           </div>
-          <button class="btn primary" id="addSchemeButton" type="button">创建标注方案</button>
+          <div class="scheme-title-actions">
+            <button class="btn package-export-button manage-light-action" id="exportAlgorithmPackageButton" type="button"><span class="ui-icon ui-icon-package" aria-hidden="true"></span>导出标注算法包</button>
+            <button class="btn manage-light-action scheme-create-button" id="addSchemeButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>创建标注方案</button>
+          </div>
         </div>
         <div class="scheme-list">
           ${state.schemes.map((item) => `
@@ -303,7 +347,10 @@ function renderModal() {
         <div class="modal-head">
           <div class="modal-title-block"><h2 id="modalTitle">资源管理</h2><p class="card-meta" id="modalMeta">当前场景资源</p></div>
           <div class="scheme-title-name" id="schemeTitleName" hidden></div>
-          <button class="icon-btn" id="closeModal" aria-label="关闭"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
+          <div class="modal-head-actions">
+            <div class="modal-extra-actions" id="modalExtraActions"></div>
+            <button class="icon-btn" id="closeModal" aria-label="关闭"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
+          </div>
         </div>
         <div class="modal-body" id="modalBody"></div>
       </div>
@@ -458,6 +505,8 @@ function openModal(title, meta, body, size = "") {
   document.querySelector("#modalTitle").textContent = title;
   document.querySelector("#modalMeta").textContent = meta;
   document.querySelector("#modalBody").innerHTML = body;
+  const extraActions = document.querySelector("#modalExtraActions");
+  if (extraActions) extraActions.innerHTML = "";
   const titleName = document.querySelector("#schemeTitleName");
   titleName.hidden = true;
   titleName.textContent = "";
@@ -1151,6 +1200,81 @@ function bindDatasetSearch() {
   });
 }
 
+function promptSkeletonFallback() {
+  return localStorage.getItem(PROMPT_SKELETON_FALLBACK_KEY) || DEFAULT_PROMPT_SKELETON;
+}
+
+function knowledgeSkeletonFallback() {
+  return localStorage.getItem(KNOWLEDGE_SKELETON_FALLBACK_KEY) || DEFAULT_KNOWLEDGE_SKELETON;
+}
+
+function errorSetSkeletonFallback() {
+  return localStorage.getItem(ERROR_SET_SKELETON_FALLBACK_KEY) || DEFAULT_ERROR_SET_SKELETON;
+}
+
+async function loadPromptSkeleton() {
+  if (promptSkeletonCache !== null) return promptSkeletonCache;
+  try {
+    const payload = await api("/api/preferences/prompt-skeleton");
+    promptSkeletonCache = payload.content || promptSkeletonFallback();
+  } catch (error) {
+    promptSkeletonCache = promptSkeletonFallback();
+  }
+  return promptSkeletonCache;
+}
+
+async function loadKnowledgeSkeleton() {
+  if (knowledgeSkeletonCache !== null) return knowledgeSkeletonCache;
+  try {
+    const payload = await api("/api/preferences/knowledge-skeleton");
+    knowledgeSkeletonCache = payload.content || knowledgeSkeletonFallback();
+  } catch (error) {
+    knowledgeSkeletonCache = knowledgeSkeletonFallback();
+  }
+  return knowledgeSkeletonCache;
+}
+
+async function loadErrorSetSkeleton() {
+  if (errorSetSkeletonCache !== null) return errorSetSkeletonCache;
+  try {
+    const payload = await api("/api/preferences/error-set-skeleton");
+    errorSetSkeletonCache = payload.content || errorSetSkeletonFallback();
+  } catch (error) {
+    errorSetSkeletonCache = errorSetSkeletonFallback();
+  }
+  return errorSetSkeletonCache;
+}
+
+async function savePromptSkeleton(content) {
+  promptSkeletonCache = content;
+  localStorage.setItem(PROMPT_SKELETON_FALLBACK_KEY, content);
+  await api("/api/preferences/prompt-skeleton", {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+  return content;
+}
+
+async function saveKnowledgeSkeleton(content) {
+  knowledgeSkeletonCache = content;
+  localStorage.setItem(KNOWLEDGE_SKELETON_FALLBACK_KEY, content);
+  await api("/api/preferences/knowledge-skeleton", {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+  return content;
+}
+
+async function saveErrorSetSkeleton(content) {
+  errorSetSkeletonCache = content;
+  localStorage.setItem(ERROR_SET_SKELETON_FALLBACK_KEY, content);
+  await api("/api/preferences/error-set-skeleton", {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+  return content;
+}
+
 function openPromptModal() {
   openModal("Prompt", "当前场景独立维护 Prompt。点击左侧 Prompt 名称后，可以在右侧直接编辑保存。", `
     <div class="prompt-editor-layout">
@@ -1207,8 +1331,29 @@ function openPromptModal() {
         </label>
         <button class="btn resource-save-button full" type="submit" id="promptSubmitButton">新增 Prompt</button>
       </form>
+      <section class="prompt-skeleton-panel" id="promptSkeletonPanel" hidden>
+        <div class="prompt-skeleton-head">
+          <div>
+            <strong>全局 Prompt 骨架</strong>
+            <span>所有场景新增 Prompt 时默认带入。</span>
+          </div>
+        </div>
+        <textarea class="textarea rich-textarea prompt-skeleton-textarea" id="promptSkeletonContent" placeholder="配置全局 Prompt 骨架"></textarea>
+        <div class="prompt-skeleton-actions">
+          <button class="ghost-button" type="button" id="applyPromptSkeletonButton">应用到当前 Prompt</button>
+          <button class="btn primary" type="button" id="savePromptSkeletonButton">保存骨架</button>
+        </div>
+      </section>
     </div>
   `, "modal-xl prompt-modal");
+  const extraActions = document.querySelector("#modalExtraActions");
+  if (extraActions) {
+    extraActions.innerHTML = `
+      <button class="icon-btn prompt-skeleton-toggle" id="promptSkeletonToggle" type="button" aria-label="设置 Prompt 骨架" title="设置 Prompt 骨架">
+        <span class="ui-icon ui-icon-settings" aria-hidden="true"></span>
+      </button>
+    `;
+  }
   bindPromptEditor();
 }
 
@@ -1262,8 +1407,29 @@ function openKnowledgeModal() {
         </label>
         <button class="btn resource-save-button full" type="submit" id="knowledgeSubmitButton">新增知识</button>
       </form>
+      <section class="prompt-skeleton-panel" id="knowledgeSkeletonPanel" hidden>
+        <div class="prompt-skeleton-head">
+          <div>
+            <strong>全局知识骨架</strong>
+            <span>所有场景新增知识时默认带入。</span>
+          </div>
+        </div>
+        <textarea class="textarea rich-textarea prompt-skeleton-textarea" id="knowledgeSkeletonContent" placeholder="配置全局知识骨架"></textarea>
+        <div class="prompt-skeleton-actions">
+          <button class="ghost-button" type="button" id="applyKnowledgeSkeletonButton">应用到当前知识</button>
+          <button class="btn primary" type="button" id="saveKnowledgeSkeletonButton">保存骨架</button>
+        </div>
+      </section>
     </div>
   `, "modal-xl prompt-modal");
+  const extraActions = document.querySelector("#modalExtraActions");
+  if (extraActions) {
+    extraActions.innerHTML = `
+      <button class="icon-btn prompt-skeleton-toggle" id="knowledgeSkeletonToggle" type="button" aria-label="设置知识骨架" title="设置知识骨架">
+        <span class="ui-icon ui-icon-settings" aria-hidden="true"></span>
+      </button>
+    `;
+  }
   bindKnowledgeEditor();
 }
 
@@ -1314,8 +1480,29 @@ function openErrorSetModal() {
         </label>
         <button class="btn resource-save-button full" type="submit" id="errorSetSubmitButton">新增fewshots样例</button>
       </form>
+      <section class="prompt-skeleton-panel" id="errorSetSkeletonPanel" hidden>
+        <div class="prompt-skeleton-head">
+          <div>
+            <strong>全局 fewshots 骨架</strong>
+            <span>所有场景新增 fewshots 样例时默认带入。</span>
+          </div>
+        </div>
+        <textarea class="textarea rich-textarea prompt-skeleton-textarea" id="errorSetSkeletonContent" placeholder="配置全局 fewshots 骨架"></textarea>
+        <div class="prompt-skeleton-actions">
+          <button class="ghost-button" type="button" id="applyErrorSetSkeletonButton">应用到当前样例</button>
+          <button class="btn primary" type="button" id="saveErrorSetSkeletonButton">保存骨架</button>
+        </div>
+      </section>
     </div>
   `, "modal-xl prompt-modal");
+  const extraActions = document.querySelector("#modalExtraActions");
+  if (extraActions) {
+    extraActions.innerHTML = `
+      <button class="icon-btn prompt-skeleton-toggle" id="errorSetSkeletonToggle" type="button" aria-label="设置 fewshots 骨架" title="设置 fewshots 骨架">
+        <span class="ui-icon ui-icon-settings" aria-hidden="true"></span>
+      </button>
+    `;
+  }
   bindErrorSetEditor();
 }
 
@@ -1403,6 +1590,12 @@ function bindPromptEditor() {
   const draftTitle = document.querySelector("#promptDraftTitle");
   const draftMeta = document.querySelector("#promptDraftMeta");
   const emptyNode = document.querySelector("[data-prompt-empty]");
+  const layoutNode = document.querySelector(".prompt-editor-layout");
+  const skeletonToggle = document.querySelector("#promptSkeletonToggle");
+  const skeletonPanel = document.querySelector("#promptSkeletonPanel");
+  const skeletonInput = document.querySelector("#promptSkeletonContent");
+  const saveSkeletonButton = document.querySelector("#savePromptSkeletonButton");
+  const applySkeletonButton = document.querySelector("#applyPromptSkeletonButton");
 
   const syncDraftCard = () => {
     if (!draftCard || draftCard.hidden || idInput.value) return;
@@ -1426,7 +1619,7 @@ function bindPromptEditor() {
     idInput.value = item?.id || "";
     nameInput.value = item?.name || "";
     roleInput.value = item?.role_name || "";
-    contentInput.value = item?.content || "";
+    contentInput.value = item?.content || (item ? "" : promptSkeletonCache || "");
     titleNode.textContent = item ? "编辑 Prompt" : "新增 Prompt";
     metaNode.textContent = item ? "已载入历史内容，可直接修改后保存。" : "填写名称、角色名和 Prompt 内容。";
     submitButton.textContent = item ? "保存 Prompt" : "新增 Prompt";
@@ -1441,6 +1634,12 @@ function bindPromptEditor() {
       card.classList.toggle("active", item?.id === card.dataset.promptId);
     });
     syncDraftCard();
+    updatePlaceholderWarning();
+  };
+
+  const fillNewPromptFromSkeleton = (content) => {
+    if (idInput.value || contentInput.value.trim()) return;
+    contentInput.value = content || "";
     updatePlaceholderWarning();
   };
 
@@ -1469,6 +1668,40 @@ function bindPromptEditor() {
     });
   });
   setMode(state.prompts[0] || null);
+  loadPromptSkeleton().then((content) => {
+    if (skeletonInput) skeletonInput.value = content;
+    fillNewPromptFromSkeleton(content);
+  });
+  skeletonToggle?.addEventListener("click", () => {
+    const open = skeletonPanel?.hidden;
+    if (!skeletonPanel || !layoutNode) return;
+    skeletonPanel.hidden = !open;
+    layoutNode.classList.toggle("skeleton-open", Boolean(open));
+    skeletonToggle.classList.toggle("active", Boolean(open));
+    skeletonToggle.setAttribute("aria-pressed", String(Boolean(open)));
+    if (open) {
+      if (!skeletonInput.value) skeletonInput.value = promptSkeletonCache || promptSkeletonFallback();
+      skeletonInput.focus();
+    }
+  });
+  saveSkeletonButton?.addEventListener("click", async () => {
+    saveSkeletonButton.disabled = true;
+    try {
+      const content = skeletonInput.value.trim();
+      await savePromptSkeleton(content);
+      fillNewPromptFromSkeleton(content);
+      toast("Prompt 骨架已保存");
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      saveSkeletonButton.disabled = false;
+    }
+  });
+  applySkeletonButton?.addEventListener("click", () => {
+    contentInput.value = skeletonInput.value;
+    updatePlaceholderWarning();
+    toast("已应用到当前 Prompt");
+  });
   document.querySelectorAll("[data-delete-prompt]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
@@ -1534,6 +1767,12 @@ function bindKnowledgeEditor() {
   const draftTitle = document.querySelector("#knowledgeDraftTitle");
   const draftMeta = document.querySelector("#knowledgeDraftMeta");
   const emptyNode = document.querySelector("[data-knowledge-empty]");
+  const layoutNode = document.querySelector(".prompt-editor-layout");
+  const skeletonToggle = document.querySelector("#knowledgeSkeletonToggle");
+  const skeletonPanel = document.querySelector("#knowledgeSkeletonPanel");
+  const skeletonInput = document.querySelector("#knowledgeSkeletonContent");
+  const saveSkeletonButton = document.querySelector("#saveKnowledgeSkeletonButton");
+  const applySkeletonButton = document.querySelector("#applyKnowledgeSkeletonButton");
 
   const syncDraftCard = () => {
     if (!draftCard || draftCard.hidden || idInput.value) return;
@@ -1544,7 +1783,7 @@ function bindKnowledgeEditor() {
   const setMode = (item = null) => {
     idInput.value = item?.id || "";
     nameInput.value = item?.name || "";
-    contentInput.value = item?.content || "";
+    contentInput.value = item?.content || (item ? "" : knowledgeSkeletonCache || "");
     titleNode.textContent = item ? "编辑知识" : "新增知识";
     metaNode.textContent = item ? "已载入历史内容，可直接修改后保存。" : "填写知识名称和知识内容。";
     submitButton.textContent = item ? "保存知识" : "新增知识";
@@ -1561,7 +1800,13 @@ function bindKnowledgeEditor() {
     syncDraftCard();
   };
 
+  const fillNewKnowledgeFromSkeleton = (content) => {
+    if (idInput.value || contentInput.value.trim()) return;
+    contentInput.value = content || "";
+  };
+
   nameInput.addEventListener("input", syncDraftCard);
+  contentInput.addEventListener("input", syncDraftCard);
   newButton?.addEventListener("click", () => setMode());
   exportButton?.addEventListener("click", () => exportSceneResource("knowledge"));
   draftCard?.addEventListener("click", () => setMode());
@@ -1584,6 +1829,40 @@ function bindKnowledgeEditor() {
     });
   });
   setMode(state.knowledge[0] || null);
+  loadKnowledgeSkeleton().then((content) => {
+    if (skeletonInput) skeletonInput.value = content;
+    fillNewKnowledgeFromSkeleton(content);
+  });
+  skeletonToggle?.addEventListener("click", () => {
+    const open = skeletonPanel?.hidden;
+    if (!skeletonPanel || !layoutNode) return;
+    skeletonPanel.hidden = !open;
+    layoutNode.classList.toggle("skeleton-open", Boolean(open));
+    skeletonToggle.classList.toggle("active", Boolean(open));
+    skeletonToggle.setAttribute("aria-pressed", String(Boolean(open)));
+    if (open) {
+      if (!skeletonInput.value) skeletonInput.value = knowledgeSkeletonCache || knowledgeSkeletonFallback();
+      skeletonInput.focus();
+    }
+  });
+  saveSkeletonButton?.addEventListener("click", async () => {
+    saveSkeletonButton.disabled = true;
+    try {
+      const content = skeletonInput.value.trim();
+      await saveKnowledgeSkeleton(content);
+      fillNewKnowledgeFromSkeleton(content);
+      toast("知识骨架已保存");
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      saveSkeletonButton.disabled = false;
+    }
+  });
+  applySkeletonButton?.addEventListener("click", () => {
+    contentInput.value = skeletonInput.value;
+    syncDraftCard();
+    toast("已应用到当前知识");
+  });
   document.querySelectorAll("[data-delete-knowledge]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
@@ -1636,6 +1915,12 @@ function bindErrorSetEditor() {
   const draftTitle = document.querySelector("#errorSetDraftTitle");
   const draftMeta = document.querySelector("#errorSetDraftMeta");
   const emptyNode = document.querySelector("[data-error-set-empty]");
+  const layoutNode = document.querySelector(".prompt-editor-layout");
+  const skeletonToggle = document.querySelector("#errorSetSkeletonToggle");
+  const skeletonPanel = document.querySelector("#errorSetSkeletonPanel");
+  const skeletonInput = document.querySelector("#errorSetSkeletonContent");
+  const saveSkeletonButton = document.querySelector("#saveErrorSetSkeletonButton");
+  const applySkeletonButton = document.querySelector("#applyErrorSetSkeletonButton");
 
   const syncDraftCard = () => {
     if (!draftCard || draftCard.hidden || idInput.value) return;
@@ -1648,7 +1933,7 @@ function bindErrorSetEditor() {
   const setMode = (item = null) => {
     idInput.value = item?.id || "";
     nameInput.value = item?.name || "";
-    descriptionInput.value = item?.description || "";
+    descriptionInput.value = item?.description || (item ? "" : errorSetSkeletonCache || "");
     titleNode.textContent = item ? "编辑fewshots样例" : "新增fewshots样例";
     metaNode.textContent = item ? "已载入历史描述，可直接修改后保存。" : "填写fewshots样例名称和描述。";
     submitButton.textContent = item ? "保存fewshots样例" : "新增fewshots样例";
@@ -1662,6 +1947,12 @@ function bindErrorSetEditor() {
     menuCards.forEach((card) => {
       card.classList.toggle("active", item?.id === card.dataset.errorSetId);
     });
+    syncDraftCard();
+  };
+
+  const fillNewErrorSetFromSkeleton = (content) => {
+    if (idInput.value || descriptionInput.value.trim()) return;
+    descriptionInput.value = content || "";
     syncDraftCard();
   };
 
@@ -1688,6 +1979,40 @@ function bindErrorSetEditor() {
     });
   });
   setMode(state.errorSets[0] || null);
+  loadErrorSetSkeleton().then((content) => {
+    if (skeletonInput) skeletonInput.value = content;
+    fillNewErrorSetFromSkeleton(content);
+  });
+  skeletonToggle?.addEventListener("click", () => {
+    const open = skeletonPanel?.hidden;
+    if (!skeletonPanel || !layoutNode) return;
+    skeletonPanel.hidden = !open;
+    layoutNode.classList.toggle("skeleton-open", Boolean(open));
+    skeletonToggle.classList.toggle("active", Boolean(open));
+    skeletonToggle.setAttribute("aria-pressed", String(Boolean(open)));
+    if (open) {
+      if (!skeletonInput.value) skeletonInput.value = errorSetSkeletonCache || errorSetSkeletonFallback();
+      skeletonInput.focus();
+    }
+  });
+  saveSkeletonButton?.addEventListener("click", async () => {
+    saveSkeletonButton.disabled = true;
+    try {
+      const content = skeletonInput.value.trim();
+      await saveErrorSetSkeleton(content);
+      fillNewErrorSetFromSkeleton(content);
+      toast("fewshots 骨架已保存");
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      saveSkeletonButton.disabled = false;
+    }
+  });
+  applySkeletonButton?.addEventListener("click", () => {
+    descriptionInput.value = skeletonInput.value;
+    syncDraftCard();
+    toast("已应用到当前样例");
+  });
   document.querySelectorAll("[data-delete-error-set]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
@@ -1888,11 +2213,11 @@ function renderSchemeModelPicker(methods, modelConfigs, editingScheme) {
   const marketModelIds = new Set((modelConfigs || []).map((item) => item.id));
   const optionGroups = [
     {
-      title: "本地模型",
+      title: "本地调用",
       options: [
         {
           key: "core_model",
-          name: "Core Model",
+          name: "Local Model",
           description: "",
           method_name: "call_model",
           model_key: "core_model",

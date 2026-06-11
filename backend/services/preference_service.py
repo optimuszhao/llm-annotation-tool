@@ -6,6 +6,14 @@ from backend.database import decode_json, encode_json, get_db, now_iso
 
 
 WORKBENCH_SOURCE_KEY = "workbench_source"
+PROMPT_SKELETON_KEY = "prompt_skeleton"
+KNOWLEDGE_SKELETON_KEY = "knowledge_skeleton"
+ERROR_SET_SKELETON_KEY = "error_set_skeleton"
+RESOURCE_SKELETON_KEYS = {
+    "prompt": PROMPT_SKELETON_KEY,
+    "knowledge": KNOWLEDGE_SKELETON_KEY,
+    "error-set": ERROR_SET_SKELETON_KEY,
+}
 
 
 def _first_id(items: list[dict[str, Any]]) -> str:
@@ -79,3 +87,44 @@ def save_workbench_source(payload: dict[str, Any]) -> dict[str, str]:
             (WORKBENCH_SOURCE_KEY, encode_json(value), timestamp),
         )
     return value
+
+
+def get_resource_skeleton(resource_type: str) -> dict[str, str]:
+    key = RESOURCE_SKELETON_KEYS.get(resource_type)
+    if not key:
+        return {"content": "", "updated_at": ""}
+    with get_db() as conn:
+        payload = _read_preference(conn, key)
+    return {
+        "content": str(payload.get("content") or ""),
+        "updated_at": str(payload.get("updated_at") or ""),
+    }
+
+
+def save_resource_skeleton(resource_type: str, payload: dict[str, Any]) -> dict[str, str]:
+    key = RESOURCE_SKELETON_KEYS.get(resource_type)
+    if not key:
+        return {"content": "", "updated_at": ""}
+    timestamp = now_iso()
+    value = {
+        "content": str(payload.get("content") or ""),
+        "updated_at": timestamp,
+    }
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_preferences(key, value, updated_at)
+            VALUES(?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (key, encode_json(value), timestamp),
+        )
+    return value
+
+
+def get_prompt_skeleton() -> dict[str, str]:
+    return get_resource_skeleton("prompt")
+
+
+def save_prompt_skeleton(payload: dict[str, Any]) -> dict[str, str]:
+    return save_resource_skeleton("prompt", payload)

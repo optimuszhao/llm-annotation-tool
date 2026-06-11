@@ -1,8 +1,8 @@
-import { renderManagePage } from "/pages/manage.js?v=20260611-model-strip";
+import { renderManagePage } from "/pages/manage.js?v=20260611-manage-actions-light";
 import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260611-export-progress";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260609-icon-polish";
-import { renderDataTransformPage } from "/pages/dataTransform.js?v=20260611-transform-style";
-import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
+import { renderDataTransformPage } from "/pages/dataTransform.js?v=20260611-transform-copy-actions";
+import { renderChatPage } from "/pages/chat.js?v=20260611-local-model-name";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
@@ -302,33 +302,16 @@ function ensureLagHelperModal() {
           <button class="icon-btn" type="button" data-lag-helper-close aria-label="关闭"><span class="ui-icon ui-icon-close" aria-hidden="true"></span></button>
         </header>
         <div class="modal-body lag-helper-body">
-          <div class="lag-helper-note">
-            <strong>优化内容</strong>
-            <span>扫描已有场景数据，基于完整行数据生成短文本预览和大字段标记。原始数据完整保留。</span>
-          </div>
-          <div class="lag-helper-note lag-helper-danger-zone">
-            <strong>历史瘦身</strong>
-            <span>删除旧历史记录，并为每行保留最近一条标注历史、每个分析方法保留最近一条分析历史。当前列表最新结果会保留。</span>
-            <div class="lag-helper-clean-actions">
-              <button class="btn danger-soft" id="lagHelperPruneAnnotationButton" type="button">清理历史标注数据</button>
-              <button class="btn danger-soft" id="lagHelperPruneAnalysisButton" type="button">清理历史分析数据</button>
-              <button class="btn danger-soft" id="lagHelperPruneColumnsButton" type="button">清理无效标注返回列</button>
-            </div>
-          </div>
-          <div class="lag-helper-note">
-            <strong>数据库体积</strong>
-            <span>查看 annotation.db、WAL、空闲页和大字段占用。清理历史后可压缩数据库，让文件体积真正下降。</span>
-            <div class="lag-helper-clean-actions">
-              <button class="btn" id="lagHelperStorageButton" type="button">查看数据库体积</button>
-              <button class="btn danger-soft" id="lagHelperCompactButton" type="button">压缩数据库</button>
-            </div>
+          <div class="lag-helper-note lag-helper-one-click-card">
+            <strong>一键清理会自动完成</strong>
+            <span>生成列表预览缓存、清理旧标注历史、清理旧分析历史、移除无效标注返回列，并在空闲时压缩数据库文件。</span>
           </div>
           <div class="lag-helper-result" id="lagHelperResult">
             <span>建议在空闲时执行一次。数据量较大时需要等待一会儿。</span>
           </div>
           <div class="modal-actions">
             <button class="btn" type="button" data-lag-helper-close>关闭</button>
-            <button class="btn primary" id="lagHelperRunButton" type="button">开始优化老数据</button>
+            <button class="btn primary lag-helper-main-action" id="lagHelperRunButton" type="button">一键清理并优化</button>
           </div>
         </div>
       </section>
@@ -341,11 +324,6 @@ function ensureLagHelperModal() {
     }
   });
   backdrop.querySelector("#lagHelperRunButton").addEventListener("click", runLagHelper);
-  backdrop.querySelector("#lagHelperPruneAnnotationButton").addEventListener("click", () => runLagHistoryCleanup("annotation"));
-  backdrop.querySelector("#lagHelperPruneAnalysisButton").addEventListener("click", () => runLagHistoryCleanup("analysis"));
-  backdrop.querySelector("#lagHelperPruneColumnsButton").addEventListener("click", runLagColumnCleanup);
-  backdrop.querySelector("#lagHelperStorageButton").addEventListener("click", runLagStorageDiagnostics);
-  backdrop.querySelector("#lagHelperCompactButton").addEventListener("click", runLagDatabaseCompact);
   return backdrop;
 }
 
@@ -384,26 +362,93 @@ function renderLagHelperResult(result) {
 }
 
 async function runLagHelper() {
+  const ok = await confirmAction({
+    title: "一键清理并优化",
+    message: "确认执行卡顿助手的一键清理？",
+    details: [
+      "系统会保留当前最新标注结果和最近一条历史记录。",
+      "系统会清理旧历史、无效返回列，并尝试压缩数据库。",
+      "建议在没有标注任务运行时执行。",
+    ],
+    confirmText: "开始一键清理",
+    variant: "danger",
+  });
+  if (!ok) return;
   const runButton = document.querySelector("#lagHelperRunButton");
   const resultNode = document.querySelector("#lagHelperResult");
   runButton.disabled = true;
-  runButton.textContent = "优化中...";
-  resultNode.innerHTML = `<span class="lag-helper-loading">正在扫描并生成预览缓存...</span>`;
+  runButton.textContent = "清理中...";
+  resultNode.innerHTML = `<span class="lag-helper-loading">正在一键清理并优化，请保持页面打开...</span>`;
   try {
-    const result = await api("/api/maintenance/preview-backfill", {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    renderLagHelperResult(result);
-    toast(`卡顿助手完成：更新 ${result.updated_rows || 0} 行`);
+    const result = await runLagOneClickCleanup();
+    renderLagOneClickResult(result);
+    toast(`一键清理完成：释放 ${formatBytes(result.compact?.saved_bytes || 0)}`);
     if (document.querySelector("#page-workbench.active")) refreshWorkbench();
   } catch (error) {
     resultNode.innerHTML = `<span class="lag-helper-error">${escapeHtml(error.message)}</span>`;
     toast(error.message);
   } finally {
     runButton.disabled = false;
-    runButton.textContent = "再次优化";
+    runButton.textContent = "再次一键清理";
   }
+}
+
+async function runLagOneClickCleanup() {
+  const result = {};
+  result.before = await api("/api/maintenance/storage-diagnostics");
+  result.preview = await api("/api/maintenance/preview-backfill", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  result.annotation = await api("/api/maintenance/annotation-history/prune", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  result.analysis = await api("/api/maintenance/analysis-history/prune", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  result.columns = await api("/api/maintenance/model-result-columns/prune", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  result.compact = await api("/api/maintenance/database/compact", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  result.after = await api("/api/maintenance/storage-diagnostics");
+  await loadState();
+  renderManagePage();
+  return result;
+}
+
+function renderLagOneClickResult(result) {
+  const node = document.querySelector("#lagHelperResult");
+  if (!node) return;
+  const compactOk = result.compact?.ok && !result.compact?.skipped;
+  const compactStatus = result.compact?.ok
+    ? (result.compact?.skipped ? "已检查" : "完成")
+    : "跳过";
+  node.innerHTML = `
+    <section class="lag-helper-summary">
+      <div><span>预览缓存</span><strong>${result.preview?.updated_rows || 0}</strong></div>
+      <div><span>标注历史</span><strong>${result.annotation?.deleted_count || 0}</strong></div>
+      <div><span>分析历史</span><strong>${result.analysis?.deleted_count || 0}</strong></div>
+      <div><span>无效列</span><strong>${result.columns?.removed_columns_count || 0}</strong></div>
+    </section>
+    <section class="lag-helper-summary">
+      <div><span>压缩状态</span><strong>${compactStatus}</strong></div>
+      <div><span>释放空间</span><strong>${formatBytes(result.compact?.saved_bytes || 0)}</strong></div>
+      <div><span>清理前</span><strong>${formatBytes(result.before?.files?.total_bytes)}</strong></div>
+      <div><span>清理后</span><strong>${formatBytes(result.after?.files?.total_bytes)}</strong></div>
+    </section>
+    <section class="lag-helper-scenes">
+      <div><strong>列表响应</strong><span>更新 ${result.preview?.updated_rows || 0} 行预览缓存，已有缓存 ${result.preview?.skipped_rows || 0} 行。</span></div>
+      <div><strong>历史数据</strong><span>删除标注历史 ${result.annotation?.deleted_count || 0} 条，删除分析历史 ${result.analysis?.deleted_count || 0} 条。</span></div>
+      <div><strong>返回列</strong><span>检查 ${result.columns?.checked_datasets || 0} 个数据集，删除 ${result.columns?.removed_columns_count || 0} 个无效返回列。</span></div>
+      <div><strong>数据库</strong><span>${compactOk ? "数据库压缩完成。" : escapeHtml(result.compact?.detail || "数据库已检查。")}</span></div>
+    </section>
+  `;
 }
 
 async function runLagHistoryCleanup(type) {

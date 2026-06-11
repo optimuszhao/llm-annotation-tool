@@ -131,15 +131,15 @@ async function sendMessage() {
 
 function renderModelOptions() {
   const localOptions = [
-    { value: "local:core_model", label: "本地模型 · Core Model" },
-    { value: "local:del_model", label: "本地模型 · Del Model" },
+    { value: "local:core_model", label: "本地调用 · Local Model" },
+    { value: "local:del_model", label: "本地调用 · Del Model" },
   ];
   const marketOptions = (state.modelMarketConfigs || []).map((item) => ({
     value: `market:${item.id}`,
     label: `模型市场 · ${item.name}`,
   }));
   const groups = [
-    ["本地模型", localOptions],
+    ["本地调用", localOptions],
     ["模型市场", marketOptions],
   ];
   const allOptions = [...localOptions, ...marketOptions];
