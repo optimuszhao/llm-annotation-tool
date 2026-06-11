@@ -13,25 +13,32 @@ const defaultColumns = [
 
 export function renderManagePage() {
   const activeScene = getActiveScene();
+  const activeGroup = getActiveGroup();
+  const childScenes = getChildScenes(activeGroup?.id || "");
   document.querySelector("#page-manage").innerHTML = `
     <div class="ref-manage-layout">
-      <section class="page-heading">
-        <div>
-          <h2>数据集与方案管理</h2>
-          <p>场景驱动资源沉淀，组合 Prompt、知识库、fewshots样例和数据集后形成标注方案。</p>
-        </div>
-        ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button"><span class="ui-icon ui-icon-package" aria-hidden="true"></span>导出标注算法包</button>` : ""}
-      </section>
-      ${renderModelMarketPanel()}
-      <div class="ref-scene-tabs" role="tablist" aria-label="场景列表">
-        <div class="ref-scene-tab-main">
+      ${renderModelMarketPanel(activeScene)}
+      <section class="ref-scene-hierarchy" aria-label="两级场景管理">
+        <div class="scene-level-row">
           <div class="ref-scene-tab-list">
-            ${state.scenes.map((scene) => `<button class="scene-tab ${scene.id === state.activeSceneId ? "active" : ""}" type="button" data-scene-id="${scene.id}">${escapeHtml(scene.name)}</button>`).join("")}
+            ${state.sceneGroups.map((group) => `<button class="scene-tab ${group.id === activeGroup?.id ? "active" : ""}" type="button" data-scene-group-id="${escapeHtml(group.id)}">${escapeHtml(group.name)}</button>`).join("")}
           </div>
-          <button class="scene-create" id="addSceneButton" type="button" aria-label="新增场景"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增场景</button>
+          <div class="scene-level-actions">
+            <button class="scene-create" id="addSceneGroupButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增一级</button>
+            ${activeGroup ? `<button class="scene-delete" id="deleteSceneGroupButton" type="button">删除一级</button>` : ""}
+          </div>
         </div>
-        ${activeScene ? `<button class="scene-delete" id="deleteSceneButton" type="button">删除选中的场景</button>` : ""}
-      </div>
+        <div class="scene-level-row secondary">
+          <div class="ref-scene-tab-list">
+            ${childScenes.map((scene) => `<button class="scene-tab ${scene.id === state.activeSceneId ? "active" : ""}" type="button" data-scene-id="${escapeHtml(scene.id)}">${escapeHtml(scene.name)}</button>`).join("")}
+            ${activeGroup && !childScenes.length ? `<span class="scene-empty-tip">当前一级场景下暂无二级场景</span>` : ""}
+          </div>
+          <div class="scene-level-actions">
+            <button class="scene-create" id="addSceneButton" type="button" ${activeGroup ? "" : "disabled"}><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增二级</button>
+            ${activeScene ? `<button class="scene-delete" id="deleteSceneButton" type="button">删除二级</button>` : ""}
+          </div>
+        </div>
+      </section>
       ${activeScene ? renderSceneContent(activeScene) : renderEmptyScene()}
     </div>
     ${renderModal()}
@@ -39,7 +46,7 @@ export function renderManagePage() {
   bindManageEvents();
 }
 
-function renderModelMarketPanel() {
+function renderModelMarketPanel(activeScene) {
   const models = [
     {
       name: "Core Model",
@@ -61,7 +68,10 @@ function renderModelMarketPanel() {
           <strong>可用模型</strong>
           <span>Core Model 与模型市场配置统一展示，创建方案时选择具体调用方式。</span>
         </div>
-        <button class="model-market-add" id="addModelMarketButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>添加模型</button>
+        <div class="model-market-actions">
+          ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button"><span class="ui-icon ui-icon-package" aria-hidden="true"></span>导出标注算法包</button>` : ""}
+          <button class="model-market-add" id="addModelMarketButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>添加模型</button>
+        </div>
       </div>
       <div class="model-market-list">
         ${models.map((model) => `
@@ -82,7 +92,20 @@ function renderModelMarketPanel() {
 }
 
 function getActiveScene() {
-  return state.scenes.find((scene) => scene.id === state.activeSceneId) || state.scenes[0] || null;
+  const exact = state.scenes.find((scene) => scene.id === state.activeSceneId);
+  if (exact) return exact;
+  const groupId = state.activeSceneGroupId || state.sceneGroups[0]?.id || "";
+  return getChildScenes(groupId)[0] || null;
+}
+
+function getActiveGroup() {
+  const activeScene = state.scenes.find((scene) => scene.id === state.activeSceneId);
+  const groupId = activeScene?.parent_id || state.activeSceneGroupId;
+  return state.sceneGroups.find((group) => group.id === groupId) || state.sceneGroups[0] || null;
+}
+
+function getChildScenes(groupId) {
+  return state.scenes.filter((scene) => (scene.parent_id || "") === (groupId || ""));
 }
 
 function renderEmptyScene() {
@@ -290,14 +313,29 @@ function renderModal() {
 }
 
 function bindManageEvents() {
-  document.querySelectorAll("[data-scene-id]").forEach((button) => {
+  document.querySelectorAll("[data-scene-group-id]").forEach((button) => {
     button.addEventListener("click", async () => {
-      state.activeSceneId = button.dataset.sceneId;
+      state.activeSceneGroupId = button.dataset.sceneGroupId;
+      const firstChild = getChildScenes(state.activeSceneGroupId)[0];
+      state.activeSceneId = firstChild?.id || "";
+      state.activeDatasetId = "";
+      state.activeSchemeId = "";
       await loadSceneResources();
       renderManagePage();
     });
   });
+  document.querySelectorAll("[data-scene-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      state.activeSceneId = button.dataset.sceneId;
+      const scene = state.scenes.find((item) => item.id === state.activeSceneId);
+      state.activeSceneGroupId = scene?.parent_id || state.activeSceneGroupId;
+      await loadSceneResources();
+      renderManagePage();
+    });
+  });
+  document.querySelector("#addSceneGroupButton")?.addEventListener("click", openSceneGroupModal);
   document.querySelector("#addSceneButton")?.addEventListener("click", openSceneModal);
+  document.querySelector("#deleteSceneGroupButton")?.addEventListener("click", deleteActiveSceneGroup);
   document.querySelector("#deleteSceneButton")?.addEventListener("click", deleteActiveScene);
   document.querySelector("#exportAlgorithmPackageButton")?.addEventListener("click", exportAlgorithmPackage);
   document.querySelector("#addModelMarketButton")?.addEventListener("click", openModelMarketModal);
@@ -378,12 +416,43 @@ async function deleteActiveScene() {
   });
   if (!ok) return;
   await api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" });
+  const groupId = scene.parent_id || state.activeSceneGroupId;
+  state.activeDatasetId = "";
+  state.activeSchemeId = "";
+  await loadState();
+  state.activeSceneGroupId = groupId;
+  state.activeSceneId = getChildScenes(groupId)[0]?.id || "";
+  await loadSceneResources();
+  renderManagePage();
+  toast("场景已删除");
+}
+
+async function deleteActiveSceneGroup() {
+  const group = getActiveGroup();
+  if (!group) {
+    toast("请先选择一级场景");
+    return;
+  }
+  const childCount = getChildScenes(group.id).length;
+  const ok = await confirmAction({
+    title: "删除一级场景",
+    message: `确认删除一级场景“${group.name}”？`,
+    details: [
+      `该操作会关联删除 ${childCount} 个二级场景。`,
+      "二级场景下的数据集、Prompt、知识库、fewshots样例、字段映射配置和标注方案会一起删除。",
+    ],
+    confirmText: "删除一级场景",
+    variant: "danger",
+  });
+  if (!ok) return;
+  await api(`/api/scenes/${encodeURIComponent(group.id)}`, { method: "DELETE" });
+  state.activeSceneGroupId = "";
   state.activeSceneId = "";
   state.activeDatasetId = "";
   state.activeSchemeId = "";
   await loadState();
   renderManagePage();
-  toast("场景已删除");
+  toast("一级场景已删除");
 }
 
 function openModal(title, meta, body, size = "") {
@@ -412,18 +481,58 @@ async function closeModalAndRefresh() {
   renderManagePage();
 }
 
+function openSceneGroupModal() {
+  openModal("新增一级场景", "一级场景只用于分组，不挂载数据集和标注方案。", `
+    <form id="sceneGroupForm" class="form-grid labeled-form">
+      <label>
+        <span>一级场景名称</span>
+        <input class="input" name="name" placeholder="例如：网络运维" required>
+      </label>
+      <label>
+        <span>说明</span>
+        <input class="input" name="description" placeholder="描述这一类场景的范围">
+      </label>
+      <button class="btn primary full" type="submit">保存一级场景</button>
+    </form>
+  `);
+  document.querySelector("#sceneGroupForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const group = await api("/api/scenes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: form.get("name"),
+        description: form.get("description"),
+        is_group: true,
+      }),
+    });
+    await loadState();
+    state.activeSceneGroupId = group.id;
+    state.activeSceneId = "";
+    await loadSceneResources();
+    closeModal();
+    renderManagePage();
+    toast("一级场景已创建");
+  });
+}
+
 function openSceneModal() {
-  openModal("添加场景", "场景是平铺结构，会创建独立数据表。", `
+  const activeGroup = getActiveGroup();
+  if (!activeGroup) {
+    toast("请先创建一级场景");
+    return;
+  }
+  openModal("新增二级场景", `挂在一级场景“${activeGroup.name}”下，会创建独立数据表。`, `
     <form id="sceneForm" class="form-grid labeled-form">
       <label>
-        <span>场景名称</span>
+        <span>二级场景名称</span>
         <input class="input" name="name" placeholder="例如：SPN 工单分类" required>
       </label>
       <label>
         <span>场景描述</span>
         <input class="input" name="description" placeholder="描述当前场景的业务范围">
       </label>
-      <button class="btn primary full" type="submit">保存场景</button>
+      <button class="btn primary full" type="submit">保存二级场景</button>
     </form>
   `);
   document.querySelector("#sceneForm").addEventListener("submit", async (event) => {
@@ -431,10 +540,17 @@ function openSceneModal() {
     const form = new FormData(event.currentTarget);
     const scene = await api("/api/scenes", {
       method: "POST",
-      body: JSON.stringify({ name: form.get("name"), description: form.get("description") }),
+      body: JSON.stringify({
+        name: form.get("name"),
+        description: form.get("description"),
+        parent_id: activeGroup.id,
+        is_group: false,
+      }),
     });
-    state.activeSceneId = scene.id;
     await loadState();
+    state.activeSceneGroupId = activeGroup.id;
+    state.activeSceneId = scene.id;
+    await loadSceneResources();
     closeModal();
     renderManagePage();
     toast("场景已创建");
@@ -1191,7 +1307,7 @@ function openErrorSetModal() {
           </div>
         </div>
         <div class="prompt-field-grid one">
-          <label><span>fewshots样例名称</span><input class="input" name="name" placeholder="fewshots样例名称" required></label>
+          <label><span>运行态数据的 cot名称</span><input class="input" name="name" placeholder="运行态数据的 cot名称" required></label>
         </div>
         <label class="prompt-content-field">
           <span>描述</span>

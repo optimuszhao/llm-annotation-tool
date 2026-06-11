@@ -25,7 +25,7 @@ def _read_preference(conn, key: str) -> dict[str, Any]:
 def get_workbench_source() -> dict[str, str]:
     with get_db() as conn:
         payload = _read_preference(conn, WORKBENCH_SOURCE_KEY)
-        scenes = conn.execute("SELECT id FROM scenes ORDER BY created_at ASC").fetchall()
+        scenes = conn.execute("SELECT id FROM scenes WHERE is_group=0 ORDER BY created_at ASC").fetchall()
         scene_id = _valid_id(scenes, str(payload.get("scene_id") or ""))
 
         datasets: list[dict[str, Any]] = []
@@ -50,7 +50,7 @@ def get_workbench_source() -> dict[str, str]:
 def save_workbench_source(payload: dict[str, Any]) -> dict[str, str]:
     timestamp = now_iso()
     with get_db() as conn:
-        scenes = conn.execute("SELECT id FROM scenes ORDER BY created_at ASC").fetchall()
+        scenes = conn.execute("SELECT id FROM scenes WHERE is_group=0 ORDER BY created_at ASC").fetchall()
         scene_id = _valid_id(scenes, str(payload.get("scene_id") or ""))
 
         datasets: list[dict[str, Any]] = []

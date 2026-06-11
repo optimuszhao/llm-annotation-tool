@@ -1,10 +1,12 @@
-import { renderManagePage } from "/pages/manage.js?v=20260609-icon-polish";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260609-icon-polish";
+import { renderManagePage } from "/pages/manage.js?v=20260611-compact-manage";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260611-analysis-columns-fix";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260609-icon-polish";
+import { renderDataTransformPage } from "/pages/dataTransform.js?v=20260611-data-transform-2";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
 import { initComponents } from "/assets/components.js";
 
 export const state = {
+  sceneGroups: [],
   scenes: [],
   datasets: [],
   prompts: [],
@@ -16,6 +18,7 @@ export const state = {
   analysisMethods: {},
   distillationMethods: {},
   activeSceneId: "",
+  activeSceneGroupId: "",
   activeDatasetId: "",
   activeSchemeId: "",
 };
@@ -133,24 +136,38 @@ function renderConfirmText(message) {
 }
 
 export async function loadState() {
-  const [scenes, modelMarketConfigs, analysisMethods, distillationMethods, savedSource] = await Promise.all([
-    api("/api/scenes"),
+  const [allScenes, modelMarketConfigs, analysisMethods, distillationMethods, savedSource] = await Promise.all([
+    api("/api/scenes?include_groups=true"),
     api("/api/model-market-configs").catch(() => []),
     api("/api/schemes/analysis-methods").catch(() => ({})),
     api("/api/model-distillation/methods").catch(() => ({})),
     api("/api/preferences/workbench-source").catch(() => ({})),
   ]);
-  state.scenes = scenes;
+  state.sceneGroups = allScenes.filter((scene) => Number(scene.is_group) === 1);
+  state.scenes = allScenes.filter((scene) => Number(scene.is_group) !== 1);
   state.modelMarketConfigs = modelMarketConfigs;
   state.analysisMethods = analysisMethods;
   state.distillationMethods = distillationMethods;
   state.activeSceneId = validStateId(state.scenes, savedSource.scene_id || state.activeSceneId);
+  const activeScene = state.scenes.find((scene) => scene.id === state.activeSceneId);
+  state.activeSceneGroupId = activeScene?.parent_id || state.activeSceneGroupId || state.sceneGroups[0]?.id || "";
   state.activeDatasetId = savedSource.dataset_id || state.activeDatasetId;
   state.activeSchemeId = savedSource.scheme_id || state.activeSchemeId;
   await loadSceneResources();
 }
 
 export async function loadSceneResources() {
+  if (!state.activeSceneId) {
+    state.datasets = [];
+    state.prompts = [];
+    state.knowledge = [];
+    state.errorSets = [];
+    state.schemes = [];
+    state.rootCauseBaselines = { positive: [], negative: [] };
+    state.activeDatasetId = "";
+    state.activeSchemeId = "";
+    return;
+  }
   const sceneParam = state.activeSceneId ? `?scene_id=${encodeURIComponent(state.activeSceneId)}` : "";
   const [datasets, prompts, knowledge, errorSets, schemes, rootCauseBaselines] = await Promise.all([
     api(`/api/datasets${sceneParam}`),
@@ -197,6 +214,7 @@ function showPage(name) {
   if (name === "manage") refreshManageOnEnter();
   if (name === "workbench") refreshWorkbench();
   if (name === "evaluation") renderEvaluationPage();
+  if (name === "data-transform") renderDataTransformPage();
   if (name === "chat") renderChatPage();
 }
 
@@ -672,6 +690,7 @@ async function boot() {
   renderManagePage();
   renderWorkbenchPage();
   renderEvaluationPage();
+  renderDataTransformPage();
   renderChatPage();
   showPage(defaultPage);
 }

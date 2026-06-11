@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Body, File, Form, Query, UploadFile
+from fastapi.responses import StreamingResponse
 
 from backend.services.annotation_service import (
     analyze_dataset_row,
@@ -17,6 +20,7 @@ from backend.services.dataset_service import (
     delete_dataset,
     delete_dataset_row,
     delete_dataset_rows,
+    export_dataset_rows_excel,
     export_dataset_rows,
     get_dataset_row,
     get_dataset_row_field,
@@ -88,7 +92,16 @@ def get_rows(
 
 @router.get("/{dataset_id}/export")
 def export_rows(dataset_id: str):
-    return export_dataset_rows(dataset_id)
+    filename, content = export_dataset_rows_excel(dataset_id)
+    encoded_filename = quote(filename)
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+    }
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 @router.get("/{dataset_id}/rows/{row_id}/fields/{column:path}")

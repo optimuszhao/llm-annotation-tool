@@ -7,7 +7,7 @@ from typing import Any, Iterable, Optional
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from backend.database import decode_json, encode_json, get_db, insert_many, now_iso
 
@@ -962,6 +962,74 @@ def export_dataset_rows(dataset_id: str) -> dict:
     }
 
 
+def export_dataset_rows_excel(dataset_id: str) -> tuple[str, bytes]:
+    with get_db() as conn:
+        dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+        if not scene:
+            raise HTTPException(status_code=404, detail="场景不存在")
+        table_name = scene["data_table_name"]
+        base_columns = _current_dataset_columns(dataset)
+        model_columns = _model_result_columns(conn, dataset_id)
+        analysis_columns = _analysis_result_columns(conn, dataset_id)
+        columns = _dedupe_columns([
+            *base_columns,
+            *model_columns,
+            *[item["column"] for item in analysis_columns],
+        ])
+        rows = conn.execute(
+            f"""
+            SELECT id, row_index, raw_data, is_favorite, annotation_status, model_result, analysis_data, rendered_prompt
+            FROM {table_name}
+            WHERE dataset_id=?
+            ORDER BY row_index ASC
+            """,
+            (dataset_id,),
+        ).fetchall()
+        data = [_format_row(row, columns, preview=False) for row in rows]
+        _append_latest_analysis_results(conn, dataset_id, data, analysis_columns, preview=False)
+        analysis_key_columns = _append_latest_analysis_key_columns(conn, dataset_id, data, analysis_columns)
+
+    fixed_columns = ["row_id", "row_index", "状态", "收藏", "is_favorite"]
+    tail_columns = ["model_result", "analysis_data", "rendered_prompt", "分析数据"]
+    ordered_columns = _dedupe_columns([
+        *fixed_columns,
+        *columns,
+        *analysis_key_columns,
+        *tail_columns,
+        *[key for row in data for key in row.keys()],
+    ])
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "标注数据"
+    sheet.append(ordered_columns)
+    for row in data:
+        sheet.append([_excel_cell_value(row.get(column, "")) for column in ordered_columns])
+    for cell in sheet[1]:
+        cell.style = "Headline 3"
+    output = BytesIO()
+    workbook.save(output)
+    filename = f"{_safe_export_filename(dataset['name'] or dataset_id)}_标注数据.xlsx"
+    return filename, output.getvalue()
+
+
+def _excel_cell_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    if isinstance(value, (dict, list)):
+        return encode_json(value)
+    return value
+
+
+def _safe_export_filename(value: str) -> str:
+    name = re.sub(r'[\\/:*?"<>|]+', "_", str(value or "dataset")).strip(" ._")
+    return name[:80] or "dataset"
+
+
 def _load_dataset_row(conn, dataset_id: str, row_id: str, scheme_id: str = "") -> tuple[dict, dict, dict]:
     dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
     if not dataset:
@@ -1063,7 +1131,13 @@ def _latest_analysis_expr(base_alias: str = "") -> str:
     """
 
 
-def _append_latest_analysis_results(conn, dataset_id: str, data: list[dict], analysis_columns: list[dict[str, str]]) -> None:
+def _append_latest_analysis_results(
+    conn,
+    dataset_id: str,
+    data: list[dict],
+    analysis_columns: list[dict[str, str]],
+    preview: bool = True,
+) -> None:
     if not data or not analysis_columns:
         return
     row_ids = [row["row_id"] for row in data if row.get("row_id")]
@@ -1095,9 +1169,61 @@ def _append_latest_analysis_results(conn, dataset_id: str, data: list[dict], ana
         column = column_by_method.get(row["method_name"])
         if not column:
             continue
-        values_by_row.setdefault(row["row_id"], {})[column] = _preview(decode_json(row.get("analysis_data"), {}))
+        value = decode_json(row.get("analysis_data"), {})
+        values_by_row.setdefault(row["row_id"], {})[column] = _preview(value) if preview else value
     for item in data:
         item.update(values_by_row.get(item.get("row_id"), {}))
+
+
+def _append_latest_analysis_key_columns(
+    conn,
+    dataset_id: str,
+    data: list[dict],
+    analysis_columns: list[dict[str, str]],
+) -> list[str]:
+    if not data or not analysis_columns:
+        return []
+    row_ids = [row["row_id"] for row in data if row.get("row_id")]
+    if not row_ids:
+        return []
+    placeholders = ", ".join(["?"] * len(row_ids))
+    rows = conn.execute(
+        f"""
+        SELECT row_id, method_name, analysis_data
+        FROM (
+          SELECT
+            row_id,
+            method_name,
+            analysis_data,
+            ROW_NUMBER() OVER (
+              PARTITION BY row_id, method_name
+              ORDER BY created_at DESC, rowid DESC
+            ) AS rn
+          FROM row_analysis_history
+          WHERE dataset_id=? AND row_id IN ({placeholders})
+        )
+        WHERE rn=1
+        """,
+        [dataset_id, *row_ids],
+    ).fetchall()
+    column_by_method = {item["method_name"]: item["column"] for item in analysis_columns}
+    row_by_id = {row["row_id"]: row for row in data if row.get("row_id")}
+    exported_columns: list[str] = []
+    for row in rows:
+        base_column = column_by_method.get(row["method_name"])
+        target = row_by_id.get(row["row_id"])
+        if not base_column or target is None:
+            continue
+        analysis_data = decode_json(row.get("analysis_data"), {})
+        if not isinstance(analysis_data, dict):
+            continue
+        flattened = _flatten_leaf_values(analysis_data)
+        for key, value in flattened.items():
+            column = f"{base_column}.{key}"
+            target[column] = value
+            if column not in exported_columns:
+                exported_columns.append(column)
+    return exported_columns
 
 
 def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool = False) -> dict:

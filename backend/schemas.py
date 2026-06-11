@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 class SceneCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: str = ""
+    parent_id: str = ""
+    is_group: bool = False
 
 
 class PromptCreate(BaseModel):

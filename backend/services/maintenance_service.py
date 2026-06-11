@@ -29,7 +29,7 @@ def backfill_preview_cache(force: bool = False) -> dict[str, Any]:
     scene_results: list[dict[str, Any]] = []
 
     with get_db() as conn:
-        scenes = conn.execute("SELECT id, name, data_table_name FROM scenes ORDER BY created_at ASC").fetchall()
+        scenes = conn.execute("SELECT id, name, data_table_name FROM scenes WHERE is_group=0 ORDER BY created_at ASC").fetchall()
         for scene in scenes:
             table_name = scene["data_table_name"]
             create_scene_data_table(conn, table_name)
@@ -432,7 +432,7 @@ def _file_size(path: Path) -> int:
 
 def _scene_table_storage(conn) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT id, name, data_table_name FROM scenes ORDER BY created_at ASC"
+        "SELECT id, name, data_table_name FROM scenes WHERE is_group=0 ORDER BY created_at ASC"
     ).fetchall()
     results: list[dict[str, Any]] = []
     for scene in rows:

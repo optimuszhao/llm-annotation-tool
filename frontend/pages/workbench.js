@@ -1272,7 +1272,7 @@ function modelResultColumnsForRowsQuery() {
   if (latestFieldMapping?.root_cause_column) columns.push(latestFieldMapping.root_cause_column);
   if (columnFilter.column) columns.push(columnFilter.column);
   if (activeSort.column) columns.push(activeSort.column);
-  return uniqueColumns(columns);
+  return uniqueColumns(columns).filter((column) => !isAnalysisResultColumn(column));
 }
 
 function buildAnnotationFilterPayload() {
@@ -3543,9 +3543,20 @@ async function exportDataset() {
     return;
   }
   try {
-    const payload = await api(`/api/datasets/${state.activeDatasetId}/export`);
-    const name = payload.dataset?.name || state.activeDatasetId || "dataset";
-    downloadJson(payload, `${sanitizeFileName(name)}.json`);
+    const response = await fetch(`/api/datasets/${state.activeDatasetId}/export`);
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload.detail || detail;
+      } catch {
+        detail = await response.text();
+      }
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    const fallbackName = `${sanitizeFileName(state.datasets.find((item) => item.id === state.activeDatasetId)?.name || state.activeDatasetId || "dataset")}_标注数据.xlsx`;
+    downloadBlob(blob, filenameFromDisposition(response.headers.get("content-disposition"), fallbackName));
     toast("当前数据集已导出");
   } catch (error) {
     toast(error.message);
@@ -3584,6 +3595,10 @@ async function reindexRows() {
 
 function downloadJson(payload, fileName) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  downloadBlob(blob, fileName);
+}
+
+function downloadBlob(blob, fileName) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -3592,6 +3607,19 @@ function downloadJson(payload, fileName) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function filenameFromDisposition(disposition, fallback) {
+  const encoded = disposition?.match(/filename\\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded || fallback;
+    }
+  }
+  const plain = disposition?.match(/filename="?([^";]+)"?/i)?.[1];
+  return plain || fallback;
 }
 
 function sanitizeFileName(value) {
@@ -3740,10 +3768,13 @@ function renderColumnSettings() {
   fixedColumns.forEach((column) => selected.add(column));
   const resultColumns = uniqueColumns(availableModelResultColumns);
   const resultColumnSet = new Set(resultColumns);
-  const excelColumns = availableDatasetColumns.filter((column) => !resultColumnSet.has(column));
+  const analysisColumns = availableDatasetColumns.filter((column) => isAnalysisResultColumn(column));
+  const analysisColumnSet = new Set(analysisColumns);
+  const excelColumns = availableDatasetColumns.filter((column) => !resultColumnSet.has(column) && !analysisColumnSet.has(column));
   grid.innerHTML = `
     ${columnSettingsSectionHtml("Excel 原始列", "来自导入 Excel 和字段映射的基础列。人工、标注固定列默认保留。", excelColumns, selected, "excel", fixedColumns)}
     ${columnSettingsSectionHtml("标注返回列", "标注方法返回 dict 的 key。标注答案列默认保留，其余字段按需显示。", resultColumns, selected, "result", fixedColumns)}
+    ${columnSettingsSectionHtml("分析结果列", "批量分析或单行分析生成的最新结果。", analysisColumns, selected, "analysis", fixedColumns)}
   `;
   syncTableFontSizeSegment();
 }
@@ -3772,6 +3803,9 @@ function columnSettingsSectionHtml(title, description, columns, selected, type =
 }
 
 function columnSettingsDisplayName(column, type = "") {
+  if (type === "analysis") {
+    return String(column || "").replace(ANALYSIS_RESULT_COLUMN_PREFIX, "");
+  }
   if (type !== "result") return column;
   return String(column || "")
     .replace(/^标注结果[｜.]/, "")
@@ -3855,9 +3889,11 @@ function applyTableFontSize() {
 }
 
 function textCellFormatter(cell) {
-  const value = cell.getValue();
+  const field = cell.getField?.();
+  const rowData = cell.getData?.() || {};
+  const value = cell.getValue() ?? (field ? rowData[field] : undefined);
   if (value === null || value === undefined) return "";
-  const text = String(value);
+  const text = typeof value === "object" ? JSON.stringify(value) : String(value);
   const overflow = shouldMarkOverflowCell(cell, text);
   const className = overflow ? "cell-preview-text has-overflow" : "cell-preview-text";
   return `

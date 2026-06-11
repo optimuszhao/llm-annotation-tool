@@ -109,6 +109,8 @@ def init_db(recover_interrupted: bool = False) -> None:
                 name TEXT NOT NULL UNIQUE,
                 description TEXT,
                 data_table_name TEXT NOT NULL UNIQUE,
+                parent_id TEXT NOT NULL DEFAULT '',
+                is_group INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -316,6 +318,13 @@ def init_db(recover_interrupted: bool = False) -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS data_transform_configs (
+                scene_id TEXT PRIMARY KEY,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(scene_id) REFERENCES scenes(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_annotation_tasks_dataset ON annotation_tasks(dataset_id);
             CREATE INDEX IF NOT EXISTS idx_annotation_tasks_status ON annotation_tasks(status);
             CREATE INDEX IF NOT EXISTS idx_annotation_task_rows_task ON annotation_task_rows(task_id);
@@ -335,10 +344,45 @@ def init_db(recover_interrupted: bool = False) -> None:
         ensure_column(conn, "field_mappings", "root_cause_column", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "row_analysis_history", "method_name", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "row_analysis_history", "method_label", "TEXT NOT NULL DEFAULT ''")
-        for scene in conn.execute("SELECT data_table_name FROM scenes").fetchall():
+        ensure_column(conn, "scenes", "parent_id", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "scenes", "is_group", "INTEGER NOT NULL DEFAULT 0")
+        migrate_scene_hierarchy(conn)
+        for scene in conn.execute("SELECT data_table_name FROM scenes WHERE is_group=0").fetchall():
             create_scene_data_table(conn, scene["data_table_name"])
         if recover_interrupted:
             recover_interrupted_annotation_state(conn)
+
+
+def migrate_scene_hierarchy(conn: sqlite3.Connection) -> None:
+    old_leaf_count = conn.execute(
+        "SELECT COUNT(*) AS count FROM scenes WHERE is_group=0 AND COALESCE(parent_id, '')=''"
+    ).fetchone()["count"]
+    if not old_leaf_count:
+        return
+
+    timestamp = now_iso()
+    group_id = "scene_group_default"
+    group = conn.execute("SELECT id FROM scenes WHERE id=?", (group_id,)).fetchone()
+    if not group:
+        base_name = "默认场景组"
+        name = base_name
+        suffix = 2
+        while conn.execute("SELECT id FROM scenes WHERE name=?", (name,)).fetchone():
+            name = f"{base_name}{suffix}"
+            suffix += 1
+        table_name = group_id
+        conn.execute(
+            """
+            INSERT INTO scenes(id, name, description, data_table_name, parent_id, is_group, created_at, updated_at)
+            VALUES(?, ?, ?, ?, '', 1, ?, ?)
+            """,
+            (group_id, name, "系统自动创建，用于兼容已有场景。", table_name, timestamp, timestamp),
+        )
+
+    conn.execute(
+        "UPDATE scenes SET parent_id=?, updated_at=? WHERE is_group=0 AND COALESCE(parent_id, '')=''",
+        (group_id, timestamp),
+    )
 
 
 def recover_interrupted_annotation_state(conn: sqlite3.Connection) -> None:
@@ -362,7 +406,7 @@ def recover_interrupted_annotation_state(conn: sqlite3.Connection) -> None:
         ).fetchall()
     )
 
-    for scene in conn.execute("SELECT data_table_name FROM scenes").fetchall():
+    for scene in conn.execute("SELECT data_table_name FROM scenes WHERE is_group=0").fetchall():
         conn.execute(
             f"""
             UPDATE {scene['data_table_name']}

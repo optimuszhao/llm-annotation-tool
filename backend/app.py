@@ -10,6 +10,7 @@ from backend.database import init_db
 from backend.routers import (
     annotation_tasks,
     chat,
+    data_transform,
     datasets,
     error_sets,
     evaluation_tasks,
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     init_db(recover_interrupted=True)
     app = FastAPI(title="LLM Annotation Tool", version="0.1.0")
     app.include_router(scenes.router)
+    app.include_router(data_transform.router)
     app.include_router(datasets.router)
     app.include_router(prompts.router)
     app.include_router(knowledge.router)
