@@ -13044,6 +13044,25 @@ body.table-focus-active .app-main {
   margin-top: 12px;
 }
 
+#page-data-transform .data-transform-page {
+  display: block;
+}
+
+#page-data-transform .data-transform-page > * + * {
+  margin-top: 12px;
+}
+
+#page-data-transform .source-panel {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+#page-data-transform .source-panel .transform-table-list,
+#page-data-transform .source-panel .relation-list {
+  position: relative;
+}
+
 #page-data-transform .transform-parse-button,
 #page-data-transform .transform-save-button,
 #page-data-transform .transform-export-button {

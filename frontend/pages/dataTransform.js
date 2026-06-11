@@ -17,6 +17,7 @@ let config = { version: 1, granularity_table: "", relations: [], output_fields: 
 let previewRows = [];
 let relationDraft = null;
 let selectedFiles = [];
+let uploadedFileSummary = "";
 
 export async function renderDataTransformPage() {
   const root = document.querySelector("#page-data-transform");
@@ -126,8 +127,8 @@ function renderFileSelection() {
   const meta = document.querySelector("#transformFileMeta");
   if (!title || !meta) return;
   if (!selectedFiles.length) {
-    title.textContent = "选择 JSONL 文件";
-    meta.textContent = "支持多个文件，每个文件对应一张表";
+    title.textContent = uploadedFileSummary || "选择 JSONL 文件";
+    meta.textContent = uploadedFileSummary ? "可重新选择文件后再次解析" : "支持多个文件，每个文件对应一张表";
     return;
   }
   title.textContent = `已选择 ${selectedFiles.length} 个 JSONL`;
@@ -158,6 +159,7 @@ async function handleUpload(event) {
   try {
     session = await api("/api/data-transform/upload", { method: "POST", body: formData });
     config = mergeConfig(session.default_config || {}, config);
+    uploadedFileSummary = `已解析 ${session.tables.length} 张表`;
     event.target.reset();
     selectedFiles = [];
     renderFileSelection();
