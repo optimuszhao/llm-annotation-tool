@@ -29,10 +29,15 @@ function renderPage() {
   return `
     <div class="data-transform-page">
       <section class="data-transform-head">
-        <div>
+        <div class="transform-head-copy">
           <p class="eyebrow">JSONL TO EXCEL</p>
           <h1>数据转换</h1>
           <p>上传多个 JSONL 表数据，配置字段映射、输出颗粒度和聚合方式，导出可运行的 Python 转换算法包。</p>
+        </div>
+        <div class="transform-head-kpis" aria-label="数据转换流程">
+          <span>上传表数据</span>
+          <span>配置关系</span>
+          <span>导出 Excel</span>
         </div>
         <div class="transform-actions">
           <button class="btn" id="saveTransformConfigButton" type="button">保存配置</button>
@@ -41,7 +46,7 @@ function renderPage() {
       </section>
 
       <section class="transform-upload-panel">
-        <div>
+        <div class="transform-upload-copy">
           <strong>上传 JSONL 表数据</strong>
           <span>每个文件代表一张表，系统会按文件名生成表名并自动识别外键关系。</span>
         </div>
@@ -52,7 +57,7 @@ function renderPage() {
       </section>
 
       <div class="transform-grid">
-        <section class="transform-panel">
+        <section class="transform-panel source-panel">
           <header>
             <h2>1. 表与字段</h2>
             <span id="transformTableCount">未上传</span>
@@ -60,7 +65,7 @@ function renderPage() {
           <div class="transform-table-list" id="transformTableList"></div>
         </section>
 
-        <section class="transform-panel">
+        <section class="transform-panel relation-panel">
           <header>
             <h2>2. 字段关系</h2>
             <button class="btn small" id="addRelationButton" type="button">新增关系</button>
@@ -68,7 +73,7 @@ function renderPage() {
           <div class="relation-list" id="relationList"></div>
         </section>
 
-        <section class="transform-panel">
+        <section class="transform-panel granularity-panel">
           <header>
             <h2>3. 输出颗粒度</h2>
             <span>决定 Excel 一行代表哪张表的一条数据</span>

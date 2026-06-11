@@ -1,7 +1,7 @@
-import { renderManagePage } from "/pages/manage.js?v=20260611-compact-manage";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260611-analysis-columns-fix";
+import { renderManagePage } from "/pages/manage.js?v=20260611-model-strip";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260611-export-progress";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260609-icon-polish";
-import { renderDataTransformPage } from "/pages/dataTransform.js?v=20260611-data-transform-2";
+import { renderDataTransformPage } from "/pages/dataTransform.js?v=20260611-transform-style";
 import { renderChatPage } from "/pages/chat.js?v=20260608-chat-shortcut";
 import { initComponents } from "/assets/components.js";
 

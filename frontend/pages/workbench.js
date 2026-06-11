@@ -204,6 +204,13 @@ export function renderWorkbenchPage() {
           </div>
         </div>
       </div>
+      <div class="export-progress-toast" id="exportProgressToast" role="status" aria-live="polite" hidden>
+        <span class="table-loading-spinner" aria-hidden="true"></span>
+        <div>
+          <strong id="exportProgressTitle">正在生成 Excel</strong>
+          <em id="exportProgressMeta">数据量较大时可能需要等待一会儿。</em>
+        </div>
+      </div>
       <div class="column-filter-popover" id="columnFilterPopover" hidden>
         <strong id="columnFilterTitle">列筛选</strong>
         <input class="input" type="search" id="columnFilterInput" placeholder="输入关键词">
@@ -3542,6 +3549,7 @@ async function exportDataset() {
     toast("请先选择数据集");
     return;
   }
+  showExportProgress("正在生成 Excel", "数据量较大时可能需要等待一会儿。");
   try {
     const response = await fetch(`/api/datasets/${state.activeDatasetId}/export`);
     if (!response.ok) {
@@ -3557,10 +3565,37 @@ async function exportDataset() {
     const blob = await response.blob();
     const fallbackName = `${sanitizeFileName(state.datasets.find((item) => item.id === state.activeDatasetId)?.name || state.activeDatasetId || "dataset")}_标注数据.xlsx`;
     downloadBlob(blob, filenameFromDisposition(response.headers.get("content-disposition"), fallbackName));
+    showExportProgress("Excel 已生成", "下载已开始。", "done");
     toast("当前数据集已导出");
   } catch (error) {
+    showExportProgress("导出失败", error.message, "error");
     toast(error.message);
+  } finally {
+    hideExportProgressSoon();
   }
+}
+
+function showExportProgress(title, meta, state = "loading") {
+  const node = document.querySelector("#exportProgressToast");
+  if (!node) return;
+  window.clearTimeout(node.dataset.hideTimer);
+  node.dataset.state = state;
+  document.querySelector("#exportProgressTitle").textContent = title;
+  document.querySelector("#exportProgressMeta").textContent = meta;
+  node.hidden = false;
+  window.requestAnimationFrame(() => node.classList.add("open"));
+}
+
+function hideExportProgressSoon(delay = 1800) {
+  const node = document.querySelector("#exportProgressToast");
+  if (!node) return;
+  window.clearTimeout(node.dataset.hideTimer);
+  node.dataset.hideTimer = window.setTimeout(() => {
+    node.classList.remove("open");
+    window.setTimeout(() => {
+      if (!node.classList.contains("open")) node.hidden = true;
+    }, 180);
+  }, delay);
 }
 
 async function reindexRows() {

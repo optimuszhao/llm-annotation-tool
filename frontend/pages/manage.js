@@ -25,7 +25,7 @@ export function renderManagePage() {
           </div>
           <div class="scene-level-actions">
             <button class="scene-create" id="addSceneGroupButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增一级</button>
-            ${activeGroup ? `<button class="scene-delete" id="deleteSceneGroupButton" type="button">删除一级</button>` : ""}
+            ${activeGroup ? `<button class="scene-delete" id="deleteSceneGroupButton" type="button"><span class="ui-icon ui-icon-trash ui-icon-sm" aria-hidden="true"></span>删除一级</button>` : ""}
           </div>
         </div>
         <div class="scene-level-row secondary">
@@ -35,7 +35,7 @@ export function renderManagePage() {
           </div>
           <div class="scene-level-actions">
             <button class="scene-create" id="addSceneButton" type="button" ${activeGroup ? "" : "disabled"}><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增二级</button>
-            ${activeScene ? `<button class="scene-delete" id="deleteSceneButton" type="button">删除二级</button>` : ""}
+            ${activeScene ? `<button class="scene-delete" id="deleteSceneButton" type="button"><span class="ui-icon ui-icon-trash ui-icon-sm" aria-hidden="true"></span>删除二级</button>` : ""}
           </div>
         </div>
       </section>
@@ -64,28 +64,27 @@ function renderModelMarketPanel(activeScene) {
   return `
     <section class="model-market-panel" aria-label="模型展示区域">
       <div class="model-market-head">
-        <div>
+        <div class="model-market-title">
           <strong>可用模型</strong>
           <span>Core Model 与模型市场配置统一展示，创建方案时选择具体调用方式。</span>
+        </div>
+        <div class="model-market-list">
+          ${models.map((model) => `
+            <article class="model-market-card ${model.locked ? "locked" : ""}" title="${escapeHtml(model.description || "手动维护 URL、API Key 和 Model Name。")}">
+              <div>
+                <strong>${escapeHtml(model.name)}</strong>
+                <span>${escapeHtml(model.type || "模型市场")}</span>
+              </div>
+              ${model.locked
+                ? `<em>默认</em>`
+                : `<button class="model-market-delete" type="button" data-delete-model-market="${escapeHtml(model.id)}" data-model-market-name="${escapeHtml(model.name)}">删</button>`}
+            </article>
+          `).join("")}
         </div>
         <div class="model-market-actions">
           ${activeScene ? `<button class="btn primary package-export-button" id="exportAlgorithmPackageButton" type="button"><span class="ui-icon ui-icon-package" aria-hidden="true"></span>导出标注算法包</button>` : ""}
           <button class="model-market-add" id="addModelMarketButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>添加模型</button>
         </div>
-      </div>
-      <div class="model-market-list">
-        ${models.map((model) => `
-          <article class="model-market-card ${model.locked ? "locked" : ""}">
-            <div>
-              <strong>${escapeHtml(model.name)}</strong>
-              <span>${escapeHtml(model.type || "模型市场配置")}</span>
-              <p>${escapeHtml(model.description || "手动维护 URL、API Key 和 Model Name。")}</p>
-            </div>
-            ${model.locked
-              ? `<em>默认</em>`
-              : `<button class="model-market-delete" type="button" data-delete-model-market="${escapeHtml(model.id)}" data-model-market-name="${escapeHtml(model.name)}">删除</button>`}
-          </article>
-        `).join("")}
       </div>
     </section>
   `;

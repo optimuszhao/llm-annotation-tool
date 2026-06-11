@@ -474,9 +474,10 @@ def get_dataset_rows(
             if include_model_result_columns
             else _current_dataset_columns(dataset)
         )
+        display_columns = _dedupe_columns([*columns, *requested_result_columns])
         analysis_columns = _analysis_result_columns(conn, dataset_id)
         analysis_method_by_column = _analysis_method_by_column(analysis_columns)
-        all_columns = [*columns, *[item["column"] for item in analysis_columns]]
+        all_columns = [*display_columns, *[item["column"] for item in analysis_columns]]
         scheme_view = bool(scheme_id)
         base_alias = "d" if scheme_view else ""
         status_expr = "COALESCE(latest.scheme_status, '未标注')" if scheme_view else "annotation_status"
@@ -685,6 +686,7 @@ def get_dataset_rows(
                 SELECT
                     d.id,
                     d.row_index,
+                    d.raw_data,
                     COALESCE(NULLIF(d.preview_data, '{{}}'), d.raw_data) AS preview_data,
                     d.large_fields,
                     d.is_favorite,
@@ -714,6 +716,7 @@ def get_dataset_rows(
                 SELECT
                     id,
                     row_index,
+                    raw_data,
                     COALESCE(NULLIF(preview_data, '{{}}'), raw_data) AS preview_data,
                     large_fields,
                     is_favorite,
@@ -727,7 +730,7 @@ def get_dataset_rows(
                 [*model_result_params, *params, *order_params, page_size, offset],
             ).fetchall()
 
-        data = [_format_row(row, columns, preview=True, scheme_view=bool(scheme_id)) for row in rows]
+        data = [_format_row(row, display_columns, preview=True, scheme_view=bool(scheme_id)) for row in rows]
         for display_index, item in enumerate(data, start=offset + 1):
             item["display_index"] = item.get("row_index") or display_index
         _append_latest_analysis_results(conn, dataset_id, data, analysis_columns)
@@ -1228,6 +1231,7 @@ def _append_latest_analysis_key_columns(
 
 def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool = False) -> dict:
     raw_data = decode_json(row.get("preview_data") if preview else row.get("raw_data"), {})
+    full_raw_data = decode_json(row.get("raw_data"), {}) if preview and row.get("raw_data") else raw_data
     if scheme_view:
         model_result = decode_json(row.get("scheme_model_result"), {})
         display_result = flatten_model_result_for_display(model_result)
@@ -1254,7 +1258,9 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
     }
     infer_large_fields = preview and not large_fields
     for column in columns:
-        value = raw_data.get(column, "")
+        value = _display_column_value(raw_data, column)
+        if value == "" and full_raw_data is not raw_data:
+            value = _display_column_value(full_raw_data, column)
         if infer_large_fields and _is_large_value(value):
             large_fields.add(column)
         item[column] = _preview(value) if preview else value
@@ -1270,6 +1276,26 @@ def _format_row(row: dict, columns: list[str], preview: bool, scheme_view: bool 
         if analysis_data and "分析数据" not in item:
             item["分析数据"] = analysis_data
     return item
+
+
+def _display_column_value(raw_data: dict, column: str) -> Any:
+    if column in raw_data:
+        return raw_data.get(column, "")
+    if ROLE_RESULT_COLUMN_SEPARATOR not in str(column or ""):
+        return ""
+    current: Any = raw_data
+    for part in str(column).split(ROLE_RESULT_COLUMN_SEPARATOR):
+        if isinstance(current, str):
+            try:
+                decoded = decode_json(current, None)
+            except Exception:
+                return ""
+            current = decoded if isinstance(decoded, (dict, list)) else current
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+            continue
+        return ""
+    return current
 
 
 def _flatten_role_model_result(model_result: dict) -> dict[str, Any]:
