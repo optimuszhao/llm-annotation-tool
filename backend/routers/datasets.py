@@ -110,6 +110,26 @@ def get_row_field(dataset_id: str, row_id: str, column: str, scheme_id: str = ""
     return get_dataset_row_field(dataset_id, row_id, column, scheme_id)
 
 
+@router.post("/{dataset_id}/rows/{row_id}/analysis")
+def post_row_analysis(dataset_id: str, row_id: str, scheme_id: str = "", method_name: str = ""):
+    return analyze_dataset_row(dataset_id, row_id, scheme_id, method_name)
+
+
+@router.get("/{dataset_id}/rows/{row_id}/analysis-history")
+def get_row_analysis_history(dataset_id: str, row_id: str):
+    return list_row_analysis_history(dataset_id, row_id)
+
+
+@router.delete("/{dataset_id}/rows/{row_id}/analysis-history/{analysis_id}")
+def delete_analysis_history_item(dataset_id: str, row_id: str, analysis_id: str):
+    return delete_row_analysis_history(dataset_id, row_id, analysis_id)
+
+
+@router.get("/{dataset_id}/rows/{row_id}/annotation-history")
+def get_row_annotation_history(dataset_id: str, row_id: str, scheme_id: str = ""):
+    return list_row_annotation_history(dataset_id, row_id, scheme_id)
+
+
 @router.get("/{dataset_id}/rows/{row_id}")
 def get_row(dataset_id: str, row_id: str, scheme_id: str = ""):
     return get_dataset_row(dataset_id, row_id, scheme_id)
@@ -150,11 +170,6 @@ def clear_rows_favorite(dataset_id: str, payload: dict = Body(...)):
     return clear_dataset_rows_favorite(dataset_id, payload)
 
 
-@router.post("/{dataset_id}/rows/{row_id}/analysis")
-def post_row_analysis(dataset_id: str, row_id: str, scheme_id: str = "", method_name: str = ""):
-    return analyze_dataset_row(dataset_id, row_id, scheme_id, method_name)
-
-
 @router.post("/{dataset_id}/analysis-batch")
 def post_batch_analysis(dataset_id: str, payload: dict = Body(...)):
     return start_batch_analysis({**payload, "dataset_id": dataset_id})
@@ -163,21 +178,6 @@ def post_batch_analysis(dataset_id: str, payload: dict = Body(...)):
 @router.post("/{dataset_id}/analysis-batch/delete")
 def post_delete_batch_analysis(dataset_id: str, payload: dict = Body(...)):
     return clear_batch_analysis_data({**payload, "dataset_id": dataset_id})
-
-
-@router.get("/{dataset_id}/rows/{row_id}/analysis-history")
-def get_row_analysis_history(dataset_id: str, row_id: str):
-    return list_row_analysis_history(dataset_id, row_id)
-
-
-@router.delete("/{dataset_id}/rows/{row_id}/analysis-history/{analysis_id}")
-def delete_analysis_history_item(dataset_id: str, row_id: str, analysis_id: str):
-    return delete_row_analysis_history(dataset_id, row_id, analysis_id)
-
-
-@router.get("/{dataset_id}/rows/{row_id}/annotation-history")
-def get_row_annotation_history(dataset_id: str, row_id: str, scheme_id: str = ""):
-    return list_row_annotation_history(dataset_id, row_id, scheme_id)
 
 
 @router.get("/{dataset_id}/metrics")

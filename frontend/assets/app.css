@@ -7248,9 +7248,6 @@ body.table-focus-active .page.active {
 #rowMoreMenu button[data-row-action="stop"] {
   --row-menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='5' width='14' height='14' rx='2'/%3E%3Cpath d='M9 9h6v6H9z'/%3E%3C/svg%3E");
 }
-#rowMoreMenu button[data-row-action="annotate"] {
-  --row-menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-2.64-6.36'/%3E%3Cpath d='M21 3v6h-6'/%3E%3Cpath d='M8 12h8'/%3E%3Cpath d='m13 9 3 3-3 3'/%3E%3C/svg%3E");
-}
 #rowMoreMenu button[data-row-action]:disabled {
   cursor: not-allowed;
   opacity: .48;
@@ -7588,13 +7585,13 @@ body.table-focus-active .page.active {
 }
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"],
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] {
-  width: 164px !important;
-  max-width: 164px !important;
-  min-width: 164px !important;
+  width: 222px !important;
+  max-width: 222px !important;
+  min-width: 222px !important;
   z-index: 9;
 }
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"] {
-  flex: 0 0 164px !important;
+  flex: 0 0 222px !important;
 }
 .workbench-pro .tabulator .tabulator-col[tabulator-field="状态"],
 .workbench-pro .tabulator .tabulator-col[tabulator-field="row_id"] {
@@ -7611,7 +7608,7 @@ body.table-focus-active .page.active {
 .workbench-pro .tabulator .tabulator-cell[tabulator-field="row_id"] .row-actions {
   position: relative;
   z-index: 2;
-  min-width: 144px;
+  min-width: 202px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 96%, var(--surface-2));
 }
@@ -13179,39 +13176,78 @@ body.table-focus-active .app-main {
   transform: translateY(-1px);
 }
 
-/* Analysis result cards should grow with returned content */
+/* Analysis result cards use natural height, so multiple history results never overlap. */
 .detail-drawer .drawer-analysis-results {
-  align-items: stretch;
+  display: block;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
 }
 
-.detail-drawer .drawer-analysis-result-item,
-.detail-drawer .drawer-analysis-result-item .drawer-analysis-result-kv,
-.detail-drawer .drawer-analysis-result-item .drawer-kv-row,
+.detail-drawer .drawer-analysis-result-item {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0;
+  overflow: visible !important;
+  white-space: normal !important;
+  text-overflow: clip !important;
+  font-weight: inherit;
+}
+
+.detail-drawer .drawer-analysis-result-item + .drawer-analysis-result-item {
+  margin-top: 12px;
+}
+
+.detail-drawer .drawer-analysis-result-item .drawer-history-head {
+  min-width: 0;
+}
+
+.detail-drawer .drawer-analysis-result-item .drawer-analysis-result-kv {
+  display: block !important;
+  width: 100%;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0;
+  margin-top: 10px;
+  overflow: visible !important;
+  white-space: normal !important;
+}
+
+.detail-drawer .drawer-analysis-result-item .drawer-kv-row {
+  display: grid;
+  grid-template-columns: minmax(76px, 96px) minmax(0, 1fr);
+  height: auto !important;
+  max-height: none !important;
+  min-height: 36px;
+  overflow: visible !important;
+}
+
+.detail-drawer .drawer-analysis-result-item .drawer-kv-row.is-collapsed .drawer-kv-value {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.detail-drawer .drawer-analysis-result-item .drawer-kv-row.is-collapsed .drawer-kv-value::after {
+  display: none !important;
+}
+
 .detail-drawer .drawer-analysis-result-item .drawer-kv-key,
+.detail-drawer .drawer-analysis-result-item .drawer-kv-key span,
 .detail-drawer .drawer-analysis-result-item .drawer-kv-value-wrap,
 .detail-drawer .drawer-analysis-result-item .drawer-kv-value {
   height: auto !important;
   max-height: none !important;
   min-height: 0;
-}
-
-.detail-drawer .drawer-analysis-result-item {
-  overflow: visible;
-}
-
-.detail-drawer .drawer-analysis-result-item .drawer-analysis-result-kv {
   overflow: visible !important;
+  white-space: normal !important;
 }
 
-.detail-drawer .drawer-analysis-result-item .drawer-kv-row {
-  min-height: 36px;
-  overflow: visible !important;
-}
-
-.detail-drawer .drawer-analysis-result-item .drawer-kv-value-wrap,
 .detail-drawer .drawer-analysis-result-item .drawer-kv-value {
-  overflow: visible !important;
-  white-space: pre-wrap;
+  white-space: pre-wrap !important;
   overflow-wrap: anywhere;
   word-break: break-word;
 }

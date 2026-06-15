@@ -1213,9 +1213,9 @@ function buildColumns(columns, sampleRows = []) {
     {
       title: "操作",
       field: "row_id",
-      width: 164,
-      minWidth: 164,
-      maxWidth: 164,
+      width: 222,
+      minWidth: 222,
+      maxWidth: 222,
       resizable: false,
       widthGrow: 0,
       widthShrink: 0,
@@ -1224,9 +1224,11 @@ function buildColumns(columns, sampleRows = []) {
       formatter: (cell) => {
         const rowData = cell.getData();
         const rowId = rowData.row_id || "";
+        const annotateButton = annotationButtonMeta(rowData?.["状态"]);
         const favoriteButton = favoriteButtonMeta(rowData);
         return `
           <div class="row-actions">
+            <button class="action-mini ${annotateButton.className}" data-row-action="annotate" data-row-id="${rowId}" ${annotateButton.disabled ? "disabled aria-disabled=\"true\"" : ""}>${annotateButton.label}</button>
             <button class="action-mini info" data-row-action="view" data-row-id="${rowId}">查看</button>
             <button class="action-mini ${favoriteButton.className}" data-row-action="favorite" data-row-id="${rowId}">${favoriteButton.label}</button>
             <button class="action-mini more" data-row-more data-row-id="${rowId}" aria-label="更多操作" aria-expanded="false"><span class="ui-icon ui-icon-more ui-icon-sm" aria-hidden="true"></span></button>
@@ -2385,13 +2387,6 @@ function openRowMoreMenu(more) {
     return;
   }
   const rowData = getVisibleRowData(rowId);
-  const annotateMeta = annotationButtonMeta(rowData?.["状态"]);
-  const annotateMenuButton = menu.querySelector('[data-row-action="annotate"]');
-  if (annotateMenuButton) {
-    annotateMenuButton.textContent = annotateMeta.label;
-    annotateMenuButton.disabled = Boolean(annotateMeta.disabled);
-    annotateMenuButton.setAttribute("aria-disabled", annotateMeta.disabled ? "true" : "false");
-  }
   const rect = more.getBoundingClientRect();
   closeMenus();
   menu.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 154)}px`;
