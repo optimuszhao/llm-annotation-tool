@@ -52,6 +52,7 @@ const DEFAULT_ERROR_SET_SKELETON = `请在这里维护运行态数据的 cot 样
 let promptSkeletonCache = null;
 let knowledgeSkeletonCache = null;
 let errorSetSkeletonCache = null;
+let sceneManageDocumentBound = false;
 
 export function renderManagePage() {
   const activeScene = getActiveScene();
@@ -66,18 +67,25 @@ export function renderManagePage() {
             ${state.sceneGroups.map((group) => `<button class="scene-tab ${group.id === activeGroup?.id ? "active" : ""}" type="button" data-scene-group-id="${escapeHtml(group.id)}">${escapeHtml(group.name)}</button>`).join("")}
           </div>
           <div class="scene-level-actions">
-            <button class="scene-create" id="addSceneGroupButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增一级</button>
-            ${activeGroup ? `<button class="scene-delete" id="deleteSceneGroupButton" type="button"><span class="ui-icon ui-icon-trash ui-icon-sm" aria-hidden="true"></span>删除一级</button>` : ""}
+            <div class="dropdown-wrap scene-manage-wrap">
+              <button class="scene-manage-button" id="sceneManageButton" type="button" aria-expanded="false">
+                <span class="ui-icon ui-icon-settings ui-icon-sm" aria-hidden="true"></span>
+                场景管理
+              </button>
+              <div class="dropdown-menu scene-manage-menu" id="sceneManageMenu" hidden>
+                <button id="addSceneGroupButton" type="button"><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增一级场景</button>
+                ${activeGroup ? `<button class="danger" id="deleteSceneGroupButton" type="button"><span class="ui-icon ui-icon-trash ui-icon-sm" aria-hidden="true"></span>删除一级场景</button>` : ""}
+                <hr>
+                <button id="addSceneButton" type="button" ${activeGroup ? "" : "disabled"}><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增二级场景</button>
+                ${activeScene ? `<button class="danger" id="deleteSceneButton" type="button"><span class="ui-icon ui-icon-trash ui-icon-sm" aria-hidden="true"></span>删除二级场景</button>` : ""}
+              </div>
+            </div>
           </div>
         </div>
         <div class="scene-level-row secondary">
           <div class="ref-scene-tab-list">
             ${childScenes.map((scene) => `<button class="scene-tab ${scene.id === state.activeSceneId ? "active" : ""}" type="button" data-scene-id="${escapeHtml(scene.id)}">${escapeHtml(scene.name)}</button>`).join("")}
             ${activeGroup && !childScenes.length ? `<span class="scene-empty-tip">当前一级场景下暂无二级场景</span>` : ""}
-          </div>
-          <div class="scene-level-actions">
-            <button class="scene-create" id="addSceneButton" type="button" ${activeGroup ? "" : "disabled"}><span class="ui-icon ui-icon-plus ui-icon-sm" aria-hidden="true"></span>新增二级</button>
-            ${activeScene ? `<button class="scene-delete" id="deleteSceneButton" type="button"><span class="ui-icon ui-icon-trash ui-icon-sm" aria-hidden="true"></span>删除二级</button>` : ""}
           </div>
         </div>
       </section>
@@ -379,6 +387,15 @@ function bindManageEvents() {
       renderManagePage();
     });
   });
+  document.querySelector("#sceneManageButton")?.addEventListener("click", toggleSceneManageMenu);
+  document.querySelector("#sceneManageMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (button && !button.disabled) closeSceneManageMenu();
+  });
+  if (!sceneManageDocumentBound) {
+    document.addEventListener("click", handleSceneManageDocumentClick);
+    sceneManageDocumentBound = true;
+  }
   document.querySelector("#addSceneGroupButton")?.addEventListener("click", openSceneGroupModal);
   document.querySelector("#addSceneButton")?.addEventListener("click", openSceneModal);
   document.querySelector("#deleteSceneGroupButton")?.addEventListener("click", deleteActiveSceneGroup);
@@ -445,6 +462,29 @@ function bindManageEvents() {
   document.querySelector("#manageModal")?.addEventListener("click", (event) => {
     if (event.target.id === "manageModal") closeModalAndRefresh();
   });
+}
+
+function toggleSceneManageMenu(event) {
+  event.stopPropagation();
+  const menu = document.querySelector("#sceneManageMenu");
+  const button = document.querySelector("#sceneManageButton");
+  if (!menu || !button) return;
+  const shouldOpen = menu.hidden;
+  menu.hidden = !shouldOpen;
+  button.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+}
+
+function closeSceneManageMenu() {
+  const menu = document.querySelector("#sceneManageMenu");
+  const button = document.querySelector("#sceneManageButton");
+  if (!menu || !button) return;
+  menu.hidden = true;
+  button.setAttribute("aria-expanded", "false");
+}
+
+function handleSceneManageDocumentClick(event) {
+  if (event.target.closest("#sceneManageMenu") || event.target.closest("#sceneManageButton")) return;
+  closeSceneManageMenu();
 }
 
 async function deleteActiveScene() {

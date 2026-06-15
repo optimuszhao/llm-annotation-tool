@@ -1,5 +1,5 @@
-import { renderManagePage } from "/pages/manage.js?v=20260611-manage-actions-light";
-import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260611-export-progress";
+import { renderManagePage } from "/pages/manage.js?v=20260612-scene-menu";
+import { renderWorkbenchPage, refreshWorkbench } from "/pages/workbench.js?v=20260615-analysis-delete";
 import { renderEvaluationPage } from "/pages/evaluation.js?v=20260609-icon-polish";
 import { renderDataTransformPage } from "/pages/dataTransform.js?v=20260611-transform-source-flow";
 import { renderChatPage } from "/pages/chat.js?v=20260611-local-model-name";

@@ -678,6 +678,7 @@ function bindWorkbenchEvents() {
   document.querySelector("#drawerFieldPopover").addEventListener("click", handleDrawerFieldPopoverClick);
   document.querySelector("#drawerAnalysisResultFilterButton").addEventListener("click", toggleDrawerAnalysisResultPopover);
   document.querySelector("#drawerAnalysisResultPopover").addEventListener("click", handleDrawerAnalysisResultPopoverClick);
+  document.querySelector("#drawerAnalysisResults").addEventListener("click", handleDrawerAnalysisResultListClick);
   document.querySelector("#rowDetailDrawer").addEventListener("click", handleDrawerKvToggle);
   document.querySelector("#drawerResizer").addEventListener("pointerdown", startDrawerResize);
   document.querySelector("#drawerAnalysisSplitResizer").addEventListener("pointerdown", startDrawerAnalysisSplitResize);
@@ -1212,9 +1213,9 @@ function buildColumns(columns, sampleRows = []) {
     {
       title: "操作",
       field: "row_id",
-      width: 204,
-      minWidth: 204,
-      maxWidth: 204,
+      width: 164,
+      minWidth: 164,
+      maxWidth: 164,
       resizable: false,
       widthGrow: 0,
       widthShrink: 0,
@@ -1223,12 +1224,9 @@ function buildColumns(columns, sampleRows = []) {
       formatter: (cell) => {
         const rowData = cell.getData();
         const rowId = rowData.row_id || "";
-        const annotateButton = annotationButtonMeta(rowData["状态"]);
         const favoriteButton = favoriteButtonMeta(rowData);
-        const annotateDisabled = annotateButton.disabled ? "disabled aria-disabled=\"true\"" : "";
         return `
           <div class="row-actions">
-            <button class="action-mini ${annotateButton.className}" data-row-action="annotate" data-row-id="${rowId}" ${annotateDisabled}>${annotateButton.label}</button>
             <button class="action-mini info" data-row-action="view" data-row-id="${rowId}">查看</button>
             <button class="action-mini ${favoriteButton.className}" data-row-action="favorite" data-row-id="${rowId}">${favoriteButton.label}</button>
             <button class="action-mini more" data-row-more data-row-id="${rowId}" aria-label="更多操作" aria-expanded="false"><span class="ui-icon ui-icon-more ui-icon-sm" aria-hidden="true"></span></button>
@@ -2386,9 +2384,17 @@ function openRowMoreMenu(more) {
     closeMenus();
     return;
   }
+  const rowData = getVisibleRowData(rowId);
+  const annotateMeta = annotationButtonMeta(rowData?.["状态"]);
+  const annotateMenuButton = menu.querySelector('[data-row-action="annotate"]');
+  if (annotateMenuButton) {
+    annotateMenuButton.textContent = annotateMeta.label;
+    annotateMenuButton.disabled = Boolean(annotateMeta.disabled);
+    annotateMenuButton.setAttribute("aria-disabled", annotateMeta.disabled ? "true" : "false");
+  }
   const rect = more.getBoundingClientRect();
   closeMenus();
-  menu.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 116)}px`;
+  menu.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 154)}px`;
   menu.style.left = `${Math.min(rect.right - 108, window.innerWidth - 120)}px`;
   menu.dataset.rowId = rowId;
   menu.classList.add("open");
@@ -2957,17 +2963,68 @@ function renderDrawerAnalysisResultList() {
 }
 
 function analysisResultArticleHtml(row) {
+  const canDelete = row.id && row.id !== "latest";
   return `
-    <article class="drawer-analysis-result-item">
+    <article class="drawer-analysis-result-item" data-analysis-result-id="${escapeHtml(row.id || "")}">
       <div class="drawer-history-head">
         <span class="scheme-badge">${escapeHtml(row.method_label || row.method_name || "分析")}</span>
         <strong>${escapeHtml(row.created_at ? formatHistoryTime(row.created_at) : "最新")}</strong>
+        ${canDelete ? `
+          <button class="drawer-analysis-delete" type="button" data-delete-analysis-result="${escapeHtml(row.id)}" title="删除本次分析结果">
+            <span class="ui-icon ui-icon-trash ui-icon-sm" aria-hidden="true"></span>
+            删除
+          </button>
+        ` : ""}
       </div>
       <div class="drawer-kv drawer-analysis-result-kv">
         ${drawerKeyValueRowsHtml(row.analysis_data || {}, "暂无分析数据")}
       </div>
     </article>
   `;
+}
+
+function handleDrawerAnalysisResultListClick(event) {
+  const button = event.target.closest("[data-delete-analysis-result]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  deleteDrawerAnalysisResult(button.dataset.deleteAnalysisResult);
+}
+
+async function deleteDrawerAnalysisResult(analysisId) {
+  if (!analysisId || !drawerRow?.row_id || !state.activeDatasetId) return;
+  const target = drawerAnalysisHistoryRows.find((row) => row.id === analysisId);
+  const ok = await confirmAction({
+    title: "删除分析结果",
+    message: "确认删除这一次分析结果？",
+    details: [
+      target ? `分析方法：${target.method_label || target.method_name || "分析"}` : "",
+      target?.created_at ? `生成时间：${formatHistoryTime(target.created_at)}` : "",
+      "删除后会自动回退为该行剩余历史中的最新分析结果。",
+    ].filter(Boolean),
+    confirmText: "删除",
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const result = await api(`/api/datasets/${state.activeDatasetId}/rows/${drawerRow.row_id}/analysis-history/${encodeURIComponent(analysisId)}`, {
+      method: "DELETE",
+    });
+    drawerAnalysisHistoryRows = drawerAnalysisHistoryRows.filter((row) => row.id !== analysisId);
+    drawerSelectedAnalysisIds.delete(analysisId);
+    const latestAnalysis = result.analysis_data || {};
+    drawerRow = { ...drawerRow, analysis_data: latestAnalysis, 分析数据: latestAnalysis };
+    currentDetailRow = drawerRow;
+    updateVisibleRow(drawerRow.row_id, { analysis_data: latestAnalysis, 分析数据: latestAnalysis });
+    syncSelectedAnalysisRows(drawerAnalysisHistoryRows);
+    renderDrawerAnalysisResultFilter();
+    renderDrawerAnalysisResultList();
+    renderDrawerEditAnalysis();
+    await refreshTableData({ keepPage: true });
+    toast("分析结果已删除");
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 function renderDrawerEditAnalysis() {

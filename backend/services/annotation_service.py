@@ -701,6 +701,78 @@ def list_row_analysis_history(dataset_id: str, row_id: str) -> list[dict]:
     return rows
 
 
+def delete_row_analysis_history(dataset_id: str, row_id: str, analysis_id: str) -> dict:
+    timestamp = now_iso()
+    with get_db() as conn:
+        dataset = conn.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+        scene = conn.execute("SELECT * FROM scenes WHERE id=?", (dataset["scene_id"],)).fetchone()
+        if not scene:
+            raise HTTPException(status_code=404, detail="场景不存在")
+        table_name = scene["data_table_name"]
+        target = conn.execute(
+            """
+            SELECT id
+            FROM row_analysis_history
+            WHERE id=? AND dataset_id=? AND row_id=?
+            """,
+            (analysis_id, dataset_id, row_id),
+        ).fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="分析结果不存在")
+        data_row = conn.execute(
+            f"SELECT raw_data FROM {table_name} WHERE id=? AND dataset_id=?",
+            (row_id, dataset_id),
+        ).fetchone()
+        if not data_row:
+            raise HTTPException(status_code=404, detail="数据行不存在")
+
+        conn.execute("DELETE FROM row_analysis_history WHERE id=?", (analysis_id,))
+        latest = conn.execute(
+            """
+            SELECT id, task_row_id, analysis_data
+            FROM row_analysis_history
+            WHERE dataset_id=? AND row_id=?
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (dataset_id, row_id),
+        ).fetchone()
+        latest_analysis = decode_json(latest["analysis_data"], {}) if latest else {}
+        raw_data = decode_json(data_row["raw_data"], {})
+        if latest_analysis:
+            raw_data["分析数据"] = latest_analysis
+        else:
+            raw_data.pop("分析数据", None)
+        preview_data, large_fields = build_row_preview_payload(raw_data)
+        conn.execute(
+            f"""
+            UPDATE {table_name}
+            SET raw_data=?, preview_data=?, large_fields=?, analysis_data=?, updated_at=?
+            WHERE id=? AND dataset_id=?
+            """,
+            (encode_json(raw_data), preview_data, large_fields, encode_json(latest_analysis), timestamp, row_id, dataset_id),
+        )
+        if latest and latest["task_row_id"]:
+            conn.execute(
+                "UPDATE annotation_task_rows SET analysis_data=?, updated_at=? WHERE id=?",
+                (encode_json(latest_analysis), timestamp, latest["task_row_id"]),
+            )
+        elif not latest:
+            conn.execute(
+                "UPDATE annotation_task_rows SET analysis_data='{}', updated_at=? WHERE row_id=?",
+                (timestamp, row_id),
+            )
+
+    return {
+        "deleted_id": analysis_id,
+        "row_id": row_id,
+        "analysis_data": latest_analysis,
+        "has_latest": bool(latest),
+    }
+
+
 def list_row_annotation_history(dataset_id: str, row_id: str, scheme_id: str = "") -> list[dict]:
     with get_db() as conn:
         dataset = conn.execute("SELECT id FROM datasets WHERE id=?", (dataset_id,)).fetchone()

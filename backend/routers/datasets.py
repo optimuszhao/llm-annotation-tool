@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from backend.services.annotation_service import (
     analyze_dataset_row,
     clear_batch_analysis_data,
+    delete_row_analysis_history,
     get_dataset_metrics,
     list_row_analysis_history,
     list_row_annotation_history,
@@ -167,6 +168,11 @@ def post_delete_batch_analysis(dataset_id: str, payload: dict = Body(...)):
 @router.get("/{dataset_id}/rows/{row_id}/analysis-history")
 def get_row_analysis_history(dataset_id: str, row_id: str):
     return list_row_analysis_history(dataset_id, row_id)
+
+
+@router.delete("/{dataset_id}/rows/{row_id}/analysis-history/{analysis_id}")
+def delete_analysis_history_item(dataset_id: str, row_id: str, analysis_id: str):
+    return delete_row_analysis_history(dataset_id, row_id, analysis_id)
 
 
 @router.get("/{dataset_id}/rows/{row_id}/annotation-history")
